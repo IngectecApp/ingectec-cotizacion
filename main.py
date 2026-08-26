@@ -4,12 +4,11 @@ import os
 
 PORT = int(os.environ.get("PORT", 8080))
 
-# --- FUNCIÓN PARA VERIFICAR BASE DE DATOS ---
+# --- FUNCIÓN PARA CONECTAR A TU BASE DE DATOS ---
 def conectar_db():
     try:
         return sqlite3.connect('ingectec.db', timeout=10)
     except Exception as e:
-        print(f"Error conectando a la BD: {e}")
         return None
 
 def main(page: ft.Page):
@@ -19,7 +18,6 @@ def main(page: ft.Page):
     page.padding = 15
     page.scroll = ft.ScrollMode.AUTO
 
-    # Variables de control de datos
     lista_items = []
 
     # --- 1. ENCABEZADO ---
@@ -29,62 +27,147 @@ def main(page: ft.Page):
         padding=5
     )
 
-    # --- 2. ACCIONES (DIÁLOGOS MODALES PARA MÓVIL) ---
-    def mostrar_alerta(titulo, mensaje):
-        dialogo = ft.AlertDialog(
-            title=ft.Text(titulo),
-            content=ft.Text(mensaje),
-            actions=[ft.TextButton("OK", on_click=lambda e: cerrar_dialogo(dialogo))]
-        )
-        page.dialog = dialogo
-        dialogo.open = True
-        page.update()
-
     def cerrar_dialogo(dlg):
         dlg.open = False
         page.update()
 
-    # Botón Añadir Ítem (Modales responsivos)
+    # --- LÓGICA DEL BOTÓN CLIENTES (Saca datos de la tabla 'cli') ---
+    def abrir_modal_clientes(e):
+        resultados_cli = ft.ListView(expand=True, spacing=10, height=300)
+        
+        def buscar_clientes_bd(evt):
+            resultados_cli.controls.clear()
+            texto = buscador_cli.value.upper()
+            db = conectar_db()
+            if db:
+                cursor = db.cursor()
+                if texto:
+                    cursor.execute("SELECT n, i FROM cli WHERE n LIKE ? ORDER BY n ASC LIMIT 20", ('%'+texto+'%',))
+                else:
+                    cursor.execute("SELECT n, i FROM cli ORDER BY n ASC LIMIT 20")
+                
+                for row in cursor.fetchall():
+                    nombre = row[0]
+                    nit = row[1] if row[1] else "S/N"
+                    
+                    # Acción al tocar un cliente de la lista
+                    def seleccionar(evt, n=nombre, i=nit):
+                        input_cliente.value = n
+                        input_nit.value = i
+                        cerrar_dialogo(modal_cli)
+
+                    resultados_cli.controls.append(
+                        ft.ListTile(
+                            title=ft.Text(nombre, color="#fbbf24", weight="bold"),
+                            subtitle=ft.Text(f"NIT: {nit}"),
+                            on_click=seleccionar
+                        )
+                    )
+                db.close()
+            page.update()
+
+        buscador_cli = ft.TextField(label="Buscar cliente...", on_change=buscar_clientes_bd)
+        
+        modal_cli = ft.AlertDialog(
+            title=ft.Text("👥 Seleccionar Cliente"),
+            content=ft.Column([buscador_cli, resultados_cli], tight=True),
+            actions=[ft.TextButton("Cerrar", on_click=lambda evt: cerrar_dialogo(modal_cli))]
+        )
+        page.dialog = modal_cli
+        modal_cli.open = True
+        buscar_clientes_bd(None) # Carga inicial de todos los clientes
+        page.update()
+
+    # --- LÓGICA DEL BOTÓN AÑADIR ÍTEM (Saca datos de la tabla 'inv') ---
     def abrir_modal_item(e):
-        input_desc = ft.TextField(label="Descripción del Ítem")
-        input_cant = ft.TextField(label="Cantidad", value="1")
-        input_precio = ft.TextField(label="Precio Unitario")
+        resultados_inv = ft.ListView(expand=True, spacing=10, height=200)
+        
+        input_desc = ft.TextField(label="Producto Seleccionado (Solo lectura)", read_only=True)
+        input_cant = ft.TextField(label="Cantidad (Ej: 1)", value="1")
+        input_precio = ft.TextField(label="Precio Unitario", read_only=True)
+
+        def buscar_inv_bd(evt):
+            resultados_inv.controls.clear()
+            texto = buscador_inv.value.upper()
+            db = conectar_db()
+            if db:
+                cursor = db.cursor()
+                if texto:
+                    cursor.execute("SELECT d, p FROM inv WHERE d LIKE ? ORDER BY d ASC LIMIT 15", ('%'+texto+'%',))
+                else:
+                    cursor.execute("SELECT d, p FROM inv ORDER BY d ASC LIMIT 15")
+                
+                for row in cursor.fetchall():
+                    desc = row[0]
+                    precio = row[1] if row[1] else 0
+                    
+                    def seleccionar_item(evt, d=desc, p=precio):
+                        input_desc.value = d
+                        input_precio.value = str(int(p))
+                        page.update()
+
+                    resultados_inv.controls.append(
+                        ft.ListTile(
+                            title=ft.Text(desc, color="#fbbf24", weight="bold"),
+                            subtitle=ft.Text(f"Precio: ${int(precio):,}"),
+                            on_click=seleccionar_item
+                        )
+                    )
+                db.close()
+            page.update()
 
         def guardar_item_modal(evt):
+            if not input_desc.value or not input_precio.value:
+                return
             try:
-                d = input_desc.value.upper()
+                d = input_desc.value
                 c = float(input_cant.value)
                 p = float(input_precio.value)
                 total = c * p
                 lista_items.append({"desc": d, "cant": c, "total": total})
-                
-                # Actualizar la vista de la tabla
                 actualizar_tabla_visual()
                 cerrar_dialogo(modal_item)
             except Exception as err:
-                mostrar_alerta("Error", f"Verifica los datos numéricos: {err}")
+                pass
+
+        buscador_inv = ft.TextField(label="Buscar producto en bodega...", on_change=buscar_inv_bd)
 
         modal_item = ft.AlertDialog(
-            title=ft.Text("➕ Añadir Ítem a Propuesta"),
-            content=ft.Column([input_desc, input_cant, input_precio], tight=True),
+            title=ft.Text("➕ Añadir Ítem de Bodega"),
+            content=ft.Column([
+                buscador_inv, 
+                resultados_inv,
+                ft.Divider(color="white24"),
+                input_desc,
+                input_cant,
+                input_precio
+            ], tight=True),
             actions=[
-                ft.ElevatedButton("Guardar", bgcolor="#10b981", color="white", on_click=guardar_item_modal),
-                ft.TextButton("Cancelar", on_click=lambda evt: cerrar_dialogo(modal_item))
+                ft.ElevatedButton("Guardar en Propuesta", bgcolor="#10b981", color="white", on_click=guardar_item_modal),
+                ft.TextButton("Cancelar", on_click=lambda e: cerrar_dialogo(modal_item))
             ]
         )
         page.dialog = modal_item
         modal_item.open = True
+        buscar_inv_bd(None)
         page.update()
 
-    # Botones Superiores
+    # --- LIMPIAR PROPUESTA ---
+    def limpiar_todo(e):
+        lista_items.clear()
+        actualizar_tabla_visual()
+        input_cliente.value = ""
+        input_nit.value = ""
+        page.update()
+
+    # --- BOTONES SUPERIORES (Conectados a las funciones) ---
     botones_top = ft.Row([
         ft.ElevatedButton("➕ AÑADIR ÍTEM", bgcolor="#10b981", color="white", on_click=abrir_modal_item),
-        ft.ElevatedButton("📦 BODEGA", bgcolor="#2563eb", color="white", on_click=lambda e: mostrar_alerta("Bodega", "Módulo de bodega en sincronización con nube.")),
-        ft.ElevatedButton("👥 CLIENTES", bgcolor="#2563eb", color="white", on_click=lambda e: mostrar_alerta("Clientes", "Gestión de clientes activa.")),
-        ft.ElevatedButton("🧹 LIMPIAR", bgcolor="#ef4444", color="white", on_click=lambda e: limpiar_todo()),
+        ft.ElevatedButton("👥 CLIENTES", bgcolor="#2563eb", color="white", on_click=abrir_modal_clientes),
+        ft.ElevatedButton("🧹 LIMPIAR", bgcolor="#ef4444", color="white", on_click=limpiar_todo),
     ], wrap=True, alignment=ft.MainAxisAlignment.CENTER)
 
-    # --- 3. TABLA DE PROPUESTA ---
+    # --- TABLA VISUAL DE LA PROPUESTA ---
     columna_tabla_items = ft.Column()
 
     def actualizar_tabla_visual():
@@ -116,30 +199,9 @@ def main(page: ft.Page):
         border=ft.border.all(1, "white12")
     )
 
-    def limpiar_todo():
-        lista_items.clear()
-        actualizar_tabla_visual()
-        input_cliente.value = ""
-        input_nit.value = ""
-        page.update()
-
-    # --- 4. FORMULARIO CLIENTE Y BASE DE DATOS ---
-    input_cliente = ft.TextField(label="Buscar nombre de cliente...", col={"sm": 12, "md": 5, "lg": 5})
+    # --- FORMULARIO PRINCIPAL ---
+    input_cliente = ft.TextField(label="Nombre del cliente...", col={"sm": 12, "md": 5, "lg": 5})
     input_nit = ft.TextField(label="NIT / C.C.", col={"sm": 6, "md": 4, "lg": 4})
-    
-    # Autocompletar cliente desde SQLite en la nube
-    def buscar_cliente_db(e):
-        texto = input_cliente.value.upper()
-        if len(texto) > 1:
-            db = conectar_db()
-            if db:
-                res = db.execute("SELECT i FROM cli WHERE n LIKE ?", ('%' + texto + '%',)).fetchone()
-                db.close()
-                if res and res[0]:
-                    input_nit.value = str(res[0])
-                    page.update()
-
-    input_cliente.on_change = buscar_cliente_db
 
     f_cli = ft.ResponsiveRow([
         input_cliente,
@@ -162,7 +224,6 @@ def main(page: ft.Page):
         ),
     ])
 
-    # --- 5. CONFIGURACIÓN AIU ---
     f_aiu = ft.ResponsiveRow([
         ft.Text("⚙️ Config. AIU (Global):", weight="bold", col={"sm": 12, "md": 3, "lg": 3}),
         ft.TextField(label="Imprev %", value="2", col={"sm": 4, "md": 3, "lg": 2}),
@@ -170,13 +231,18 @@ def main(page: ft.Page):
         ft.TextField(label="IVA s/U %", value="19", col={"sm": 4, "md": 3, "lg": 2}),
     ], vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
-    # --- 6. BOTÓN GENERAR PROPUESTA ---
-    def generar_propuesta_accion(e):
-        if not input_cliente.value or not lista_items:
-            mostrar_alerta("Faltan datos", "Debe ingresar un cliente y al menos un ítem.")
-            return
-        mostrar_alerta("¡Éxito!", "Propuesta lista para procesar con la base de datos.")
-
     btn_generar = ft.Container(
         content=ft.ElevatedButton(
-            "🚀
+            "🚀 GENERAR PROPUESTA PROFESIONAL",
+            bgcolor="#f59e0b",
+            color="black",
+            height=50,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=25))
+        ),
+        alignment=ft.alignment.center,
+        padding=ft.padding.only(top=10, bottom=20)
+    )
+
+    page.add(header, botones_top, tabla, f_cli, f_aiu, btn_generar)
+
+ft.app(target=main, view=ft.AppView.WEB_BROWSER, port=PORT, host="0.0.0.0")
