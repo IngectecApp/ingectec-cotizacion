@@ -97,8 +97,41 @@ def main(page: ft.Page):
     input_usr = ft.TextField(label="Usuario (Ej. OSCAR, PAULO, YEISON)", width=300)
     input_pwd = ft.TextField(label="Contraseña", password=True, can_reveal_password=True, width=300)
 
+    def procesar_login(e):
+        u = input_usr.value.upper().strip()
+        p = input_pwd.value.strip()
+        db_login = conectar_db()
+        if db_login:
+            user = db_login.execute("SELECT rol FROM usuarios WHERE usuario=? AND password=?", (u, p)).fetchone()
+            db_login.close()
+            if user:
+                sesion["usuario"] = u
+                sesion["rol"] = user[0]
+                iniciar_app_principal()
+            else:
+                page.snack_bar = ft.SnackBar(ft.Text("❌ Usuario o contraseña incorrectos"), bgcolor="#ef4444")
+                page.snack_bar.open = True
+                page.update()
+
+    pantalla_login = ft.Container(
+        content=ft.Column(
+            [
+                ft.Icon(ft.icons.LOCK_PERSON, size=50, color="#fbbf24"),
+                ft.Text("INGECTEC - Acceso Seguro", size=20, weight="bold", color="white"),
+                input_usr,
+                input_pwd,
+                ft.ElevatedButton("INICIAR SESIÓN", bgcolor="#2563eb", color="white", width=300, height=45, on_click=procesar_login)
+            ],
+            alignment=ft.MainAxisAlignment.CENTER,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=15
+        ),
+        alignment=ft.alignment.center,
+        expand=True
+    )
+
     # ==========================================
-    # MOSTRAR PANTALLA DE LOGIN
+    # MOSTRAR PANTALLA DE LOGIN (SIN CONFLICTO DE SCROLL)
     # ==========================================
     def mostrar_login():
         sesion["usuario"] = None
@@ -108,6 +141,7 @@ def main(page: ft.Page):
         input_usr.value = ""
         input_pwd.value = ""
         
+        page.scroll = ft.ScrollMode.NONE
         page.controls.clear()
         page.add(pantalla_login)
         page.update()
@@ -537,7 +571,6 @@ def main(page: ft.Page):
                 page.dialog = dlg_d; dlg_d.open = True; page.update()
             except Exception as errorFallo: mostrar_alerta("Error al generar PDF", f"Hubo un fallo: {str(errorFallo)}")
 
-        # Botón para cerrar sesión limpio y directo
         btn_salir = ft.ElevatedButton("🚪 CERRAR SESIÓN", bgcolor="#475569", color="white", on_click=lambda e: mostrar_login())
 
         botones_top = ft.Row([
@@ -595,40 +628,6 @@ def main(page: ft.Page):
         
         page.add(header, lbl_bienvenida, botones_top, tabla, f_cli, btn_generar)
         page.update()
-
-    # --- PANTALLA DE INICIO DE SESIÓN ---
-    def procesar_login(e):
-        u = input_usr.value.upper().strip()
-        p = input_pwd.value.strip()
-        db_login = conectar_db()
-        if db_login:
-            user = db_login.execute("SELECT rol FROM usuarios WHERE usuario=? AND password=?", (u, p)).fetchone()
-            db_login.close()
-            if user:
-                sesion["usuario"] = u
-                sesion["rol"] = user[0]
-                iniciar_app_principal()
-            else:
-                page.snack_bar = ft.SnackBar(ft.Text("❌ Usuario o contraseña incorrectos"), bgcolor="#ef4444")
-                page.snack_bar.open = True
-                page.update()
-
-    pantalla_login = ft.Container(
-        content=ft.Column(
-            [
-                ft.Icon(ft.icons.LOCK_PERSON, size=50, color="#fbbf24"),
-                ft.Text("INGECTEC - Acceso Seguro", size=20, weight="bold", color="white"),
-                input_usr,
-                input_pwd,
-                ft.ElevatedButton("INICIAR SESIÓN", bgcolor="#2563eb", color="white", width=300, height=45, on_click=procesar_login)
-            ],
-            alignment=ft.MainAxisAlignment.CENTER,
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=15
-        ),
-        alignment=ft.alignment.center,
-        expand=True
-    )
 
     mostrar_login()
 
