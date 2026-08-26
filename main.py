@@ -6,6 +6,10 @@ from datetime import datetime
 
 PORT = int(os.environ.get("PORT", 8080))
 
+# Pre-crear la carpeta de archivos para que el servidor web la reconozca desde el inicio
+if not os.path.exists("assets"):
+    os.makedirs("assets")
+
 def conectar_db():
     try:
         return sqlite3.connect('ingectec.db', timeout=10)
@@ -34,7 +38,43 @@ def main(page: ft.Page):
         dialogo.open = True
         page.update()
 
-    # --- 2. LÓGICA AÑADIR ÍTEM (MÚLTIPLES ÍTEMS SIN CERRAR) ---
+    # --- LÓGICA DEL BOTÓN CLIENTES (MODAL COMPLETO) ---
+    def abrir_modal_clientes(e):
+        resultados_cli = ft.ListView(expand=True, spacing=10, height=300)
+        
+        def buscar_clientes_bd(evt):
+            resultados_cli.controls.clear()
+            texto = buscador_cli.value.upper()
+            db = conectar_db()
+            if db:
+                cursor = db.cursor()
+                if texto:
+                    cursor.execute("SELECT n, i FROM cli WHERE UPPER(n) LIKE ? ORDER BY n ASC", ('%'+texto+'%',))
+                else:
+                    cursor.execute("SELECT n, i FROM cli ORDER BY n ASC")
+                for row in cursor.fetchall():
+                    nombre = row[0]
+                    nit = row[1] if row[1] else "S/N"
+                    def seleccionar(evt, n=nombre, i=nit):
+                        input_cliente.value = n
+                        input_nit.value = i
+                        cerrar_dialogo(modal_cli)
+                    resultados_cli.controls.append(ft.ListTile(title=ft.Text(nombre, color="#fbbf24", weight="bold"), subtitle=ft.Text(f"NIT: {nit}"), on_click=seleccionar))
+                db.close()
+            page.update()
+
+        buscador_cli = ft.TextField(label="Buscar cliente...", on_change=buscar_clientes_bd)
+        modal_cli = ft.AlertDialog(
+            title=ft.Text("👥 Base de Datos Clientes"),
+            content=ft.Column([buscador_cli, resultados_cli], tight=True),
+            actions=[ft.TextButton("Cerrar", on_click=lambda evt: cerrar_dialogo(modal_cli))]
+        )
+        page.dialog = modal_cli
+        modal_cli.open = True
+        buscar_clientes_bd(None) 
+        page.update()
+
+    # --- LÓGICA AÑADIR ÍTEM (MULTIPLE SIN CERRAR) ---
     def abrir_modal_item(e):
         resultados_inv = ft.ListView(expand=True, spacing=10, height=150)
         input_desc = ft.TextField(label="Producto Seleccionado", read_only=True)
@@ -57,9 +97,7 @@ def main(page: ft.Page):
                 for row in cursor.fetchall():
                     desc, precio = row[0], (row[1] if row[1] else 0)
                     def seleccionar_item(evt, d=desc, p=precio):
-                        input_desc.value = d
-                        input_precio.value = str(int(p))
-                        page.update()
+                        input_desc.value = d; input_precio.value = str(int(p)); page.update()
                     resultados_inv.controls.append(ft.ListTile(title=ft.Text(desc, color="#fbbf24", size=14), subtitle=ft.Text(f"${int(precio):,}"), on_click=seleccionar_item))
                 db.close()
             page.update()
@@ -68,40 +106,23 @@ def main(page: ft.Page):
             if not input_desc.value or not input_precio.value:
                 return
             try:
-                d = input_desc.value
-                c = float(input_cant.value)
-                p = float(input_precio.value)
+                d, c, p = input_desc.value, float(input_cant.value), float(input_precio.value)
                 imp_str = "EXENTO" if input_imp_tipo.value == "EXENTO" else f"{input_imp_tipo.value} {input_imp_pct.value}%"
-                
                 lista_items.append({"desc": d, "cant": c, "total": c * p, "impuesto": imp_str, "precio": p})
                 actualizar_tabla_visual()
                 
-                # Vaciamos los campos PERO NO cerramos el modal
-                input_desc.value = ""
-                input_cant.value = "1"
-                input_precio.value = ""
-                buscador_inv.value = ""
-                buscar_inv_bd(None)
-                
-                # Pequeño aviso visual
-                page.snack_bar = ft.SnackBar(ft.Text("✅ Ítem agregado con éxito"), bgcolor="#10b981")
+                input_desc.value = ""; input_cant.value = "1"; input_precio.value = ""; buscador_inv.value = ""; buscar_inv_bd(None)
+                page.snack_bar = ft.SnackBar(ft.Text("✅ Ítem agregado"), bgcolor="#10b981")
                 page.snack_bar.open = True
                 page.update()
             except Exception as err:
                 pass
 
         buscador_inv = ft.TextField(label="Buscar en bodega...", on_change=buscar_inv_bd)
-
         modal_item = ft.AlertDialog(
             title=ft.Text("➕ Añadir a Propuesta"),
-            content=ft.Column([
-                buscador_inv, resultados_inv, ft.Divider(color="white24"),
-                input_desc, ft.ResponsiveRow([input_cant, input_precio]), ft.ResponsiveRow([input_imp_tipo, input_imp_pct])
-            ], tight=True),
-            actions=[
-                ft.ElevatedButton("Guardar", bgcolor="#10b981", color="white", on_click=guardar_item_modal),
-                ft.TextButton("Cerrar Ventana", on_click=lambda e: cerrar_dialogo(modal_item)) # Ahora este es el único que cierra
-            ]
+            content=ft.Column([buscador_inv, resultados_inv, ft.Divider(color="white24"), input_desc, ft.ResponsiveRow([input_cant, input_precio]), ft.ResponsiveRow([input_imp_tipo, input_imp_pct])], tight=True),
+            actions=[ft.ElevatedButton("Guardar", bgcolor="#10b981", color="white", on_click=guardar_item_modal), ft.TextButton("Cerrar Ventana", on_click=lambda e: cerrar_dialogo(modal_item))]
         )
         page.dialog = modal_item
         modal_item.open = True
@@ -115,16 +136,18 @@ def main(page: ft.Page):
         if lista_items:
             lista_items.pop(); actualizar_tabla_visual()
 
+    # --- BOTONES SUPERIORES CONECTADOS ---
     botones_top = ft.Row([
         ft.ElevatedButton("➕ AÑADIR ÍTEM", bgcolor="#10b981", color="white", on_click=abrir_modal_item),
-        ft.ElevatedButton("📦 BODEGA", bgcolor="#2563eb", color="white"),
-        ft.ElevatedButton("👥 CLIENTES", bgcolor="#2563eb", color="white"),
-        ft.ElevatedButton("🔍 HISTORIAL", bgcolor="#2563eb", color="white"),
-        ft.ElevatedButton("✏️ EDITAR", bgcolor="#475569", color="white"),
+        ft.ElevatedButton("📦 BODEGA", bgcolor="#2563eb", color="white", on_click=lambda e: mostrar_alerta("Bodega", "Opción web en construcción.")),
+        ft.ElevatedButton("👥 CLIENTES", bgcolor="#2563eb", color="white", on_click=abrir_modal_clientes),
+        ft.ElevatedButton("🔍 HISTORIAL", bgcolor="#2563eb", color="white", on_click=lambda e: mostrar_alerta("Historial", "Opción web en construcción.")),
+        ft.ElevatedButton("✏️ EDITAR", bgcolor="#475569", color="white", on_click=lambda e: mostrar_alerta("Editar", "Opción web en construcción.")),
         ft.ElevatedButton("🧹 LIMPIAR", bgcolor="#ef4444", color="white", on_click=limpiar_todo),
-        ft.ElevatedButton("📂 BACKUPS", bgcolor="#475569", color="white"),
+        ft.ElevatedButton("📂 BACKUPS", bgcolor="#475569", color="white", on_click=lambda e: mostrar_alerta("Backups", "Se gestiona en servidor.")),
     ], wrap=True, alignment=ft.MainAxisAlignment.CENTER)
 
+    # --- TABLA VISUAL ---
     columna_tabla_items = ft.Column()
 
     def actualizar_tabla_visual():
@@ -143,17 +166,14 @@ def main(page: ft.Page):
         content=ft.Column([
             ft.Row([ft.Text("PROPUESTA EN CURSO", weight="bold", color="#fbbf24", size=16)], alignment=ft.MainAxisAlignment.CENTER),
             ft.Divider(color="white24"),
-            ft.ResponsiveRow([
-                ft.Text("DESCRIPCIÓN", weight="bold", color="#fbbf24", col={"sm": 6, "md": 6, "lg": 6}),
-                ft.Text("CANT", weight="bold", color="#fbbf24", col={"sm": 3, "md": 3, "lg": 3}, text_align="center"),
-                ft.Text("TOTAL", weight="bold", color="#fbbf24", col={"sm": 3, "md": 3, "lg": 3}, text_align="right"),
-            ]),
+            ft.ResponsiveRow([ft.Text("DESCRIPCIÓN", weight="bold", color="#fbbf24", col={"sm": 6, "md": 6, "lg": 6}), ft.Text("CANT", weight="bold", color="#fbbf24", col={"sm": 3, "md": 3, "lg": 3}, text_align="center"), ft.Text("TOTAL", weight="bold", color="#fbbf24", col={"sm": 3, "md": 3, "lg": 3}, text_align="right")]),
             columna_tabla_items, ft.Container(height=10),
             ft.Row([ft.TextButton("❌ QUITAR ÚLTIMO", icon_color="#ef4444", on_click=quitar_seleccionado)], alignment=ft.MainAxisAlignment.CENTER)
         ]),
         bgcolor="#0f172a", padding=10, border_radius=8, border=ft.border.all(1, "white12")
     )
 
+    # --- BUSCADOR CLIENTES EN VIVO ---
     lista_busqueda_cli = ft.ListView(height=150, visible=False, spacing=2)
 
     def buscar_cliente_realtime(e):
@@ -197,12 +217,13 @@ def main(page: ft.Page):
         ft.TextField(label="IVA s/U %", value="19", col={"sm": 4, "md": 3, "lg": 2}),
     ], vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
-    # --- 3. GENERADOR DE PDF ---
+    # --- 3. GENERADOR DE PDF (CON BOTÓN DE DESCARGA ANTI-BLOQUEOS) ---
     def generar_pdf_web(e):
         if not lista_items or not input_cliente.value:
             mostrar_alerta("Error", "Faltan ítems o nombre del cliente.")
             return
 
+        # 1. Crear PDF
         pdf = FPDF()
         pdf.add_page()
         pdf.set_font('helvetica', 'B', 14)
@@ -224,7 +245,6 @@ def main(page: ft.Page):
         pdf.set_font('helvetica', '', 9)
         subtotal = 0
         for item in lista_items:
-            # Recortamos el texto para que no se desborde la tabla en este diseño base
             desc_corta = str(item['desc'])[:50]
             pdf.cell(100, 8, f"{desc_corta} ({item['impuesto']})", border=1)
             pdf.cell(20, 8, str(item['cant']), border=1, align="C")
@@ -237,16 +257,22 @@ def main(page: ft.Page):
         pdf.cell(150, 10, "TOTAL PROPUESTA:", align="R")
         pdf.cell(40, 10, f"${int(subtotal):,}", align="R", new_x="LMARGIN", new_y="NEXT")
 
-        # Guardar en la carpeta "assets" para que la web permita descargarlo
-        if not os.path.exists("assets"):
-            os.makedirs("assets")
-        
+        # 2. Guardar archivo
         nombre_archivo = "cotizacion_actual.pdf"
         pdf.output(f"assets/{nombre_archivo}")
         
-        # Le decimos al navegador que descargue el PDF
-        page.launch_url(f"/{nombre_archivo}")
-        mostrar_alerta("Éxito", "Tu PDF se ha generado correctamente.")
+        # 3. Mostrar ventana con enlace manual para evitar bloqueos
+        dialogo_descarga = ft.AlertDialog(
+            title=ft.Text("✅ PDF Generado con Éxito", color="#10b981", weight="bold"),
+            content=ft.Text("Tu propuesta está lista. Haz clic en el botón de abajo para descargarla a tu dispositivo."),
+            actions=[
+                ft.ElevatedButton("📥 DESCARGAR PDF", bgcolor="#2563eb", color="white", on_click=lambda evt: page.launch_url(f"/{nombre_archivo}")),
+                ft.TextButton("Cerrar", on_click=lambda evt: cerrar_dialogo(dialogo_descarga))
+            ]
+        )
+        page.dialog = dialogo_descarga
+        dialogo_descarga.open = True
+        page.update()
 
     btn_generar = ft.Container(
         content=ft.ElevatedButton("🚀 GENERAR PROPUESTA PROFESIONAL", bgcolor="#f59e0b", color="black", height=50, on_click=generar_pdf_web),
@@ -255,5 +281,4 @@ def main(page: ft.Page):
 
     page.add(header, botones_top, tabla, f_cli, f_aiu, btn_generar)
 
-# IMPORTANTE: assets_dir="assets" es el permiso para que el navegador descargue el PDF
 ft.app(target=main, view=ft.AppView.WEB_BROWSER, port=PORT, host="0.0.0.0", assets_dir="assets")
