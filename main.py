@@ -95,7 +95,6 @@ def main(page: ft.Page):
         page.scroll = ft.ScrollMode.AUTO
         page.controls.clear()
         
-        # Obtener número actual de propuesta para mostrarlo en el título central
         db_num = conectar_db()
         nro_actual = "100"
         if db_num:
@@ -349,7 +348,6 @@ def main(page: ft.Page):
             else: lista_busqueda_cli.visible = False
             page.update()
 
-        # Estructura idéntica a la foto limpia solicitada
         global input_cliente, input_nit, input_atencion, input_ciudad, input_pago, input_tiempo, input_ref, input_pct_i, input_pct_u, input_pct_iva_u
         input_cliente = ft.TextField(label="Buscar nombre de cliente...", on_change=buscar_cliente_realtime)
         input_nit = ft.TextField(label="NIT / C.C.")
@@ -378,19 +376,19 @@ def main(page: ft.Page):
                 ft.ResponsiveRow([
                     ft.Container(content=input_ref, col={"sm": 12, "md": 12, "lg": 12})
                 ]),
+                # Fila horizontal exacta para los impuestos (AIU) tal como pediste
                 ft.ResponsiveRow([
-                    ft.Row([
-                        ft.Text("⚙️ Config. AIU (Global):", weight="bold", color="#fbbf24"),
-                        input_pct_i, input_pct_u, input_pct_iva_u
-                    ], alignment=ft.MainAxisAlignment.START, wrap=True)
-                ])
+                    ft.Container(content=ft.Text("⚙️ Config. AIU (Global):", weight="bold", color="#fbbf24"), col={"sm": 12, "md": 3, "lg": 3}, alignment=ft.alignment.center_left),
+                    ft.Container(content=input_pct_i, col={"sm": 4, "md": 3, "lg": 3}),
+                    ft.Container(content=input_pct_u, col={"sm": 4, "md": 3, "lg": 3}),
+                    ft.Container(content=input_pct_iva_u, col={"sm": 4, "md": 3, "lg": 3}),
+                ], vertical_alignment=ft.CrossAxisAlignment.CENTER)
             ], spacing=10),
             bgcolor="#0f172a", padding=15, border_radius=8, border=ft.border.all(1, "white12")
         )
 
         btn_generar = ft.Container(content=ft.ElevatedButton("🚀 GENERAR PROPUESTA PROFESIONAL", bgcolor="#f59e0b", color="black", height=50, on_click=generar_pdf_web), alignment=ft.alignment.center, padding=ft.padding.only(top=10, bottom=20))
         
-        # Bienvenida usuario arriba
         lbl_bienvenida = ft.Container(content=ft.Text(f"👤 Usuario conectado: {sesion['usuario']} ({sesion['rol']})", size=12, color="#94a3b8"), alignment=ft.alignment.center_right)
         
         page.add(header, lbl_bienvenida, botones_top, tabla, f_cli, btn_generar)
@@ -570,19 +568,6 @@ def main(page: ft.Page):
             dlg_d = ft.AlertDialog(title=ft.Text("✅ Guardado y Generado", color="#10b981"), content=ft.Text("Tu cotización está lista en PDF."), actions=[ft.ElevatedButton("📥 DESCARGAR PDF", bgcolor="#2563eb", color="white", on_click=lambda evt: page.launch_url(f"/{nombre_archivo}")), ft.TextButton("Cerrar", on_click=lambda evt: cerrar_dialogo(dlg_d))])
             page.dialog = dlg_d; dlg_d.open = True; page.update()
         except Exception as errorFallo: mostrar_alerta("Error al generar PDF", f"Hubo un fallo: {str(errorFallo)}")
-
-    # Variables globales limpias
-    global input_cliente, input_nit, input_atencion, input_ciudad, input_pago, input_tiempo, input_ref, input_pct_i, input_pct_u, input_pct_iva_u
-    input_cliente = ft.TextField(label="Buscar nombre de cliente...")
-    input_nit = ft.TextField(label="NIT / C.C.")
-    input_atencion = ft.TextField(label="Atención a: (Ej. ING. MICHAEL MESIAS)")
-    input_ciudad = ft.TextField(label="Ciudad", value="Yumbo")
-    input_pago = ft.TextField(label="Forma Pago", value="30 DIAS")
-    input_tiempo = ft.TextField(label="Tiempo Oferta", value="15 DIAS")
-    input_ref = ft.TextField(label="REFERENCIA")
-    input_pct_i = ft.TextField(label="Imprev %", value="2", width=70)
-    input_pct_u = ft.TextField(label="Util %", value="8", width=70)
-    input_pct_iva_u = ft.TextField(label="IVA s/Util %", value="19", width=70)
 
     # --- PANTALLA DE INICIO DE SESIÓN ---
     def procesar_login(e):
