@@ -1,6 +1,8 @@
 import flet as ft
 import sqlite3
 import os
+from fpdf import FPDF
+from datetime import datetime
 
 PORT = int(os.environ.get("PORT", 8080))
 
@@ -20,40 +22,26 @@ def main(page: ft.Page):
     lista_items = []
 
     # --- 1. ENCABEZADO ---
-    header = ft.Container(
-        content=ft.Text("⚡ INGECTEC SAS", size=22, weight="bold", color="#fbbf24"),
-        alignment=ft.alignment.center,
-        padding=5
-    )
+    header = ft.Container(content=ft.Text("⚡ INGECTEC SAS", size=22, weight="bold", color="#fbbf24"), alignment=ft.alignment.center, padding=5)
 
     def cerrar_dialogo(dlg):
         dlg.open = False
         page.update()
 
     def mostrar_alerta(titulo, mensaje):
-        dialogo = ft.AlertDialog(
-            title=ft.Text(titulo, weight="bold", color="#fbbf24"),
-            content=ft.Text(mensaje),
-            actions=[ft.TextButton("OK", on_click=lambda e: cerrar_dialogo(dialogo))]
-        )
+        dialogo = ft.AlertDialog(title=ft.Text(titulo, weight="bold", color="#fbbf24"), content=ft.Text(mensaje), actions=[ft.TextButton("OK", on_click=lambda e: cerrar_dialogo(dialogo))])
         page.dialog = dialogo
         dialogo.open = True
         page.update()
 
-    # --- 2. LÓGICA AÑADIR ÍTEM (AHORA CON IMPUESTOS) ---
+    # --- 2. LÓGICA AÑADIR ÍTEM (MÚLTIPLES ÍTEMS SIN CERRAR) ---
     def abrir_modal_item(e):
         resultados_inv = ft.ListView(expand=True, spacing=10, height=150)
-        
         input_desc = ft.TextField(label="Producto Seleccionado", read_only=True)
         input_cant = ft.TextField(label="Cantidad", value="1", col={"sm": 6})
         input_precio = ft.TextField(label="Precio Unitario", col={"sm": 6})
         
-        # Nuevos campos de Impuesto tal como los pediste
-        input_imp_tipo = ft.Dropdown(
-            label="Impuesto", 
-            options=[ft.dropdown.Option("AIU"), ft.dropdown.Option("IVA"), ft.dropdown.Option("EXENTO")], 
-            value="AIU", col={"sm": 6}
-        )
+        input_imp_tipo = ft.Dropdown(label="Impuesto", options=[ft.dropdown.Option("AIU"), ft.dropdown.Option("IVA"), ft.dropdown.Option("EXENTO")], value="AIU", col={"sm": 6})
         input_imp_pct = ft.TextField(label="% Impuesto", value="10", col={"sm": 6})
 
         def buscar_inv_bd(evt):
@@ -66,19 +54,13 @@ def main(page: ft.Page):
                     cursor.execute("SELECT d, p FROM inv WHERE UPPER(d) LIKE ? ORDER BY d ASC", ('%'+texto+'%',))
                 else:
                     cursor.execute("SELECT d, p FROM inv ORDER BY d ASC LIMIT 30")
-                
                 for row in cursor.fetchall():
-                    desc = row[0]
-                    precio = row[1] if row[1] else 0
-                    
+                    desc, precio = row[0], (row[1] if row[1] else 0)
                     def seleccionar_item(evt, d=desc, p=precio):
                         input_desc.value = d
                         input_precio.value = str(int(p))
                         page.update()
-
-                    resultados_inv.controls.append(
-                        ft.ListTile(title=ft.Text(desc, color="#fbbf24", size=14), subtitle=ft.Text(f"${int(precio):,}"), on_click=seleccionar_item)
-                    )
+                    resultados_inv.controls.append(ft.ListTile(title=ft.Text(desc, color="#fbbf24", size=14), subtitle=ft.Text(f"${int(precio):,}"), on_click=seleccionar_item))
                 db.close()
             page.update()
 
@@ -89,17 +71,22 @@ def main(page: ft.Page):
                 d = input_desc.value
                 c = float(input_cant.value)
                 p = float(input_precio.value)
+                imp_str = "EXENTO" if input_imp_tipo.value == "EXENTO" else f"{input_imp_tipo.value} {input_imp_pct.value}%"
                 
-                # Construir el texto del impuesto ("AIU 10%")
-                if input_imp_tipo.value == "EXENTO":
-                    imp_str = "EXENTO"
-                else:
-                    imp_str = f"{input_imp_tipo.value} {input_imp_pct.value}%"
-
-                total = c * p
-                lista_items.append({"desc": d, "cant": c, "total": total, "impuesto": imp_str})
+                lista_items.append({"desc": d, "cant": c, "total": c * p, "impuesto": imp_str, "precio": p})
                 actualizar_tabla_visual()
-                cerrar_dialogo(modal_item)
+                
+                # Vaciamos los campos PERO NO cerramos el modal
+                input_desc.value = ""
+                input_cant.value = "1"
+                input_precio.value = ""
+                buscador_inv.value = ""
+                buscar_inv_bd(None)
+                
+                # Pequeño aviso visual
+                page.snack_bar = ft.SnackBar(ft.Text("✅ Ítem agregado con éxito"), bgcolor="#10b981")
+                page.snack_bar.open = True
+                page.update()
             except Exception as err:
                 pass
 
@@ -108,16 +95,12 @@ def main(page: ft.Page):
         modal_item = ft.AlertDialog(
             title=ft.Text("➕ Añadir a Propuesta"),
             content=ft.Column([
-                buscador_inv, 
-                resultados_inv,
-                ft.Divider(color="white24"),
-                input_desc,
-                ft.ResponsiveRow([input_cant, input_precio]),
-                ft.ResponsiveRow([input_imp_tipo, input_imp_pct]) # Aquí agregamos la fila de impuestos
+                buscador_inv, resultados_inv, ft.Divider(color="white24"),
+                input_desc, ft.ResponsiveRow([input_cant, input_precio]), ft.ResponsiveRow([input_imp_tipo, input_imp_pct])
             ], tight=True),
             actions=[
                 ft.ElevatedButton("Guardar", bgcolor="#10b981", color="white", on_click=guardar_item_modal),
-                ft.TextButton("Cancelar", on_click=lambda e: cerrar_dialogo(modal_item))
+                ft.TextButton("Cerrar Ventana", on_click=lambda e: cerrar_dialogo(modal_item)) # Ahora este es el único que cierra
             ]
         )
         page.dialog = modal_item
@@ -126,39 +109,30 @@ def main(page: ft.Page):
         page.update()
 
     def limpiar_todo(e):
-        lista_items.clear()
-        actualizar_tabla_visual()
-        input_cliente.value = ""
-        input_nit.value = ""
-        lista_busqueda_cli.visible = False
-        page.update()
+        lista_items.clear(); actualizar_tabla_visual(); input_cliente.value = ""; input_nit.value = ""; lista_busqueda_cli.visible = False; page.update()
         
     def quitar_seleccionado(e):
         if lista_items:
-            lista_items.pop()
-            actualizar_tabla_visual()
+            lista_items.pop(); actualizar_tabla_visual()
 
-    # --- BOTONES SUPERIORES (Se mantienen los originales) ---
     botones_top = ft.Row([
         ft.ElevatedButton("➕ AÑADIR ÍTEM", bgcolor="#10b981", color="white", on_click=abrir_modal_item),
-        ft.ElevatedButton("📦 BODEGA", bgcolor="#2563eb", color="white", on_click=lambda e: mostrar_alerta("Bodega", "Próximo paso: Habilitar CRUD de bodega.")),
-        ft.ElevatedButton("👥 CLIENTES", bgcolor="#2563eb", color="white", on_click=lambda e: mostrar_alerta("Clientes", "Próximo paso: Gestor completo de clientes.")),
-        ft.ElevatedButton("🔍 HISTORIAL", bgcolor="#2563eb", color="white", on_click=lambda e: mostrar_alerta("Historial", "Próximo paso: Visor de facturas anteriores.")),
-        ft.ElevatedButton("✏️ EDITAR", bgcolor="#475569", color="white", on_click=lambda e: mostrar_alerta("Editar", "Próximo paso: Editar ítem seleccionado.")),
+        ft.ElevatedButton("📦 BODEGA", bgcolor="#2563eb", color="white"),
+        ft.ElevatedButton("👥 CLIENTES", bgcolor="#2563eb", color="white"),
+        ft.ElevatedButton("🔍 HISTORIAL", bgcolor="#2563eb", color="white"),
+        ft.ElevatedButton("✏️ EDITAR", bgcolor="#475569", color="white"),
         ft.ElevatedButton("🧹 LIMPIAR", bgcolor="#ef4444", color="white", on_click=limpiar_todo),
-        ft.ElevatedButton("📂 BACKUPS", bgcolor="#475569", color="white", on_click=lambda e: mostrar_alerta("Backups", "En la nube, el backup se descarga como archivo .db")),
+        ft.ElevatedButton("📂 BACKUPS", bgcolor="#475569", color="white"),
     ], wrap=True, alignment=ft.MainAxisAlignment.CENTER)
 
-    # --- TABLA VISUAL ---
     columna_tabla_items = ft.Column()
 
     def actualizar_tabla_visual():
         columna_tabla_items.controls.clear()
         for idx, item in enumerate(lista_items):
-            imp = item.get("impuesto", "")
             columna_tabla_items.controls.append(
                 ft.ResponsiveRow([
-                    ft.Text(f"{idx+1}. {item['desc']} ({imp})", col={"sm": 6, "md": 6, "lg": 6}, color="white", size=12),
+                    ft.Text(f"{idx+1}. {item['desc']} ({item.get('impuesto', '')})", col={"sm": 6, "md": 6, "lg": 6}, color="white", size=12),
                     ft.Text(f"{item['cant']}", col={"sm": 3, "md": 3, "lg": 3}, text_align="center", color="white"),
                     ft.Text(f"${int(item['total']):,}", col={"sm": 3, "md": 3, "lg": 3}, text_align="right", color="#fbbf24"),
                 ])
@@ -174,78 +148,46 @@ def main(page: ft.Page):
                 ft.Text("CANT", weight="bold", color="#fbbf24", col={"sm": 3, "md": 3, "lg": 3}, text_align="center"),
                 ft.Text("TOTAL", weight="bold", color="#fbbf24", col={"sm": 3, "md": 3, "lg": 3}, text_align="right"),
             ]),
-            columna_tabla_items,
-            ft.Container(height=10),
-            ft.Row([ft.TextButton("❌ QUITAR ÚLTIMO", icon_color="#ef4444", style=ft.ButtonStyle(color="#ef4444"), on_click=quitar_seleccionado)], alignment=ft.MainAxisAlignment.CENTER)
+            columna_tabla_items, ft.Container(height=10),
+            ft.Row([ft.TextButton("❌ QUITAR ÚLTIMO", icon_color="#ef4444", on_click=quitar_seleccionado)], alignment=ft.MainAxisAlignment.CENTER)
         ]),
-        bgcolor="#0f172a",
-        padding=10,
-        border_radius=8,
-        border=ft.border.all(1, "white12")
+        bgcolor="#0f172a", padding=10, border_radius=8, border=ft.border.all(1, "white12")
     )
 
-    # --- 3. BÚSQUEDA DE CLIENTES EN VIVO (Tal como lo pediste) ---
     lista_busqueda_cli = ft.ListView(height=150, visible=False, spacing=2)
 
     def buscar_cliente_realtime(e):
         texto = input_cliente.value.upper().strip()
         lista_busqueda_cli.controls.clear()
-        
         if len(texto) > 0:
             db = conectar_db()
             if db:
                 cursor = db.cursor()
                 cursor.execute("SELECT n, i FROM cli WHERE UPPER(n) LIKE ? ORDER BY n ASC LIMIT 10", ('%'+texto+'%',))
                 filas = cursor.fetchall()
-                
                 for row in filas:
                     n, i = row[0], (row[1] if row[1] else "")
-                    
                     def seleccionar(evt, nombre=n, nit=i):
-                        input_cliente.value = nombre
-                        input_nit.value = nit
-                        lista_busqueda_cli.visible = False
-                        page.update()
-                        
-                    lista_busqueda_cli.controls.append(
-                        ft.ListTile(
-                            title=ft.Text(n, color="#fbbf24", size=13, weight="bold"), 
-                            subtitle=ft.Text(f"NIT: {i}", size=11), 
-                            on_click=seleccionar
-                        )
-                    )
+                        input_cliente.value = nombre; input_nit.value = nit; lista_busqueda_cli.visible = False; page.update()
+                    lista_busqueda_cli.controls.append(ft.ListTile(title=ft.Text(n, color="#fbbf24", size=13, weight="bold"), subtitle=ft.Text(f"NIT: {i}", size=11), on_click=seleccionar))
                 db.close()
                 lista_busqueda_cli.visible = len(filas) > 0
         else:
             lista_busqueda_cli.visible = False
-            
         page.update()
 
     input_cliente = ft.TextField(label="Buscar nombre de cliente...", on_change=buscar_cliente_realtime)
     input_nit = ft.TextField(label="NIT / C.C.", col={"sm": 6, "md": 4, "lg": 4})
-
-    # Agrupamos el buscador y la lista desplegable en una sola columna para que no deforme el diseño
-    col_buscador = ft.Column([input_cliente, lista_busqueda_cli], col={"sm": 12, "md": 5, "lg": 5})
+    input_ciudad = ft.TextField(label="Ciudad", value="Yumbo", col={"sm": 6, "md": 3, "lg": 3})
+    input_atencion = ft.TextField(label="Atención a: (Ej. ING. OSCAR MERA)", col={"sm": 12, "md": 6, "lg": 5})
 
     f_cli = ft.ResponsiveRow([
-        col_buscador,
-        input_nit,
-        ft.TextField(label="Ciudad", value="Yumbo", col={"sm": 6, "md": 3, "lg": 3}),
-        ft.TextField(label="Atención a: (Ej. ING. OSCAR MERA)", col={"sm": 12, "md": 6, "lg": 5}),
+        ft.Column([input_cliente, lista_busqueda_cli], col={"sm": 12, "md": 5, "lg": 5}),
+        input_nit, input_ciudad, input_atencion,
         ft.TextField(label="Forma Pago", value="30 DIAS", col={"sm": 6, "md": 3, "lg": 4}),
         ft.TextField(label="Tiempo Oferta", value="15 DIAS", col={"sm": 6, "md": 3, "lg": 3}),
-        ft.TextField(label="Escribe la REFERENCIA aquí...", col={"sm": 12, "md": 6, "lg": 7}),
-        ft.Dropdown(
-            label="Asesor",
-            options=[
-                ft.dropdown.Option("OSCAR MERA"),
-                ft.dropdown.Option("YEISON FABIAN RESTREPO"),
-                ft.dropdown.Option("ORLANDO"),
-                ft.dropdown.Option("PAULO LEAL")
-            ],
-            value="YEISON FABIAN RESTREPO",
-            col={"sm": 12, "md": 6, "lg": 5}
-        ),
+        ft.TextField(label="REFERENCIA", col={"sm": 12, "md": 6, "lg": 7}),
+        ft.Dropdown(label="Asesor", options=[ft.dropdown.Option("OSCAR MERA"), ft.dropdown.Option("YEISON FABIAN RESTREPO"), ft.dropdown.Option("PAULO LEAL")], value="YEISON FABIAN RESTREPO", col={"sm": 12, "md": 6, "lg": 5}),
     ])
 
     f_aiu = ft.ResponsiveRow([
@@ -255,19 +197,63 @@ def main(page: ft.Page):
         ft.TextField(label="IVA s/U %", value="19", col={"sm": 4, "md": 3, "lg": 2}),
     ], vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
+    # --- 3. GENERADOR DE PDF ---
+    def generar_pdf_web(e):
+        if not lista_items or not input_cliente.value:
+            mostrar_alerta("Error", "Faltan ítems o nombre del cliente.")
+            return
+
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font('helvetica', 'B', 14)
+        pdf.cell(0, 10, f"PROPUESTA COMERCIAL - INGECTEC SAS", new_x="LMARGIN", new_y="NEXT", align="C")
+        
+        pdf.set_font('helvetica', '', 10)
+        pdf.cell(0, 5, f"Fecha: {datetime.now().strftime('%Y-%m-%d')} - {input_ciudad.value}", new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(0, 5, f"Cliente: {input_cliente.value} | NIT: {input_nit.value}", new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(0, 5, f"Atención: {input_atencion.value}", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(5)
+
+        pdf.set_font('helvetica', 'B', 9)
+        pdf.set_fill_color(220, 220, 220)
+        pdf.cell(100, 8, "DESCRIPCIÓN", border=1, fill=True)
+        pdf.cell(20, 8, "CANT", border=1, align="C", fill=True)
+        pdf.cell(30, 8, "V. UNIT", border=1, align="C", fill=True)
+        pdf.cell(40, 8, "TOTAL", border=1, align="C", new_x="LMARGIN", new_y="NEXT", fill=True)
+
+        pdf.set_font('helvetica', '', 9)
+        subtotal = 0
+        for item in lista_items:
+            # Recortamos el texto para que no se desborde la tabla en este diseño base
+            desc_corta = str(item['desc'])[:50]
+            pdf.cell(100, 8, f"{desc_corta} ({item['impuesto']})", border=1)
+            pdf.cell(20, 8, str(item['cant']), border=1, align="C")
+            pdf.cell(30, 8, f"${int(item['precio']):,}", border=1, align="R")
+            pdf.cell(40, 8, f"${int(item['total']):,}", border=1, align="R", new_x="LMARGIN", new_y="NEXT")
+            subtotal += item['total']
+
+        pdf.ln(5)
+        pdf.set_font('helvetica', 'B', 12)
+        pdf.cell(150, 10, "TOTAL PROPUESTA:", align="R")
+        pdf.cell(40, 10, f"${int(subtotal):,}", align="R", new_x="LMARGIN", new_y="NEXT")
+
+        # Guardar en la carpeta "assets" para que la web permita descargarlo
+        if not os.path.exists("assets"):
+            os.makedirs("assets")
+        
+        nombre_archivo = "cotizacion_actual.pdf"
+        pdf.output(f"assets/{nombre_archivo}")
+        
+        # Le decimos al navegador que descargue el PDF
+        page.launch_url(f"/{nombre_archivo}")
+        mostrar_alerta("Éxito", "Tu PDF se ha generado correctamente.")
+
     btn_generar = ft.Container(
-        content=ft.ElevatedButton(
-            "🚀 GENERAR PROPUESTA PROFESIONAL",
-            bgcolor="#f59e0b",
-            color="black",
-            height=50,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=25)),
-            on_click=lambda e: mostrar_alerta("Aviso", "Generador PDF en proceso de conexión.")
-        ),
-        alignment=ft.alignment.center,
-        padding=ft.padding.only(top=10, bottom=20)
+        content=ft.ElevatedButton("🚀 GENERAR PROPUESTA PROFESIONAL", bgcolor="#f59e0b", color="black", height=50, on_click=generar_pdf_web),
+        alignment=ft.alignment.center, padding=ft.padding.only(top=10, bottom=20)
     )
 
     page.add(header, botones_top, tabla, f_cli, f_aiu, btn_generar)
 
-ft.app(target=main, view=ft.AppView.WEB_BROWSER, port=PORT, host="0.0.0.0")
+# IMPORTANTE: assets_dir="assets" es el permiso para que el navegador descargue el PDF
+ft.app(target=main, view=ft.AppView.WEB_BROWSER, port=PORT, host="0.0.0.0", assets_dir="assets")
