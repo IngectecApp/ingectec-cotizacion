@@ -337,22 +337,6 @@ def main(page: ft.Page):
             else: lista_busqueda_cli.visible = False
             page.update()
 
-        nonlocal input_cliente, input_nit, input_atencion, input_direccion, input_ciudad_empresa, input_telefono, input_ciudad, input_pago, input_tiempo, input_ref, input_pct_i, input_pct_u, input_pct_iva_u
-        input_cliente = ft.TextField(label="Buscar nombre de cliente...", on_change=buscar_cliente_realtime)
-        input_nit = ft.TextField(label="NIT / C.C.", col={"sm": 6, "md": 3, "lg": 3})
-        input_atencion = ft.TextField(label="Atención a:", col={"sm": 12, "md": 5, "lg": 5})
-        input_direccion = ft.TextField(label="Dirección", col={"sm": 12, "md": 4, "lg": 4})
-        input_ciudad_empresa = ft.TextField(label="Ciudad Cliente", col={"sm": 6, "md": 4, "lg": 4})
-        input_telefono = ft.TextField(label="Teléfono", col={"sm": 6, "md": 4, "lg": 4})
-        input_ciudad = ft.TextField(label="Ciudad Origen (Fecha)", value="Yumbo", col={"sm": 6, "md": 3, "lg": 3})
-        input_pago = ft.TextField(label="Forma Pago", value="30 DIAS", col={"sm": 6, "md": 3, "lg": 3})
-        input_tiempo = ft.TextField(label="Tiempo Oferta", value="15 DIAS", col={"sm": 6, "md": 3, "lg": 3})
-        input_ref = ft.TextField(label="REFERENCIA", col={"sm": 12, "md": 8, "lg": 8})
-        
-        input_pct_i = ft.TextField(label="Imprev %", value="2", col={"sm": 4, "md": 3})
-        input_pct_u = ft.TextField(label="Util %", value="8", col={"sm": 4, "md": 3})
-        input_pct_iva_u = ft.TextField(label="IVA s/U %", value="19", col={"sm": 4, "md": 3})
-
         f_cli = ft.ResponsiveRow([
             ft.Column([input_cliente, lista_busqueda_cli], col={"sm": 12, "md": 4, "lg": 4}),
             input_nit, input_atencion, input_direccion, input_ciudad_empresa, input_telefono,
@@ -539,7 +523,7 @@ def main(page: ft.Page):
             p.ln(2); p.set_font('helvetica', '', 10)
             p.cell(45, 5, "FORMA DE PAGO:", border=0); p.cell(0, 5, str(input_pago.value), border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
             p.cell(45, 5, "TIEMPO DE OFERTA:", border=0); p.cell(0, 5, str(input_tiempo.value), border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-            p.ln(8); p.set_font("helvetica", 'B', 8); p.cell(0, 5, "Escanee este código para atención personalizada y directa con nossa Gerencia.", border=0, align='L', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            p.ln(8); p.set_font("helvetica", 'B', 8); p.cell(0, 5, "Escanee este código para atención personalizada y directa con nuestra Gerencia.", border=0, align='L', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
             p.image("assets/qr_temp.png", 10, p.get_y(), 25, 25)
 
             nombre_archivo = f"Cotizacion_{nro_doc}.pdf"
