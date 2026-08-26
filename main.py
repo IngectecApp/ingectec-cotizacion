@@ -95,7 +95,15 @@ def main(page: ft.Page):
         page.scroll = ft.ScrollMode.AUTO
         page.controls.clear()
         
-        header = ft.Container(content=ft.Text(f"⚡ INGECTEC SAS - (Bienvenido, {sesion['usuario']})", size=22, weight="bold", color="#fbbf24"), alignment=ft.alignment.center, padding=5)
+        # Obtener número actual de propuesta para mostrarlo en el título central
+        db_num = conectar_db()
+        nro_actual = "100"
+        if db_num:
+            res_num = db_num.execute("SELECT num FROM n_cot WHERE id=1").fetchone()
+            if res_num: nro_actual = f"{res_num[0]:03d}"
+            db_num.close()
+
+        header = ft.Container(content=ft.Text(f"⚡ INGECTEC SAS", size=22, weight="bold", color="#fbbf24"), alignment=ft.alignment.center, padding=5)
 
         columna_tabla_items = ft.Column()
         def actualizar_tabla_visual():
@@ -314,12 +322,16 @@ def main(page: ft.Page):
 
         tabla = ft.Container(
             content=ft.Column([
-                ft.Row([ft.Text("PROPUESTA EN CURSO", weight="bold", color="#fbbf24", size=16)], alignment=ft.MainAxisAlignment.CENTER),
+                ft.Row([ft.Text(f"PROPUESTA ING {nro_actual}", weight="bold", color="#fbbf24", size=16)], alignment=ft.MainAxisAlignment.CENTER),
                 ft.Divider(color="white24"),
-                ft.ResponsiveRow([ft.Text("DESCRIPCIÓN", weight="bold", color="#fbbf24", col={"sm": 6}), ft.Text("CANT", weight="bold", color="#fbbf24", col={"sm": 3}, text_align="center"), ft.Text("TOTAL", weight="bold", color="#fbbf24", col={"sm": 3}, text_align="right")]),
+                ft.ResponsiveRow([
+                    ft.Text("DESCRIPCIÓN", weight="bold", color="#fbbf24", col={"sm": 6}, text_align="center"), 
+                    ft.Text("CANTIDAD", weight="bold", color="#fbbf24", col={"sm": 3}, text_align="center"), 
+                    ft.Text("TOTAL", weight="bold", color="#fbbf24", col={"sm": 3}, text_align="center")
+                ]),
                 columna_tabla_items, ft.Container(height=10),
-                ft.Row([ft.TextButton("❌ QUITAR ÚLTIMO", icon_color="#ef4444", on_click=quitar_seleccionado)], alignment=ft.MainAxisAlignment.CENTER)
-            ]), bgcolor="#0f172a", padding=10, border_radius=8, border=ft.border.all(1, "white12")
+                ft.Row([ft.TextButton("❌ QUITAR SELECCIONADO", icon_color="#ef4444", on_click=quitar_seleccionado)], alignment=ft.MainAxisAlignment.CENTER)
+            ]), bgcolor="#0f172a", padding=15, border_radius=8, border=ft.border.all(1, "white12")
         )
 
         lista_busqueda_cli = ft.ListView(height=150, visible=False, spacing=2)
@@ -337,20 +349,51 @@ def main(page: ft.Page):
             else: lista_busqueda_cli.visible = False
             page.update()
 
-        f_cli = ft.ResponsiveRow([
-            ft.Column([input_cliente, lista_busqueda_cli], col={"sm": 12, "md": 5, "lg": 5}),
-            input_nit,
-            input_ciudad,
-            input_atencion,
-            input_pago,
-            input_tiempo,
-            input_ref,
-            ft.Dropdown(label="Asesor", options=[ft.dropdown.Option("OSCAR MERA"), ft.dropdown.Option("YEISON FABIAN RESTREPO"), ft.dropdown.Option("PAULO LEAL")], value=sesion["usuario"], col={"sm": 12, "md": 6, "lg": 5}),
-        ])
-        f_aiu = ft.ResponsiveRow([ft.Text("⚙️ Config. AIU (Global):", weight="bold", col={"sm": 12, "md": 3, "lg": 3}), input_pct_i, input_pct_u, input_pct_iva_u], vertical_alignment=ft.CrossAxisAlignment.CENTER)
+        # Estructura idéntica a la foto limpia solicitada
+        global input_cliente, input_nit, input_atencion, input_ciudad, input_pago, input_tiempo, input_ref, input_pct_i, input_pct_u, input_pct_iva_u
+        input_cliente = ft.TextField(label="Buscar nombre de cliente...", on_change=buscar_cliente_realtime)
+        input_nit = ft.TextField(label="NIT / C.C.")
+        input_ciudad = ft.TextField(label="Ciudad", value="Yumbo")
+        input_atencion = ft.TextField(label="Atención a: (Ej. ING. MICHAEL MESIAS)")
+        input_pago = ft.TextField(label="Forma Pago", value="30 DIAS")
+        input_tiempo = ft.TextField(label="Tiempo Oferta", value="15 DIAS")
+        input_ref = ft.TextField(label="REFERENCIA")
+        
+        input_pct_i = ft.TextField(label="Imprev %", value="2")
+        input_pct_u = ft.TextField(label="Util %", value="8")
+        input_pct_iva_u = ft.TextField(label="IVA s/Util %", value="19")
+
+        f_cli = ft.Container(
+            content=ft.Column([
+                ft.ResponsiveRow([
+                    ft.Column([input_cliente, lista_busqueda_cli], col={"sm": 12, "md": 5, "lg": 5}),
+                    ft.Container(content=input_nit, col={"sm": 6, "md": 3, "lg": 3}),
+                    ft.Container(content=input_ciudad, col={"sm": 6, "md": 4, "lg": 4})
+                ]),
+                ft.ResponsiveRow([
+                    ft.Container(content=input_atencion, col={"sm": 12, "md": 5, "lg": 5}),
+                    ft.Container(content=input_pago, col={"sm": 6, "md": 3, "lg": 3}),
+                    ft.Container(content=input_tiempo, col={"sm": 6, "md": 4, "lg": 4})
+                ]),
+                ft.ResponsiveRow([
+                    ft.Container(content=input_ref, col={"sm": 12, "md": 12, "lg": 12})
+                ]),
+                ft.ResponsiveRow([
+                    ft.Row([
+                        ft.Text("⚙️ Config. AIU (Global):", weight="bold", color="#fbbf24"),
+                        input_pct_i, input_pct_u, input_pct_iva_u
+                    ], alignment=ft.MainAxisAlignment.START, wrap=True)
+                ])
+            ], spacing=10),
+            bgcolor="#0f172a", padding=15, border_radius=8, border=ft.border.all(1, "white12")
+        )
 
         btn_generar = ft.Container(content=ft.ElevatedButton("🚀 GENERAR PROPUESTA PROFESIONAL", bgcolor="#f59e0b", color="black", height=50, on_click=generar_pdf_web), alignment=ft.alignment.center, padding=ft.padding.only(top=10, bottom=20))
-        page.add(header, botones_top, tabla, f_cli, f_aiu, btn_generar)
+        
+        # Bienvenida usuario arriba
+        lbl_bienvenida = ft.Container(content=ft.Text(f"👤 Usuario conectado: {sesion['usuario']} ({sesion['rol']})", size=12, color="#94a3b8"), alignment=ft.alignment.center_right)
+        
+        page.add(header, lbl_bienvenida, botones_top, tabla, f_cli, btn_generar)
         page.update()
 
     # --- 6. GENERADOR DE PDF ---
@@ -532,14 +575,14 @@ def main(page: ft.Page):
     global input_cliente, input_nit, input_atencion, input_ciudad, input_pago, input_tiempo, input_ref, input_pct_i, input_pct_u, input_pct_iva_u
     input_cliente = ft.TextField(label="Buscar nombre de cliente...")
     input_nit = ft.TextField(label="NIT / C.C.")
-    input_atencion = ft.TextField(label="Atención a: (Ej. ING. OSCAR MERA)")
+    input_atencion = ft.TextField(label="Atención a: (Ej. ING. MICHAEL MESIAS)")
     input_ciudad = ft.TextField(label="Ciudad", value="Yumbo")
     input_pago = ft.TextField(label="Forma Pago", value="30 DIAS")
     input_tiempo = ft.TextField(label="Tiempo Oferta", value="15 DIAS")
     input_ref = ft.TextField(label="REFERENCIA")
-    input_pct_i = ft.TextField(label="Imprev %", value="2")
-    input_pct_u = ft.TextField(label="Util %", value="8")
-    input_pct_iva_u = ft.TextField(label="IVA s/U %", value="19")
+    input_pct_i = ft.TextField(label="Imprev %", value="2", width=70)
+    input_pct_u = ft.TextField(label="Util %", value="8", width=70)
+    input_pct_iva_u = ft.TextField(label="IVA s/Util %", value="19", width=70)
 
     # --- PANTALLA DE INICIO DE SESIÓN ---
     def procesar_login(e):
