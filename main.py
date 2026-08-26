@@ -31,7 +31,17 @@ def main(page: ft.Page):
         dlg.open = False
         page.update()
 
-    # --- LÓGICA DEL BOTÓN CLIENTES (Saca datos de la tabla 'cli') ---
+    def mostrar_alerta(titulo, mensaje):
+        dialogo = ft.AlertDialog(
+            title=ft.Text(titulo, weight="bold", color="#fbbf24"),
+            content=ft.Text(mensaje),
+            actions=[ft.TextButton("OK", on_click=lambda e: cerrar_dialogo(dialogo))]
+        )
+        page.dialog = dialogo
+        dialogo.open = True
+        page.update()
+
+    # --- LÓGICA DEL BOTÓN CLIENTES ---
     def abrir_modal_clientes(e):
         resultados_cli = ft.ListView(expand=True, spacing=10, height=300)
         
@@ -41,16 +51,16 @@ def main(page: ft.Page):
             db = conectar_db()
             if db:
                 cursor = db.cursor()
+                # Se quitó el límite y se forzó a mayúsculas para que encuentre todo
                 if texto:
-                    cursor.execute("SELECT n, i FROM cli WHERE n LIKE ? ORDER BY n ASC LIMIT 20", ('%'+texto+'%',))
+                    cursor.execute("SELECT n, i FROM cli WHERE UPPER(n) LIKE ? ORDER BY n ASC", ('%'+texto+'%',))
                 else:
-                    cursor.execute("SELECT n, i FROM cli ORDER BY n ASC LIMIT 20")
+                    cursor.execute("SELECT n, i FROM cli ORDER BY n ASC")
                 
                 for row in cursor.fetchall():
                     nombre = row[0]
                     nit = row[1] if row[1] else "S/N"
                     
-                    # Acción al tocar un cliente de la lista
                     def seleccionar(evt, n=nombre, i=nit):
                         input_cliente.value = n
                         input_nit.value = i
@@ -69,21 +79,21 @@ def main(page: ft.Page):
         buscador_cli = ft.TextField(label="Buscar cliente...", on_change=buscar_clientes_bd)
         
         modal_cli = ft.AlertDialog(
-            title=ft.Text("👥 Seleccionar Cliente"),
+            title=ft.Text("👥 Base de Datos Clientes"),
             content=ft.Column([buscador_cli, resultados_cli], tight=True),
             actions=[ft.TextButton("Cerrar", on_click=lambda evt: cerrar_dialogo(modal_cli))]
         )
         page.dialog = modal_cli
         modal_cli.open = True
-        buscar_clientes_bd(None) # Carga inicial de todos los clientes
+        buscar_clientes_bd(None) 
         page.update()
 
-    # --- LÓGICA DEL BOTÓN AÑADIR ÍTEM (Saca datos de la tabla 'inv') ---
+    # --- LÓGICA DEL BOTÓN AÑADIR ÍTEM ---
     def abrir_modal_item(e):
         resultados_inv = ft.ListView(expand=True, spacing=10, height=200)
         
-        input_desc = ft.TextField(label="Producto Seleccionado (Solo lectura)", read_only=True)
-        input_cant = ft.TextField(label="Cantidad (Ej: 1)", value="1")
+        input_desc = ft.TextField(label="Producto Seleccionado", read_only=True)
+        input_cant = ft.TextField(label="Cantidad", value="1")
         input_precio = ft.TextField(label="Precio Unitario", read_only=True)
 
         def buscar_inv_bd(evt):
@@ -92,10 +102,11 @@ def main(page: ft.Page):
             db = conectar_db()
             if db:
                 cursor = db.cursor()
+                # Se quitó el límite de ítems para mostrar toda la bodega
                 if texto:
-                    cursor.execute("SELECT d, p FROM inv WHERE d LIKE ? ORDER BY d ASC LIMIT 15", ('%'+texto+'%',))
+                    cursor.execute("SELECT d, p FROM inv WHERE UPPER(d) LIKE ? ORDER BY d ASC", ('%'+texto+'%',))
                 else:
-                    cursor.execute("SELECT d, p FROM inv ORDER BY d ASC LIMIT 15")
+                    cursor.execute("SELECT d, p FROM inv ORDER BY d ASC")
                 
                 for row in cursor.fetchall():
                     desc = row[0]
@@ -130,10 +141,10 @@ def main(page: ft.Page):
             except Exception as err:
                 pass
 
-        buscador_inv = ft.TextField(label="Buscar producto en bodega...", on_change=buscar_inv_bd)
+        buscador_inv = ft.TextField(label="Buscar en bodega...", on_change=buscar_inv_bd)
 
         modal_item = ft.AlertDialog(
-            title=ft.Text("➕ Añadir Ítem de Bodega"),
+            title=ft.Text("➕ Añadir a Propuesta"),
             content=ft.Column([
                 buscador_inv, 
                 resultados_inv,
@@ -143,7 +154,7 @@ def main(page: ft.Page):
                 input_precio
             ], tight=True),
             actions=[
-                ft.ElevatedButton("Guardar en Propuesta", bgcolor="#10b981", color="white", on_click=guardar_item_modal),
+                ft.ElevatedButton("Guardar", bgcolor="#10b981", color="white", on_click=guardar_item_modal),
                 ft.TextButton("Cancelar", on_click=lambda e: cerrar_dialogo(modal_item))
             ]
         )
@@ -159,12 +170,21 @@ def main(page: ft.Page):
         input_cliente.value = ""
         input_nit.value = ""
         page.update()
+        
+    def quitar_seleccionado(e):
+        if lista_items:
+            lista_items.pop() # Por ahora quita el último para mantener la funcionalidad
+            actualizar_tabla_visual()
 
-    # --- BOTONES SUPERIORES (Conectados a las funciones) ---
+    # --- BOTONES SUPERIORES ORIGINALES COMPLETOS ---
     botones_top = ft.Row([
         ft.ElevatedButton("➕ AÑADIR ÍTEM", bgcolor="#10b981", color="white", on_click=abrir_modal_item),
+        ft.ElevatedButton("📦 BODEGA", bgcolor="#2563eb", color="white", on_click=lambda e: mostrar_alerta("Bodega", "Opción en construcción web.")),
         ft.ElevatedButton("👥 CLIENTES", bgcolor="#2563eb", color="white", on_click=abrir_modal_clientes),
+        ft.ElevatedButton("🔍 HISTORIAL", bgcolor="#2563eb", color="white", on_click=lambda e: mostrar_alerta("Historial", "Opción en construcción web.")),
+        ft.ElevatedButton("✏️ EDITAR", bgcolor="#475569", color="white", on_click=lambda e: mostrar_alerta("Editar", "Opción en construcción web.")),
         ft.ElevatedButton("🧹 LIMPIAR", bgcolor="#ef4444", color="white", on_click=limpiar_todo),
+        ft.ElevatedButton("📂 BACKUPS", bgcolor="#475569", color="white", on_click=lambda e: mostrar_alerta("Backups", "Los backups se manejan internamente en el servidor web.")),
     ], wrap=True, alignment=ft.MainAxisAlignment.CENTER)
 
     # --- TABLA VISUAL DE LA PROPUESTA ---
@@ -184,7 +204,7 @@ def main(page: ft.Page):
 
     tabla = ft.Container(
         content=ft.Column([
-            ft.Row([ft.Text("PROPUESTA EN CURSO", weight="bold", color="#fbbf24", size=16)], alignment=ft.MainAxisAlignment.CENTER),
+            ft.Row([ft.Text(f"PROPUESTA ING 161", weight="bold", color="#fbbf24", size=16)], alignment=ft.MainAxisAlignment.CENTER),
             ft.Divider(color="white24"),
             ft.ResponsiveRow([
                 ft.Text("DESCRIPCIÓN", weight="bold", color="#fbbf24", col={"sm": 6, "md": 6, "lg": 6}),
@@ -192,6 +212,8 @@ def main(page: ft.Page):
                 ft.Text("TOTAL", weight="bold", color="#fbbf24", col={"sm": 3, "md": 3, "lg": 3}, text_align="right"),
             ]),
             columna_tabla_items,
+            ft.Container(height=20),
+            ft.Row([ft.TextButton("❌ QUITAR SELECCIONADO", icon_color="#ef4444", style=ft.ButtonStyle(color="#ef4444"), on_click=quitar_seleccionado)], alignment=ft.MainAxisAlignment.CENTER)
         ]),
         bgcolor="#0f172a",
         padding=10,
@@ -200,8 +222,8 @@ def main(page: ft.Page):
     )
 
     # --- FORMULARIO PRINCIPAL ---
-    input_cliente = ft.TextField(label="Nombre del cliente...", col={"sm": 12, "md": 5, "lg": 5})
-    input_nit = ft.TextField(label="NIT / C.C.", col={"sm": 6, "md": 4, "lg": 4})
+    input_cliente = ft.TextField(label="Buscar nombre de cliente...", col={"sm": 12, "md": 5, "lg": 5})
+    input_nit = ft.TextField(label="NIT / C.C. (Opcional)", col={"sm": 6, "md": 4, "lg": 4})
 
     f_cli = ft.ResponsiveRow([
         input_cliente,
@@ -237,7 +259,8 @@ def main(page: ft.Page):
             bgcolor="#f59e0b",
             color="black",
             height=50,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=25))
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=25)),
+            on_click=lambda e: mostrar_alerta("Aviso", "Generador PDF en proceso de conexión.")
         ),
         alignment=ft.alignment.center,
         padding=ft.padding.only(top=10, bottom=20)
