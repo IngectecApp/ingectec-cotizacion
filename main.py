@@ -12,7 +12,7 @@ from datetime import datetime
 PORT = int(os.environ.get("PORT", 8080))
 if not os.path.exists("assets"): os.makedirs("assets")
 
-# --- CLASE PDF ORIGINAL DE INGECTEC ---
+# --- CLASE PDF ORIGINAL DE INGECTEC (CON REPARACIÓN DE LOGO) ---
 class PDF(FPDF):
     def rounded_rect(self, x, y, w, h, r, style='F'):
         if style == 'F':
@@ -24,10 +24,15 @@ class PDF(FPDF):
             self.ellipse(x + w - 2 * r, y + h - 2 * r, 2 * r, 2 * r, style='F')
 
     def header(self):
-        # Si tienes tu logo en la carpeta assets, lo cargará. Si no, omite el error para no colapsar.
-        if os.path.exists("assets/logopl.png"): 
-            try: self.image("assets/logopl.png", x=10, y=8, w=190)
-            except: pass
+        # Radar inteligente para encontrar tu logo en GitHub
+        rutas_posibles = ["logo pl.png", "logopl.png", "logo.png", "logo1.png"]
+        for ruta in rutas_posibles:
+            if os.path.exists(ruta):
+                try: 
+                    self.image(ruta, x=10, y=8, w=190)
+                    break # Si lo encuentra, lo dibuja y deja de buscar
+                except: 
+                    pass
         self.set_y(40) 
         
     def footer(self):
@@ -359,7 +364,6 @@ def main(page: ft.Page):
             db.execute("INSERT INTO historial VALUES (?,?,?,?,?,?)", (nro_doc, c_nom, datetime.now().strftime("%Y-%m-%d"), "web.pdf", subtotal_global, "WEB"))
             db.commit(); db.close()
 
-            # --- GENERACIÓN DEL ARCHIVO PDF FÍSICO ---
             qr = qrcode.QRCode(box_size=10, border=2)
             qr.add_data(f"https://wa.me/{MI_WHATSAPP}")
             qr.make(fit=True)
@@ -376,7 +380,6 @@ def main(page: ft.Page):
             p.cell(0, 5, f"{c_ciu}, {hoy.day} de {meses[hoy.month-1]} de {hoy.year}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
             p.ln(4)
 
-            # --- CAJAS GRISES CLIENTE ---
             y_start_cli = p.get_y()
             lines_client = 1 
             if c_atn: lines_client += 1
@@ -420,7 +423,6 @@ def main(page: ft.Page):
                 p.write(5, f"{c_ref}\n")
                 p.ln(5)
 
-            # --- TABLA DE ÍTEMS ---
             p.set_fill_color(194, 229, 194) 
             p.set_text_color(0, 0, 0)
             p.set_font("helvetica", '', 8) 
@@ -463,7 +465,6 @@ def main(page: ft.Page):
                         p.cell(20, 6, "", border=b_style, align='C')
                         p.cell(25, 6, "", border=b_style, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
-            # --- CÁLCULOS FINALES Y TOTALES ---
             try: pct_i = float(input_pct_i.value)
             except: pct_i = 0
             try: pct_u = float(input_pct_u.value)
