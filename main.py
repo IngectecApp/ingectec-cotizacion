@@ -55,7 +55,6 @@ def main(page: ft.Page):
     page.theme_mode = ft.ThemeMode.DARK
     page.bgcolor = "#1e293b"
     page.padding = 15
-    page.scroll = ft.ScrollMode.AUTO
 
     sesion = {"usuario": None, "rol": None}
     lista_items = []
@@ -93,6 +92,7 @@ def main(page: ft.Page):
     # INTERFAZ PRINCIPAL DE LA APLICACIÓN
     # ==========================================
     def iniciar_app_principal():
+        page.scroll = ft.ScrollMode.AUTO
         page.controls.clear()
         
         header = ft.Container(content=ft.Text(f"⚡ INGECTEC SAS - (Bienvenido, {sesion['usuario']})", size=22, weight="bold", color="#fbbf24"), alignment=ft.alignment.center, padding=5)
