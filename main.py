@@ -4,7 +4,6 @@ import os
 
 PORT = int(os.environ.get("PORT", 8080))
 
-# --- FUNCIÓN PARA CONECTAR A TU BASE DE DATOS ---
 def conectar_db():
     try:
         return sqlite3.connect('ingectec.db', timeout=10)
@@ -41,60 +40,21 @@ def main(page: ft.Page):
         dialogo.open = True
         page.update()
 
-    # --- LÓGICA DEL BOTÓN CLIENTES ---
-    def abrir_modal_clientes(e):
-        resultados_cli = ft.ListView(expand=True, spacing=10, height=300)
-        
-        def buscar_clientes_bd(evt):
-            resultados_cli.controls.clear()
-            texto = buscador_cli.value.upper()
-            db = conectar_db()
-            if db:
-                cursor = db.cursor()
-                # Se quitó el límite y se forzó a mayúsculas para que encuentre todo
-                if texto:
-                    cursor.execute("SELECT n, i FROM cli WHERE UPPER(n) LIKE ? ORDER BY n ASC", ('%'+texto+'%',))
-                else:
-                    cursor.execute("SELECT n, i FROM cli ORDER BY n ASC")
-                
-                for row in cursor.fetchall():
-                    nombre = row[0]
-                    nit = row[1] if row[1] else "S/N"
-                    
-                    def seleccionar(evt, n=nombre, i=nit):
-                        input_cliente.value = n
-                        input_nit.value = i
-                        cerrar_dialogo(modal_cli)
-
-                    resultados_cli.controls.append(
-                        ft.ListTile(
-                            title=ft.Text(nombre, color="#fbbf24", weight="bold"),
-                            subtitle=ft.Text(f"NIT: {nit}"),
-                            on_click=seleccionar
-                        )
-                    )
-                db.close()
-            page.update()
-
-        buscador_cli = ft.TextField(label="Buscar cliente...", on_change=buscar_clientes_bd)
-        
-        modal_cli = ft.AlertDialog(
-            title=ft.Text("👥 Base de Datos Clientes"),
-            content=ft.Column([buscador_cli, resultados_cli], tight=True),
-            actions=[ft.TextButton("Cerrar", on_click=lambda evt: cerrar_dialogo(modal_cli))]
-        )
-        page.dialog = modal_cli
-        modal_cli.open = True
-        buscar_clientes_bd(None) 
-        page.update()
-
-    # --- LÓGICA DEL BOTÓN AÑADIR ÍTEM ---
+    # --- 2. LÓGICA AÑADIR ÍTEM (AHORA CON IMPUESTOS) ---
     def abrir_modal_item(e):
-        resultados_inv = ft.ListView(expand=True, spacing=10, height=200)
+        resultados_inv = ft.ListView(expand=True, spacing=10, height=150)
         
         input_desc = ft.TextField(label="Producto Seleccionado", read_only=True)
-        input_cant = ft.TextField(label="Cantidad", value="1")
-        input_precio = ft.TextField(label="Precio Unitario", read_only=True)
+        input_cant = ft.TextField(label="Cantidad", value="1", col={"sm": 6})
+        input_precio = ft.TextField(label="Precio Unitario", col={"sm": 6})
+        
+        # Nuevos campos de Impuesto tal como los pediste
+        input_imp_tipo = ft.Dropdown(
+            label="Impuesto", 
+            options=[ft.dropdown.Option("AIU"), ft.dropdown.Option("IVA"), ft.dropdown.Option("EXENTO")], 
+            value="AIU", col={"sm": 6}
+        )
+        input_imp_pct = ft.TextField(label="% Impuesto", value="10", col={"sm": 6})
 
         def buscar_inv_bd(evt):
             resultados_inv.controls.clear()
@@ -102,11 +62,10 @@ def main(page: ft.Page):
             db = conectar_db()
             if db:
                 cursor = db.cursor()
-                # Se quitó el límite de ítems para mostrar toda la bodega
                 if texto:
                     cursor.execute("SELECT d, p FROM inv WHERE UPPER(d) LIKE ? ORDER BY d ASC", ('%'+texto+'%',))
                 else:
-                    cursor.execute("SELECT d, p FROM inv ORDER BY d ASC")
+                    cursor.execute("SELECT d, p FROM inv ORDER BY d ASC LIMIT 30")
                 
                 for row in cursor.fetchall():
                     desc = row[0]
@@ -118,11 +77,7 @@ def main(page: ft.Page):
                         page.update()
 
                     resultados_inv.controls.append(
-                        ft.ListTile(
-                            title=ft.Text(desc, color="#fbbf24", weight="bold"),
-                            subtitle=ft.Text(f"Precio: ${int(precio):,}"),
-                            on_click=seleccionar_item
-                        )
+                        ft.ListTile(title=ft.Text(desc, color="#fbbf24", size=14), subtitle=ft.Text(f"${int(precio):,}"), on_click=seleccionar_item)
                     )
                 db.close()
             page.update()
@@ -134,8 +89,15 @@ def main(page: ft.Page):
                 d = input_desc.value
                 c = float(input_cant.value)
                 p = float(input_precio.value)
+                
+                # Construir el texto del impuesto ("AIU 10%")
+                if input_imp_tipo.value == "EXENTO":
+                    imp_str = "EXENTO"
+                else:
+                    imp_str = f"{input_imp_tipo.value} {input_imp_pct.value}%"
+
                 total = c * p
-                lista_items.append({"desc": d, "cant": c, "total": total})
+                lista_items.append({"desc": d, "cant": c, "total": total, "impuesto": imp_str})
                 actualizar_tabla_visual()
                 cerrar_dialogo(modal_item)
             except Exception as err:
@@ -150,8 +112,8 @@ def main(page: ft.Page):
                 resultados_inv,
                 ft.Divider(color="white24"),
                 input_desc,
-                input_cant,
-                input_precio
+                ft.ResponsiveRow([input_cant, input_precio]),
+                ft.ResponsiveRow([input_imp_tipo, input_imp_pct]) # Aquí agregamos la fila de impuestos
             ], tight=True),
             actions=[
                 ft.ElevatedButton("Guardar", bgcolor="#10b981", color="white", on_click=guardar_item_modal),
@@ -163,39 +125,40 @@ def main(page: ft.Page):
         buscar_inv_bd(None)
         page.update()
 
-    # --- LIMPIAR PROPUESTA ---
     def limpiar_todo(e):
         lista_items.clear()
         actualizar_tabla_visual()
         input_cliente.value = ""
         input_nit.value = ""
+        lista_busqueda_cli.visible = False
         page.update()
         
     def quitar_seleccionado(e):
         if lista_items:
-            lista_items.pop() # Por ahora quita el último para mantener la funcionalidad
+            lista_items.pop()
             actualizar_tabla_visual()
 
-    # --- BOTONES SUPERIORES ORIGINALES COMPLETOS ---
+    # --- BOTONES SUPERIORES (Se mantienen los originales) ---
     botones_top = ft.Row([
         ft.ElevatedButton("➕ AÑADIR ÍTEM", bgcolor="#10b981", color="white", on_click=abrir_modal_item),
-        ft.ElevatedButton("📦 BODEGA", bgcolor="#2563eb", color="white", on_click=lambda e: mostrar_alerta("Bodega", "Opción en construcción web.")),
-        ft.ElevatedButton("👥 CLIENTES", bgcolor="#2563eb", color="white", on_click=abrir_modal_clientes),
-        ft.ElevatedButton("🔍 HISTORIAL", bgcolor="#2563eb", color="white", on_click=lambda e: mostrar_alerta("Historial", "Opción en construcción web.")),
-        ft.ElevatedButton("✏️ EDITAR", bgcolor="#475569", color="white", on_click=lambda e: mostrar_alerta("Editar", "Opción en construcción web.")),
+        ft.ElevatedButton("📦 BODEGA", bgcolor="#2563eb", color="white", on_click=lambda e: mostrar_alerta("Bodega", "Próximo paso: Habilitar CRUD de bodega.")),
+        ft.ElevatedButton("👥 CLIENTES", bgcolor="#2563eb", color="white", on_click=lambda e: mostrar_alerta("Clientes", "Próximo paso: Gestor completo de clientes.")),
+        ft.ElevatedButton("🔍 HISTORIAL", bgcolor="#2563eb", color="white", on_click=lambda e: mostrar_alerta("Historial", "Próximo paso: Visor de facturas anteriores.")),
+        ft.ElevatedButton("✏️ EDITAR", bgcolor="#475569", color="white", on_click=lambda e: mostrar_alerta("Editar", "Próximo paso: Editar ítem seleccionado.")),
         ft.ElevatedButton("🧹 LIMPIAR", bgcolor="#ef4444", color="white", on_click=limpiar_todo),
-        ft.ElevatedButton("📂 BACKUPS", bgcolor="#475569", color="white", on_click=lambda e: mostrar_alerta("Backups", "Los backups se manejan internamente en el servidor web.")),
+        ft.ElevatedButton("📂 BACKUPS", bgcolor="#475569", color="white", on_click=lambda e: mostrar_alerta("Backups", "En la nube, el backup se descarga como archivo .db")),
     ], wrap=True, alignment=ft.MainAxisAlignment.CENTER)
 
-    # --- TABLA VISUAL DE LA PROPUESTA ---
+    # --- TABLA VISUAL ---
     columna_tabla_items = ft.Column()
 
     def actualizar_tabla_visual():
         columna_tabla_items.controls.clear()
         for idx, item in enumerate(lista_items):
+            imp = item.get("impuesto", "")
             columna_tabla_items.controls.append(
                 ft.ResponsiveRow([
-                    ft.Text(f"{idx+1}. {item['desc']}", col={"sm": 6, "md": 6, "lg": 6}, color="white"),
+                    ft.Text(f"{idx+1}. {item['desc']} ({imp})", col={"sm": 6, "md": 6, "lg": 6}, color="white", size=12),
                     ft.Text(f"{item['cant']}", col={"sm": 3, "md": 3, "lg": 3}, text_align="center", color="white"),
                     ft.Text(f"${int(item['total']):,}", col={"sm": 3, "md": 3, "lg": 3}, text_align="right", color="#fbbf24"),
                 ])
@@ -204,7 +167,7 @@ def main(page: ft.Page):
 
     tabla = ft.Container(
         content=ft.Column([
-            ft.Row([ft.Text(f"PROPUESTA ING 161", weight="bold", color="#fbbf24", size=16)], alignment=ft.MainAxisAlignment.CENTER),
+            ft.Row([ft.Text("PROPUESTA EN CURSO", weight="bold", color="#fbbf24", size=16)], alignment=ft.MainAxisAlignment.CENTER),
             ft.Divider(color="white24"),
             ft.ResponsiveRow([
                 ft.Text("DESCRIPCIÓN", weight="bold", color="#fbbf24", col={"sm": 6, "md": 6, "lg": 6}),
@@ -212,8 +175,8 @@ def main(page: ft.Page):
                 ft.Text("TOTAL", weight="bold", color="#fbbf24", col={"sm": 3, "md": 3, "lg": 3}, text_align="right"),
             ]),
             columna_tabla_items,
-            ft.Container(height=20),
-            ft.Row([ft.TextButton("❌ QUITAR SELECCIONADO", icon_color="#ef4444", style=ft.ButtonStyle(color="#ef4444"), on_click=quitar_seleccionado)], alignment=ft.MainAxisAlignment.CENTER)
+            ft.Container(height=10),
+            ft.Row([ft.TextButton("❌ QUITAR ÚLTIMO", icon_color="#ef4444", style=ft.ButtonStyle(color="#ef4444"), on_click=quitar_seleccionado)], alignment=ft.MainAxisAlignment.CENTER)
         ]),
         bgcolor="#0f172a",
         padding=10,
@@ -221,12 +184,51 @@ def main(page: ft.Page):
         border=ft.border.all(1, "white12")
     )
 
-    # --- FORMULARIO PRINCIPAL ---
-    input_cliente = ft.TextField(label="Buscar nombre de cliente...", col={"sm": 12, "md": 5, "lg": 5})
-    input_nit = ft.TextField(label="NIT / C.C. (Opcional)", col={"sm": 6, "md": 4, "lg": 4})
+    # --- 3. BÚSQUEDA DE CLIENTES EN VIVO (Tal como lo pediste) ---
+    lista_busqueda_cli = ft.ListView(height=150, visible=False, spacing=2)
+
+    def buscar_cliente_realtime(e):
+        texto = input_cliente.value.upper().strip()
+        lista_busqueda_cli.controls.clear()
+        
+        if len(texto) > 0:
+            db = conectar_db()
+            if db:
+                cursor = db.cursor()
+                cursor.execute("SELECT n, i FROM cli WHERE UPPER(n) LIKE ? ORDER BY n ASC LIMIT 10", ('%'+texto+'%',))
+                filas = cursor.fetchall()
+                
+                for row in filas:
+                    n, i = row[0], (row[1] if row[1] else "")
+                    
+                    def seleccionar(evt, nombre=n, nit=i):
+                        input_cliente.value = nombre
+                        input_nit.value = nit
+                        lista_busqueda_cli.visible = False
+                        page.update()
+                        
+                    lista_busqueda_cli.controls.append(
+                        ft.ListTile(
+                            title=ft.Text(n, color="#fbbf24", size=13, weight="bold"), 
+                            subtitle=ft.Text(f"NIT: {i}", size=11), 
+                            on_click=seleccionar
+                        )
+                    )
+                db.close()
+                lista_busqueda_cli.visible = len(filas) > 0
+        else:
+            lista_busqueda_cli.visible = False
+            
+        page.update()
+
+    input_cliente = ft.TextField(label="Buscar nombre de cliente...", on_change=buscar_cliente_realtime)
+    input_nit = ft.TextField(label="NIT / C.C.", col={"sm": 6, "md": 4, "lg": 4})
+
+    # Agrupamos el buscador y la lista desplegable en una sola columna para que no deforme el diseño
+    col_buscador = ft.Column([input_cliente, lista_busqueda_cli], col={"sm": 12, "md": 5, "lg": 5})
 
     f_cli = ft.ResponsiveRow([
-        input_cliente,
+        col_buscador,
         input_nit,
         ft.TextField(label="Ciudad", value="Yumbo", col={"sm": 6, "md": 3, "lg": 3}),
         ft.TextField(label="Atención a: (Ej. ING. OSCAR MERA)", col={"sm": 12, "md": 6, "lg": 5}),
@@ -234,7 +236,7 @@ def main(page: ft.Page):
         ft.TextField(label="Tiempo Oferta", value="15 DIAS", col={"sm": 6, "md": 3, "lg": 3}),
         ft.TextField(label="Escribe la REFERENCIA aquí...", col={"sm": 12, "md": 6, "lg": 7}),
         ft.Dropdown(
-            label="Asesor Comercial",
+            label="Asesor",
             options=[
                 ft.dropdown.Option("OSCAR MERA"),
                 ft.dropdown.Option("YEISON FABIAN RESTREPO"),
