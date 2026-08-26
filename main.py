@@ -35,11 +35,13 @@ def main(page: ft.Page):
     def actualizar_tabla_visual():
         columna_tabla_items.controls.clear()
         for idx, item in enumerate(lista_items):
+            # Conversión segura para evitar el error de base 10
+            total_seguro = int(float(item['total']))
             columna_tabla_items.controls.append(
                 ft.ResponsiveRow([
                     ft.Text(f"{idx+1}. {item['desc']} ({item.get('impuesto', '')})", col={"sm": 6}, color="white", size=12),
                     ft.Text(f"{item['cant']}", col={"sm": 3}, text_align="center", color="white"),
-                    ft.Text(f"${int(item['total']):,}", col={"sm": 3}, text_align="right", color="#fbbf24"),
+                    ft.Text(f"${total_seguro:,}", col={"sm": 3}, text_align="right", color="#fbbf24"),
                 ])
             )
         page.update()
@@ -62,8 +64,8 @@ def main(page: ft.Page):
                 cursor.execute("SELECT d, p FROM inv WHERE UPPER(d) LIKE ? ORDER BY d ASC LIMIT 30", ('%'+txt+'%',))
                 for row in cursor.fetchall():
                     d, p = row[0], (row[1] if row[1] else 0)
-                    def sel(evt, desc=d, precio=p): input_desc.value = desc; input_precio.value = str(int(precio)); page.update()
-                    resultados_inv.controls.append(ft.ListTile(title=ft.Text(d, color="#fbbf24", size=14), subtitle=ft.Text(f"${int(p):,}"), on_click=sel))
+                    def sel(evt, desc=d, precio=p): input_desc.value = desc; input_precio.value = str(int(float(precio))); page.update()
+                    resultados_inv.controls.append(ft.ListTile(title=ft.Text(d, color="#fbbf24", size=14), subtitle=ft.Text(f"${int(float(p)):,}"), on_click=sel))
                 db.close()
             page.update()
 
@@ -100,7 +102,7 @@ def main(page: ft.Page):
                 txt = (e_desc.value or "").upper()
                 for row in db.execute("SELECT d, p, stock FROM inv WHERE UPPER(d) LIKE ? LIMIT 20", ('%'+txt+'%',)):
                     d, p, s = row
-                    def sel(evt, desc=d, prec=p): e_desc.value = desc; e_precio.value = str(int(prec)); e_stock.value="0"; page.update()
+                    def sel(evt, desc=d, prec=p): e_desc.value = desc; e_precio.value = str(int(float(prec))); e_stock.value="0"; page.update()
                     resultados_bod.controls.append(ft.ListTile(title=ft.Text(f"{d} (Stock: {s})", size=13), on_click=sel))
                 db.close()
             page.update()
@@ -140,7 +142,7 @@ def main(page: ft.Page):
         dlg = ft.AlertDialog(title=ft.Text("👥 Base de Datos Clientes"), content=ft.Column([buscador_cli, resultados_cli], tight=True), actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))])
         page.dialog = dlg; dlg.open = True; buscar_clientes_bd(None)
 
-    # --- 4. HISTORIAL ---
+    # --- 4. HISTORIAL CON AUTO-REPARACIÓN DE DATOS ---
     def abrir_modal_historial(e):
         resultados_hist = ft.ListView(height=300)
         db = conectar_db()
@@ -153,15 +155,37 @@ def main(page: ft.Page):
                     if cab: 
                         input_cliente.value = cab[0] if cab[0] else ""
                         input_nit.value = cab[1] if cab[1] else ""
+                    
                     lista_items.clear()
+                    # Escudo protector para datos corruptos del historial antiguo
                     for d in db_h.execute("SELECT desc, cant, und, unit, sub, imp FROM h_det WHERE nro=?", (numero,)):
-                        lista_items.append({"desc": d[0], "cant": d[1], "und": d[2], "precio": d[3], "total": d[4], "impuesto": d[5]})
+                        desc_str = d[0] if d[0] else ""
+                        try: cant_f = float(d[1])
+                        except: cant_f = 1.0
+                        
+                        und_str = str(d[2]) if d[2] else "UNID"
+                        
+                        try: unit_f = float(d[3])
+                        except: unit_f = 100.0
+                        
+                        try: sub_f = float(d[4])
+                        except: sub_f = cant_f * unit_f
+
+                        impuesto_str = str(d[5]) if d[5] else "EXENTO"
+
+                        # Restauramos la lógica antigua para corregir las columnas invertidas de la DB vieja
+                        if "AIU" in und_str or "IVA" in und_str or "EXENTO" in und_str:
+                            temp = impuesto_str
+                            impuesto_str = und_str
+                            und_str = temp if temp not in ["EXENTO", ""] else "UNID"
+
+                        lista_items.append({"desc": desc_str, "cant": cant_f, "und": und_str, "precio": unit_f, "total": sub_f, "impuesto": impuesto_str})
                     db_h.close()
                     estado["nro_edicion"] = numero
                     actualizar_tabla_visual()
                     cerrar_dialogo(dlg)
-                    mostrar_alerta("Cargado", f"Propuesta N° {numero} cargada para edición.")
-                resultados_hist.controls.append(ft.ListTile(title=ft.Text(f"N° {nro} - {cli}", color="#fbbf24", weight="bold"), subtitle=ft.Text(f"Fecha: {fec} | Total: ${int(tot):,}"), on_click=cargar_historial))
+                    mostrar_alerta("Cargado", f"Propuesta N° {numero} cargada correctamente.")
+                resultados_hist.controls.append(ft.ListTile(title=ft.Text(f"N° {nro} - {cli}", color="#fbbf24", weight="bold"), subtitle=ft.Text(f"Fecha: {fec} | Total: ${int(float(tot)):,}"), on_click=cargar_historial))
             db.close()
             
         dlg = ft.AlertDialog(title=ft.Text("🔍 Historial de Propuestas"), content=resultados_hist, actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))])
@@ -178,7 +202,7 @@ def main(page: ft.Page):
             for i, item in enumerate(lista_items):
                 def abrir_edicion_individual(evt, index=i):
                     e_cant = ft.TextField(label="Nueva Cantidad", value=str(lista_items[index]['cant']))
-                    e_precio = ft.TextField(label="Nuevo Precio", value=str(lista_items[index]['precio']))
+                    e_precio = ft.TextField(label="Nuevo Precio", value=str(int(float(lista_items[index]['precio']))))
                     def guardar_cambio(ev):
                         try:
                             c, p = float(e_cant.value), float(e_precio.value)
@@ -187,7 +211,9 @@ def main(page: ft.Page):
                         except: pass
                     dlg_ind = ft.AlertDialog(content=ft.Column([ft.Text(lista_items[index]['desc']), e_cant, e_precio], tight=True), actions=[ft.ElevatedButton("Actualizar", on_click=guardar_cambio)])
                     page.dialog = dlg_ind; dlg_ind.open = True; page.update()
-                lista_edicion.controls.append(ft.ListTile(title=ft.Text(f"{item['desc']}", size=13), subtitle=ft.Text(f"Cant: {item['cant']} | Total: ${int(item['total']):,}"), on_click=abrir_edicion_individual))
+                
+                tot_seguro = int(float(item['total']))
+                lista_edicion.controls.append(ft.ListTile(title=ft.Text(f"{item['desc']}", size=13), subtitle=ft.Text(f"Cant: {item['cant']} | Total: ${tot_seguro:,}"), on_click=abrir_edicion_individual))
             dlg_editar.content = lista_edicion; page.update()
             
         construir_lista()
@@ -259,13 +285,12 @@ def main(page: ft.Page):
 
     f_aiu = ft.ResponsiveRow([ft.Text("⚙️ Config. AIU:", weight="bold", col={"sm": 12, "md": 3}), ft.TextField(label="Imprev %", value="2", col={"sm": 4, "md": 3}), ft.TextField(label="Util %", value="8", col={"sm": 4, "md": 3}), ft.TextField(label="IVA s/U %", value="19", col={"sm": 4, "md": 3})], vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
-    # --- 6. GENERADOR ROBUSTO DE PDF ---
+    # --- 6. GENERADOR ROBUSTO DE PDF (LIBRE DE ERRORES INT) ---
     def generar_pdf_web(e):
         try:
             if not lista_items or not input_cliente.value: 
                 return mostrar_alerta("Aviso", "Faltan ítems o nombre del cliente.")
             
-            # 1. Aseguramos que ningún texto esté vacío para que FPDF no falle
             c_nom = str(input_cliente.value or "").upper()
             c_nit = str(input_nit.value or "")
             c_ciu = str(input_ciudad.value or "Yumbo")
@@ -287,10 +312,10 @@ def main(page: ft.Page):
             
             subtotal = 0
             for item in lista_items:
-                db.execute("INSERT INTO h_det VALUES (?,?,?,?,?,?,?)", (nro_doc, item['desc'], item['cant'], item.get('und', 'UNID'), item['precio'], item['total'], item.get('impuesto', 'EXENTO')))
-                if not estado["nro_edicion"]: # Solo resta inventario si es una cotización nueva
+                db.execute("INSERT INTO h_det VALUES (?,?,?,?,?,?,?)", (nro_doc, item['desc'], item['cant'], item.get('und', 'UNID'), float(item['precio']), float(item['total']), item.get('impuesto', 'EXENTO')))
+                if not estado["nro_edicion"]: 
                     db.execute("UPDATE inv SET stock = stock - ? WHERE d=?", (item['cant'], item['desc']))
-                subtotal += item['total']
+                subtotal += float(item['total'])
                 
             db.execute("INSERT INTO historial VALUES (?,?,?,?,?,?)", (nro_doc, c_nom, datetime.now().strftime("%Y-%m-%d"), "web.pdf", subtotal, "WEB"))
             db.commit(); db.close()
@@ -310,11 +335,15 @@ def main(page: ft.Page):
             
             for item in lista_items:
                 desc_corta = str(item['desc'])[:50]
+                # Conversión segura forzando float antes de int
+                precio_int = int(float(item['precio']))
+                total_int = int(float(item['total']))
+                
                 pdf.cell(100, 8, f"{desc_corta} ({item.get('impuesto', 'EXENTO')})", border=1); pdf.cell(20, 8, str(item['cant']), border=1, align="C")
-                pdf.cell(30, 8, f"${int(item['precio']):,}", border=1, align="R"); pdf.cell(40, 8, f"${int(item['total']):,}", border=1, align="R", new_x="LMARGIN", new_y="NEXT")
+                pdf.cell(30, 8, f"${precio_int:,}", border=1, align="R"); pdf.cell(40, 8, f"${total_int:,}", border=1, align="R", new_x="LMARGIN", new_y="NEXT")
             
             pdf.ln(5); pdf.set_font('helvetica', 'B', 12); pdf.cell(150, 10, "TOTAL PROPUESTA:", align="R")
-            pdf.cell(40, 10, f"${int(subtotal):,}", align="R", new_x="LMARGIN", new_y="NEXT")
+            pdf.cell(40, 10, f"${int(float(subtotal)):,}", align="R", new_x="LMARGIN", new_y="NEXT")
             
             nombre_archivo = f"Cotizacion_{nro_doc}.pdf"
             pdf.output(f"assets/{nombre_archivo}")
@@ -330,7 +359,6 @@ def main(page: ft.Page):
             page.dialog = dlg_d; dlg_d.open = True; page.update()
             
         except Exception as errorFallo:
-            # Si algo vuelve a fallar, te mostrará la alerta exacta en pantalla
             mostrar_alerta("Error al generar PDF", f"Hubo un fallo: {str(errorFallo)}")
 
     btn_generar = ft.Container(content=ft.ElevatedButton("🚀 GENERAR PROPUESTA PROFESIONAL", bgcolor="#f59e0b", color="black", height=50, on_click=generar_pdf_web), alignment=ft.alignment.center, padding=ft.padding.only(top=10, bottom=20))
