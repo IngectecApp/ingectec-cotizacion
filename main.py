@@ -4,90 +4,95 @@ import os
 PORT = int(os.environ.get("PORT", 8080))
 
 def main(page: ft.Page):
+    # Configuraciones principales de la ventana
     page.title = "INGECTEC V300 - PREMIUM"
     page.theme_mode = ft.ThemeMode.DARK
-    page.padding = 20
-    page.scroll = ft.ScrollMode.AUTO
-    page.bgcolor = "#1E2024" # Color de fondo oscuro similar al tuyo
+    page.bgcolor = "#1e293b" # Tu fondo original
+    page.padding = 15
+    page.scroll = ft.ScrollMode.AUTO # Clave para poder bajar con el dedo en el celular
 
-    # --- 1. Título ---
-    page.add(
-        ft.Row([ft.Text("⚡ INGECTEC SAS", size=24, weight="bold", color=ft.colors.AMBER)], alignment=ft.MainAxisAlignment.CENTER)
+    # --- 1. ENCABEZADO ---
+    header = ft.Container(
+        content=ft.Text("⚡ INGECTEC SAS", size=22, weight="bold", color="#fbbf24"),
+        alignment=ft.alignment.center,
+        padding=5
     )
 
-    # --- 2. Botones Superiores ---
+    # --- 2. BOTONES SUPERIORES (Wrap para que se acomoden solos en móvil) ---
     botones_top = ft.Row([
-        ft.ElevatedButton("➕ AÑADIR ÍTEM", bgcolor=ft.colors.TEAL, color=ft.colors.WHITE),
-        ft.ElevatedButton("📦 BODEGA", bgcolor=ft.colors.BLUE_700, color=ft.colors.WHITE),
-        ft.ElevatedButton("👥 CLIENTES", bgcolor=ft.colors.BLUE_700, color=ft.colors.WHITE),
-        ft.ElevatedButton("🔍 HISTORIAL", bgcolor=ft.colors.BLUE_700, color=ft.colors.WHITE),
-        ft.ElevatedButton("✏️ EDITAR", bgcolor=ft.colors.GREY_700, color=ft.colors.WHITE),
-        ft.ElevatedButton("🧹 LIMPIAR", bgcolor=ft.colors.RED_700, color=ft.colors.WHITE),
-        ft.ElevatedButton("💾 BACKUPS", bgcolor=ft.colors.GREY_700, color=ft.colors.WHITE),
-    ], alignment=ft.MainAxisAlignment.CENTER, wrap=True)
-    page.add(botones_top)
+        ft.ElevatedButton("➕ AÑADIR ÍTEM", bgcolor="#10b981", color="white"),
+        ft.ElevatedButton("📦 BODEGA", bgcolor="#2563eb", color="white"),
+        ft.ElevatedButton("👥 CLIENTES", bgcolor="#2563eb", color="white"),
+        ft.ElevatedButton("🔍 HISTORIAL", bgcolor="#2563eb", color="white"),
+        ft.ElevatedButton("✏️ EDITAR", bgcolor="#475569", color="white"),
+        ft.ElevatedButton("🧹 LIMPIAR", bgcolor="#ef4444", color="white"),
+    ], wrap=True, alignment=ft.MainAxisAlignment.CENTER)
 
-    # --- 3. Tabla de Propuesta (Estructura Visual) ---
-    tabla_contenedor = ft.Container(
+    # --- 3. TABLA DE PROPUESTA (Responsiva) ---
+    tabla = ft.Container(
         content=ft.Column([
-            ft.Row([ft.Text("PROPUESTA ING 161", weight="bold", color=ft.colors.AMBER)], alignment=ft.MainAxisAlignment.CENTER),
-            ft.Divider(color=ft.colors.WHITE24),
-            ft.Row([
-                ft.Text("DESCRIPCIÓN", weight="bold", color=ft.colors.AMBER, expand=True, text_align=ft.TextAlign.CENTER),
-                ft.Text("CANTIDAD", weight="bold", color=ft.colors.AMBER, width=150, text_align=ft.TextAlign.CENTER),
-                ft.Text("TOTAL", weight="bold", color=ft.colors.AMBER, width=150, text_align=ft.TextAlign.CENTER),
+            ft.Row([ft.Text("PROPUESTA ING 161", weight="bold", color="#fbbf24", size=16)], alignment=ft.MainAxisAlignment.CENTER),
+            ft.Divider(color="white24"),
+            ft.ResponsiveRow([
+                ft.Text("DESCRIPCIÓN", weight="bold", color="#fbbf24", col={"sm": 6, "md": 6, "lg": 6}),
+                ft.Text("CANT", weight="bold", color="#fbbf24", col={"sm": 3, "md": 3, "lg": 3}, text_align="center"),
+                ft.Text("TOTAL", weight="bold", color="#fbbf24", col={"sm": 3, "md": 3, "lg": 3}, text_align="right"),
             ]),
-            # Aquí luego inyectaremos los datos de la base de datos
-            ft.Container(height=150) 
+            ft.Container(height=80), # Espacio temporal para los ítems
+            ft.Row([ft.TextButton("❌ QUITAR SELECCIONADO", icon_color="#ef4444", style=ft.ButtonStyle(color="#ef4444"))], alignment=ft.MainAxisAlignment.CENTER)
         ]),
-        border=ft.border.all(1, ft.colors.WHITE38),
+        bgcolor="#0f172a",
+        padding=10,
         border_radius=8,
-        padding=15,
-        bgcolor="#25282F"
+        border=ft.border.all(1, "white12")
     )
-    page.add(tabla_contenedor)
 
-    # Botón Quitar
-    page.add(ft.Row([ft.TextButton("❌ QUITAR SELECCIONADO", icon_color=ft.colors.RED, style=ft.ButtonStyle(color=ft.colors.RED))], alignment=ft.MainAxisAlignment.CENTER))
+    # --- 4. FORMULARIO CLIENTE (100% Responsivo a 12 columnas) ---
+    f_cli = ft.ResponsiveRow([
+        ft.TextField(label="Buscar nombre de cliente...", col={"sm": 12, "md": 5, "lg": 5}),
+        ft.TextField(label="NIT / C.C.", col={"sm": 6, "md": 4, "lg": 4}),
+        ft.TextField(label="Ciudad", value="Yumbo", col={"sm": 6, "md": 3, "lg": 3}),
+        
+        ft.TextField(label="Atención a: (Ej. ING. OSCAR MERA)", col={"sm": 12, "md": 6, "lg": 5}),
+        ft.TextField(label="Forma Pago", value="30 DIAS", col={"sm": 6, "md": 3, "lg": 4}),
+        ft.TextField(label="Tiempo Oferta", value="15 DIAS", col={"sm": 6, "md": 3, "lg": 3}),
+        
+        ft.TextField(label="Escribe la REFERENCIA aquí...", col={"sm": 12, "md": 6, "lg": 7}),
+        ft.Dropdown(
+            label="Asesor Comercial",
+            options=[
+                ft.dropdown.Option("OSCAR MERA"),
+                ft.dropdown.Option("YEISON FABIAN RESTREPO"),
+                ft.dropdown.Option("ORLANDO"),
+                ft.dropdown.Option("PAULO LEAL")
+            ],
+            value="YEISON FABIAN RESTREPO",
+            col={"sm": 12, "md": 6, "lg": 5}
+        ),
+    ])
 
-    # --- 4. Formulario de Datos ---
-    formulario = ft.Container(
-        content=ft.Column([
-            ft.Row([
-                ft.TextField(label="Buscar nombre de cliente...", expand=True, height=45),
-                ft.TextField(label="NIT / C.C. (Opcional)", width=200, height=45),
-                ft.TextField(value="Yumbo", width=200, height=45),
-            ]),
-            ft.Row([
-                ft.TextField(label="Atención a: (Ej. ING. OSCAR MERA)", expand=True, height=45),
-                ft.TextField(value="30 DIAS", width=200, height=45),
-                ft.TextField(value="15 DIAS", width=200, height=45),
-            ]),
-            ft.Row([
-                ft.TextField(label="Escribe la REFERENCIA aquí...", expand=True, height=45),
-                ft.Dropdown(options=[ft.dropdown.Option("YEISON FABIAN RESTREPO")], value="YEISON FABIAN RESTREPO", width=300, height=45)
-            ]),
-            # Configuración AIU
-            ft.Row([
-                ft.Icon(ft.icons.SETTINGS, size=20),
-                ft.Text("Config. AIU (Global):", weight="bold"),
-                ft.Text("Imprev %:"), ft.TextField(value="2", width=60, height=40, content_padding=5, text_align=ft.TextAlign.CENTER),
-                ft.Text("Util %:"), ft.TextField(value="8", width=60, height=40, content_padding=5, text_align=ft.TextAlign.CENTER),
-                ft.Text("IVA s/Util %:"), ft.TextField(value="19", width=60, height=40, content_padding=5, text_align=ft.TextAlign.CENTER),
-            ], alignment=ft.MainAxisAlignment.START)
-        ]),
-        padding=ft.padding.only(top=10, bottom=10)
+    # --- 5. CONFIGURACIÓN AIU ---
+    f_aiu = ft.ResponsiveRow([
+        ft.Text("⚙️ Config. AIU (Global):", weight="bold", col={"sm": 12, "md": 3, "lg": 3}),
+        ft.TextField(label="Imprev %", value="2", col={"sm": 4, "md": 3, "lg": 2}),
+        ft.TextField(label="Util %", value="8", col={"sm": 4, "md": 3, "lg": 2}),
+        ft.TextField(label="IVA s/U %", value="19", col={"sm": 4, "md": 3, "lg": 2}),
+    ], vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
+    # --- 6. BOTÓN GENERAR ---
+    btn_generar = ft.Container(
+        content=ft.ElevatedButton(
+            "🚀 GENERAR PROPUESTA PROFESIONAL",
+            bgcolor="#f59e0b",
+            color="black",
+            height=50,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=25))
+        ),
+        alignment=ft.alignment.center,
+        padding=ft.padding.only(top=10, bottom=20)
     )
-    page.add(formulario)
 
-    # --- 5. Botón Generar ---
-    btn_generar = ft.ElevatedButton(
-        "🚀 GENERAR PROPUESTA PROFESIONAL", 
-        bgcolor=ft.colors.AMBER_600, 
-        color=ft.colors.BLACK,
-        height=50,
-        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=25))
-    )
-    page.add(ft.Row([btn_generar], alignment=ft.MainAxisAlignment.CENTER))
+    # Cargar todo a la pantalla
+    page.add(header, botones_top, tabla, f_cli, f_aiu, btn_generar)
 
 ft.app(target=main, view=ft.AppView.WEB_BROWSER, port=PORT, host="0.0.0.0")
