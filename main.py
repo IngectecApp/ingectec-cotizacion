@@ -337,20 +337,6 @@ def main(page: ft.Page):
             else: lista_busqueda_cli.visible = False
             page.update()
 
-        # Interfaz limpia original sin casillas saturadas
-        nonlocal input_cliente, input_nit, input_atencion, input_ciudad, input_pago, input_tiempo, input_ref, input_pct_i, input_pct_u, input_pct_iva_u
-        input_cliente = ft.TextField(label="Buscar nombre de cliente...", on_change=buscar_cliente_realtime)
-        input_nit = ft.TextField(label="NIT / C.C.", col={"sm": 6, "md": 4, "lg": 4})
-        input_atencion = ft.TextField(label="Atención a: (Ej. ING. OSCAR MERA)", col={"sm": 12, "md": 6, "lg": 5})
-        input_ciudad = ft.TextField(label="Ciudad", value="Yumbo", col={"sm": 6, "md": 3, "lg": 3})
-        input_pago = ft.TextField(label="Forma Pago", value="30 DIAS", col={"sm": 6, "md": 3, "lg": 4})
-        input_tiempo = ft.TextField(label="Tiempo Oferta", value="15 DIAS", col={"sm": 6, "md": 3, "lg": 3})
-        input_ref = ft.TextField(label="REFERENCIA", col={"sm": 12, "md": 6, "lg": 7})
-        
-        input_pct_i = ft.TextField(label="Imprev %", value="2", col={"sm": 4, "md": 3, "lg": 2})
-        input_pct_u = ft.TextField(label="Util %", value="8", col={"sm": 4, "md": 3, "lg": 2})
-        input_pct_iva_u = ft.TextField(label="IVA s/U %", value="19", col={"sm": 4, "md": 3, "lg": 2})
-
         f_cli = ft.ResponsiveRow([
             ft.Column([input_cliente, lista_busqueda_cli], col={"sm": 12, "md": 5, "lg": 5}),
             input_nit,
