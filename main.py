@@ -71,17 +71,14 @@ def main(page: ft.Page):
     # --- PILOTO AUTOMÁTICO: BLINDAJE DE TABLAS Y USUARIOS ---
     db_setup = conectar_db()
     if db_setup:
-        # Usuarios
         db_setup.execute("CREATE TABLE IF NOT EXISTS usuarios (usuario TEXT PRIMARY KEY, password TEXT, rol TEXT)")
         db_setup.execute("INSERT OR IGNORE INTO usuarios VALUES ('OSCAR', '1234', 'ADMIN')")
         db_setup.execute("INSERT OR IGNORE INTO usuarios VALUES ('YEISON', '1234', 'ASESOR')")
         db_setup.execute("INSERT OR IGNORE INTO usuarios VALUES ('PAULO', '1234', 'ASESOR')")
         
-        # Consecutivos (Si no existe, se crea para evitar bloqueos)
         db_setup.execute("CREATE TABLE IF NOT EXISTS n_cot (id INTEGER PRIMARY KEY, num INTEGER)")
         db_setup.execute("INSERT OR IGNORE INTO n_cot (id, num) VALUES (1, 100)")
         
-        # Historial y auditorías
         try: db_setup.execute("ALTER TABLE historial ADD COLUMN creador TEXT DEFAULT 'SISTEMA'")
         except: pass
         try: db_setup.execute("ALTER TABLE historial ADD COLUMN origen TEXT DEFAULT 'WEB'")
@@ -96,15 +93,32 @@ def main(page: ft.Page):
         
         db_setup.commit(); db_setup.close()
 
+    # Declaración de campos de login
+    input_usr = ft.TextField(label="Usuario (Ej. OSCAR, PAULO, YEISON)", width=300)
+    input_pwd = ft.TextField(label="Contraseña", password=True, can_reveal_password=True, width=300)
+
     # ==========================================
-    # INTERFAZ PRINCIPAL AISLADA (Una copia por usuario)
+    # MOSTRAR PANTALLA DE LOGIN
+    # ==========================================
+    def mostrar_login():
+        sesion["usuario"] = None
+        sesion["rol"] = None
+        lista_items.clear()
+        estado["nro_edicion"] = None
+        input_usr.value = ""
+        input_pwd.value = ""
+        
+        page.controls.clear()
+        page.add(pantalla_login)
+        page.update()
+
+    # ==========================================
+    # INTERFAZ PRINCIPAL AISLADA
     # ==========================================
     def iniciar_app_principal():
         page.scroll = ft.ScrollMode.AUTO
         page.controls.clear()
         
-        # --- 1. INSTANCIACIÓN AISLADA DE CONTROLES VISUALES ---
-        # Estos controles le pertenecen SOLO al usuario actual. No se cruzan jamás.
         input_cliente = ft.TextField(label="Buscar nombre de cliente...")
         input_nit = ft.TextField(label="NIT / C.C.")
         input_ciudad = ft.TextField(label="Ciudad", value="Yumbo")
@@ -117,7 +131,6 @@ def main(page: ft.Page):
         input_pct_iva_u = ft.TextField(label="IVA s/Util %", value="19")
         lista_busqueda_cli = ft.ListView(height=150, visible=False, spacing=2)
 
-        # Funciones de autocompletado enlazadas a los campos privados
         def buscar_cliente_realtime(e):
             texto = (input_cliente.value or "").upper().strip()
             lista_busqueda_cli.controls.clear()
@@ -134,7 +147,6 @@ def main(page: ft.Page):
 
         input_cliente.on_change = buscar_cliente_realtime
 
-        # --- 2. CONFIGURACIÓN DEL ENCABEZADO Y TABLA ---
         db_num = conectar_db()
         nro_actual = "100"
         if db_num:
@@ -161,7 +173,6 @@ def main(page: ft.Page):
         def quitar_seleccionado(e):
             if lista_items: lista_items.pop(); actualizar_tabla_visual()
 
-        # --- 3. MODALES DE TRABAJO ---
         def abrir_modal_item(e):
             resultados_inv = ft.ListView(expand=True, spacing=10, height=150)
             input_desc = ft.TextField(label="Producto Seleccionado", read_only=True)
@@ -350,7 +361,6 @@ def main(page: ft.Page):
         def limpiar_todo(e):
             lista_items.clear(); estado["nro_edicion"] = None; actualizar_tabla_visual(); input_cliente.value = ""; input_nit.value = ""; lista_busqueda_cli.visible = False; page.update()
 
-        # --- 4. MOTOR PRINCIPAL DE GENERACIÓN (CON CANDADO ANTICHOQUE) ---
         def generar_pdf_web(e):
             try:
                 if not lista_items or not input_cliente.value: 
@@ -365,7 +375,6 @@ def main(page: ft.Page):
                 db = conectar_db()
                 nro_doc = estado["nro_edicion"]
                 
-                # Candado de Base de Datos - 100% Protegido contra concurrencia
                 if not nro_doc:
                     cursor_num = db.cursor()
                     cursor_num.execute("BEGIN IMMEDIATE")
@@ -528,7 +537,9 @@ def main(page: ft.Page):
                 page.dialog = dlg_d; dlg_d.open = True; page.update()
             except Exception as errorFallo: mostrar_alerta("Error al generar PDF", f"Hubo un fallo: {str(errorFallo)}")
 
-        # --- 5. ENSAMBLAJE FINAL DE LA PANTALLA ---
+        # Botón para cerrar sesión limpio y directo
+        btn_salir = ft.ElevatedButton("🚪 CERRAR SESIÓN", bgcolor="#475569", color="white", on_click=lambda e: mostrar_login())
+
         botones_top = ft.Row([
             ft.ElevatedButton("➕ AÑADIR ÍTEM", bgcolor="#10b981", color="white", on_click=abrir_modal_item),
             ft.ElevatedButton("📦 BODEGA", bgcolor="#2563eb", color="white", on_click=abrir_modal_bodega),
@@ -537,6 +548,7 @@ def main(page: ft.Page):
             ft.ElevatedButton("✏️ EDITAR", bgcolor="#475569", color="white", on_click=abrir_modal_editar),
             ft.ElevatedButton("🧹 LIMPIAR", bgcolor="#ef4444", color="white", on_click=limpiar_todo),
             ft.ElevatedButton("📂 BACKUPS", bgcolor="#475569", color="white", on_click=descargar_backup),
+            btn_salir
         ], wrap=True, alignment=ft.MainAxisAlignment.CENTER)
 
         tabla = ft.Container(
@@ -601,9 +613,6 @@ def main(page: ft.Page):
                 page.snack_bar.open = True
                 page.update()
 
-    input_usr = ft.TextField(label="Usuario (Ej. OSCAR, PAULO, YEISON)", width=300)
-    input_pwd = ft.TextField(label="Contraseña", password=True, can_reveal_password=True, width=300)
-    
     pantalla_login = ft.Container(
         content=ft.Column(
             [
@@ -621,7 +630,6 @@ def main(page: ft.Page):
         expand=True
     )
 
-    page.add(pantalla_login)
-    page.update()
+    mostrar_login()
 
 ft.app(target=main, view=ft.AppView.WEB_BROWSER, port=PORT, host="0.0.0.0", assets_dir="assets")
