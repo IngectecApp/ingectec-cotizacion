@@ -57,7 +57,6 @@ def main(page: ft.Page):
     page.padding = 15
     page.scroll = ft.ScrollMode.AUTO
 
-    # Variables de Sesión
     sesion = {"usuario": None, "rol": None}
     lista_items = []
     estado = {"nro_edicion": None}
@@ -73,17 +72,14 @@ def main(page: ft.Page):
     # --- PILOTO AUTOMÁTICO: INSTALACIÓN DE SEGURIDAD Y USUARIOS ---
     db_setup = conectar_db()
     if db_setup:
-        # 1. Crear tabla de usuarios
         db_setup.execute("CREATE TABLE IF NOT EXISTS usuarios (usuario TEXT PRIMARY KEY, password TEXT, rol TEXT)")
         db_setup.execute("INSERT OR IGNORE INTO usuarios VALUES ('OSCAR', '1234', 'ADMIN')")
         db_setup.execute("INSERT OR IGNORE INTO usuarios VALUES ('YEISON', '1234', 'ASESOR')")
         db_setup.execute("INSERT OR IGNORE INTO usuarios VALUES ('PAULO', '1234', 'ASESOR')")
         
-        # 2. Agregar la columna de creador al historial (si no existe)
         try: db_setup.execute("ALTER TABLE historial ADD COLUMN creador TEXT DEFAULT 'SISTEMA'")
         except: pass
         
-        # 3. Recuperador de ítems base
         cursor_r = db_setup.cursor()
         items_perdidos = [("BREAKER 2X40", 101861, 100), ("TUBO EMT DE 1\" (INCLUYE ASCESORIOS DE INSTALACION)", 35547, 100)]
         for desc, precio, stock in items_perdidos:
@@ -97,6 +93,7 @@ def main(page: ft.Page):
     # INTERFAZ PRINCIPAL DE LA APLICACIÓN
     # ==========================================
     def iniciar_app_principal():
+        page.controls.clear()
         header = ft.Container(content=ft.Text(f"⚡ INGECTEC SAS - (Bienvenido, {sesion['usuario']})", size=22, weight="bold", color="#fbbf24"), alignment=ft.alignment.center, padding=5)
 
         columna_tabla_items = ft.Column()
@@ -113,7 +110,6 @@ def main(page: ft.Page):
                 )
             page.update()
 
-        # --- MÓDULOS DE VENTANAS ---
         def abrir_modal_item(e):
             resultados_inv = ft.ListView(expand=True, spacing=10, height=150)
             input_desc = ft.TextField(label="Producto Seleccionado", read_only=True)
@@ -224,12 +220,10 @@ def main(page: ft.Page):
             dlg = ft.AlertDialog(title=ft.Text("👥 Base de Datos Clientes"), content=ft.Column([buscador_cli, resultados_cli], tight=True), actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))])
             page.dialog = dlg; dlg.open = True; buscar_clientes_bd(None)
 
-        # --- FILTRO DE PRIVACIDAD EN EL HISTORIAL ---
         def abrir_modal_historial(e):
             resultados_hist = ft.ListView(height=300)
             db = conectar_db()
             if db:
-                # Lógica de Roles: Óscar ve todo, los Asesores ven solo lo suyo
                 if sesion["rol"] == "ADMIN":
                     filas = db.execute("SELECT nro, cliente, fecha, total, creador FROM historial ORDER BY nro DESC LIMIT 30").fetchall()
                 else:
@@ -366,7 +360,6 @@ def main(page: ft.Page):
         ])
         f_aiu = ft.ResponsiveRow([ft.Text("⚙️ Config. AIU:", weight="bold", col={"sm": 12, "md": 3}), input_pct_i, input_pct_u, input_pct_iva_u], vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
-        # --- 6. GENERADOR DE PDF CON BLOQUEO ANTICHOQUES ---
         def generar_pdf_web(e):
             try:
                 if not lista_items or not input_cliente.value: 
@@ -385,7 +378,6 @@ def main(page: ft.Page):
                 nro_doc = estado["nro_edicion"]
                 
                 if not nro_doc:
-                    # Candado de Base de Datos para números secuenciales perfectos
                     cursor_num = db.cursor()
                     cursor_num.execute("BEGIN IMMEDIATE")
                     cursor_num.execute("UPDATE n_cot SET num = num + 1 WHERE id=1")
@@ -422,7 +414,6 @@ def main(page: ft.Page):
                     else: subtotal_exe += tot_item_n
 
                 subtotal_global = subtotal_aiu + sum(iva_bases.values()) + subtotal_exe
-                # Insertar en historial con la firma de quién lo hizo (sesion["usuario"])
                 db.execute("INSERT INTO historial (nro, cliente, fecha, archivo, total, origen, creador) VALUES (?,?,?,?,?,?,?)", 
                            (nro_doc, c_nom, datetime.now().strftime("%Y-%m-%d"), "web.pdf", subtotal_global, "WEB", sesion["usuario"]))
                 db.commit(); db.close()
@@ -549,17 +540,15 @@ def main(page: ft.Page):
                 try: os.remove("assets/qr_temp.png")
                 except: pass
                 
-                dlg_d = ft.AlertDialog(title=ft.Text("✅ Guardado y Generado", color="#10b981"), content=ft.Text("Tu cotización está lista en PDF."), actions=[ft.ElevatedButton("📥 DESCARGAR PDF", bgcolor="#2563eb", color="white", on_click=lambda evt: page.launch_url(f"/{nombre_archivo}")), ft.TextButton("Cerrar", on_click=lambda evt: cerrar_dialogo(dlg_d))])
+                dlg_d = ft.AlertDialog(title=ft.Text("✅ Guardado y Generado", color="#10b981"), content=ft.Text("Tu cotización está lista en PDF."), actions=[ft.ElevatedButton("📥 DESCARGAR PDF", bgcolor="#2563eb", color="white", on_click=lambda evt: page.launch_url(f"/{nombre_archivo}")) , ft.TextButton("Cerrar", on_click=lambda evt: cerrar_dialogo(dlg_d))])
                 page.dialog = dlg_d; dlg_d.open = True; page.update()
             except Exception as errorFallo: mostrar_alerta("Error al generar PDF", f"Hubo un fallo: {str(errorFallo)}")
 
         btn_generar = ft.Container(content=ft.ElevatedButton("🚀 GENERAR PROPUESTA PROFESIONAL", bgcolor="#f59e0b", color="black", height=50, on_click=generar_pdf_web), alignment=ft.alignment.center, padding=ft.padding.only(top=10, bottom=20))
         page.add(header, botones_top, tabla, f_cli, f_aiu, btn_generar)
+        page.update()
 
-
-    # ==========================================
-    # PANTALLA DE INICIO DE SESIÓN
-    # ==========================================
+    # --- PANTALLA DE INICIO DE SESIÓN ---
     def procesar_login(e):
         u = input_usr.value.upper().strip()
         p = input_pwd.value.strip()
@@ -570,9 +559,7 @@ def main(page: ft.Page):
             if user:
                 sesion["usuario"] = u
                 sesion["rol"] = user[0]
-                page.controls.clear()
                 iniciar_app_principal()
-                page.update()
             else:
                 page.snack_bar = ft.SnackBar(ft.Text("❌ Usuario o contraseña incorrectos"), bgcolor="#ef4444")
                 page.snack_bar.open = True
@@ -581,22 +568,29 @@ def main(page: ft.Page):
     input_usr = ft.TextField(label="Usuario (Ej. OSCAR, PAULO, YEISON)", width=300)
     input_pwd = ft.TextField(label="Contraseña", password=True, can_reveal_password=True, width=300)
     
-    pantalla_login = ft.Container(
-        content=ft.Column(
-            [
-                ft.Icon(ft.icons.LOCK_PERSON, size=50, color="#fbbf24"),
-                ft.Text("INGECTEC - Acceso Seguro", size=20, weight="bold"),
-                input_usr,
-                input_pwd,
-                ft.ElevatedButton("INICIAR SESIÓN", bgcolor="#2563eb", color="white", width=300, height=45, on_click=procesar_login)
-            ],
-            alignment=ft.MainAxisAlignment.CENTER,
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-        ),
-        alignment=ft.alignment.center,
-        expand=True
+    pantalla_login = ft.View(
+        "/login",
+        [
+            ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Icon(ft.icons.LOCK_PERSON, size=50, color="#fbbf24"),
+                        ft.Text("INGECTEC - Acceso Seguro", size=20, weight="bold"),
+                        input_usr,
+                        input_pwd,
+                        ft.ElevatedButton("INICIAR SESIÓN", bgcolor="#2563eb", color="white", width=300, height=45, on_click=procesar_login)
+                    ],
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                alignment=ft.alignment.center,
+                expand=True
+            )
+        ],
+        bgcolor="#1e293b"
     )
 
-    page.add(pantalla_login)
+    page.views.append(pantalla_login)
+    page.update()
 
 ft.app(target=main, view=ft.AppView.WEB_BROWSER, port=PORT, host="0.0.0.0", assets_dir="assets")
