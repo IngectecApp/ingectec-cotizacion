@@ -58,6 +58,21 @@ def main(page: ft.Page):
     page.padding = 15
     page.scroll = ft.ScrollMode.AUTO
 
+    # --- AUTO-RECUPERADOR DE ÍTEMS PERDIDOS ---
+    db_rec = conectar_db()
+    if db_rec:
+        cursor_r = db_rec.cursor()
+        items_perdidos = [
+            ("BREAKER 2X40", 101861, 100),
+            ("TUBO EMT DE 1\" (INCLUYE ASCESORIOS DE INSTALACION)", 35547, 100)
+        ]
+        for desc, precio, stock in items_perdidos:
+            cursor_r.execute("SELECT count(*) FROM inv WHERE d=?", (desc,))
+            if cursor_r.fetchone()[0] == 0:
+                cursor_r.execute("INSERT INTO inv (d, p, stock) VALUES (?,?,?)", (desc, precio, stock))
+        db_rec.commit()
+        db_rec.close()
+
     lista_items = []
     estado = {"nro_edicion": None}
     MI_WHATSAPP = "573175046404"
@@ -85,29 +100,32 @@ def main(page: ft.Page):
             )
         page.update()
 
-    # --- 1. MÓDULO AÑADIR ÍTEM (UNIDADES PERSONALIZABLES) ---
+    # --- 1. MÓDULO AÑADIR ÍTEM (VENTANA ANCHA Y UNIDADES DINÁMICAS) ---
     def abrir_modal_item(e):
         resultados_inv = ft.ListView(expand=True, spacing=10, height=150)
         input_desc = ft.TextField(label="Producto Seleccionado", read_only=True)
         
-        input_cant = ft.TextField(label="Cantidad", value="1", col={"sm": 4})
-        input_und_custom = ft.TextField(label="Escriba Und", visible=False, col={"sm": 3})
-        input_precio = ft.TextField(label="Precio Unit", col={"sm": 4})
+        input_cant = ft.TextField(label="Cantidad", value="1", col={"sm": 3})
+        input_und_custom = ft.TextField(label="Iniciales (Ej. KGS)", visible=False, col={"sm": 3})
+        input_precio = ft.TextField(label="Precio Unit", col={"sm": 5})
         
         def cambiar_und(evt):
-            if input_und.value == "OTRA...":
-                input_und_custom.visible = True
-                input_cant.col = {"sm": 3}
+            if input_und.value == "✍️ ESCRIBIR...":
+                # Si escoge escribir, hacemos espacio para la nueva casilla
+                input_cant.col = {"sm": 2}
                 input_und.col = {"sm": 3}
-                input_precio.col = {"sm": 3}
-            else:
-                input_und_custom.visible = False
-                input_cant.col = {"sm": 4}
-                input_und.col = {"sm": 4}
+                input_und_custom.visible = True
                 input_precio.col = {"sm": 4}
+                input_und_custom.focus()
+            else:
+                # Si vuelve a escoger una normal, ocultamos la casilla custom
+                input_cant.col = {"sm": 3}
+                input_und.col = {"sm": 4}
+                input_und_custom.visible = False
+                input_precio.col = {"sm": 5}
             page.update()
 
-        lista_unidades = ["ML", "UNID", "MTS", "GLB", "ROLLO", "DIA", "PAQ", "OTRA..."]
+        lista_unidades = ["ML", "UNID", "MTS", "GLB", "ROLLO", "DIA", "PAQ", "✍️ ESCRIBIR..."]
         input_und = ft.Dropdown(
             label="Und", 
             options=[ft.dropdown.Option(u) for u in lista_unidades], 
@@ -132,7 +150,6 @@ def main(page: ft.Page):
                         input_desc.value = desc
                         input_precio.value = str(int(float(precio)))
                         
-                        # Inteligencia de detección de unidad
                         if "TUBO" in desc.upper() or "CABLE" in desc.upper():
                             input_und.value = "ML"
                         elif "INSTALACION" in desc.upper():
@@ -140,11 +157,11 @@ def main(page: ft.Page):
                         else:
                             input_und.value = "UNID"
                             
-                        # Restaurar el diseño por si estaba en "OTRA..."
+                        # Restaurar el diseño ancho
                         input_und_custom.visible = False
-                        input_cant.col = {"sm": 4}
+                        input_cant.col = {"sm": 3}
                         input_und.col = {"sm": 4}
-                        input_precio.col = {"sm": 4}
+                        input_precio.col = {"sm": 5}
                         page.update()
                         
                     resultados_inv.controls.append(ft.ListTile(title=ft.Text(d, color="#fbbf24", size=14), subtitle=ft.Text(f"${int(float(p)):,}"), on_click=sel))
@@ -157,32 +174,40 @@ def main(page: ft.Page):
                 d, c, p = input_desc.value, float(input_cant.value), float(input_precio.value)
                 imp = "EXENTO" if input_imp_tipo.value == "EXENTO" else f"{input_imp_tipo.value} {input_imp_pct.value}%"
                 
-                # Rescatar la unidad seleccionada o la escrita a mano
-                und_final = str(input_und_custom.value).upper().strip() if input_und.value == "OTRA..." else input_und.value
+                # Rescatar la unidad exacta que el asesor quiere
+                if input_und.value == "✍️ ESCRIBIR...":
+                    und_final = str(input_und_custom.value).upper().strip()
+                else:
+                    und_final = input_und.value
+                    
                 if not und_final: und_final = "UNID"
                 
                 lista_items.append({"desc": d, "cant": c, "precio": p, "total": c*p, "impuesto": imp, "und": und_final})
                 actualizar_tabla_visual()
                 
-                # Resetear la ventana para un nuevo ítem
                 input_desc.value = ""; input_cant.value = "1"; input_precio.value = ""
                 input_und.value = "UNID"; input_und_custom.value = ""; input_und_custom.visible = False
-                input_cant.col = {"sm": 4}; input_und.col = {"sm": 4}; input_precio.col = {"sm": 4}
+                input_cant.col = {"sm": 3}; input_und.col = {"sm": 4}; input_precio.col = {"sm": 5}
                 
                 buscador_inv.value = ""; buscar_inv_bd(None)
                 page.snack_bar = ft.SnackBar(ft.Text("✅ Ítem agregado"), bgcolor="#10b981"); page.snack_bar.open = True; page.update()
             except: pass
 
         buscador_inv = ft.TextField(label="Buscar en bodega...", on_change=buscar_inv_bd)
+        
         dlg = ft.AlertDialog(
             title=ft.Text("➕ Añadir a Propuesta"), 
-            content=ft.Column([
-                buscador_inv, 
-                resultados_inv, 
-                input_desc, 
-                ft.ResponsiveRow([input_cant, input_und, input_und_custom, input_precio]), 
-                ft.ResponsiveRow([input_imp_tipo, input_imp_pct])
-            ], tight=True), 
+            # ¡AQUÍ ESTÁ LA MAGIA PARA QUE NO SE VEA APEÑUSCADO! (width=750)
+            content=ft.Container(
+                width=750,
+                content=ft.Column([
+                    buscador_inv, 
+                    resultados_inv, 
+                    input_desc, 
+                    ft.ResponsiveRow([input_cant, input_und, input_und_custom, input_precio]), 
+                    ft.ResponsiveRow([input_imp_tipo, input_imp_pct])
+                ], tight=True)
+            ), 
             actions=[
                 ft.ElevatedButton("Guardar", bgcolor="#10b981", color="white", on_click=guardar_item), 
                 ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))
