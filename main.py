@@ -2,11 +2,46 @@ import flet as ft
 import sqlite3
 import os
 import shutil
+import re
+import qrcode
+import textwrap
 from fpdf import FPDF
+from fpdf.enums import XPos, YPos
 from datetime import datetime
 
 PORT = int(os.environ.get("PORT", 8080))
 if not os.path.exists("assets"): os.makedirs("assets")
+
+# --- CLASE PDF ORIGINAL DE INGECTEC ---
+class PDF(FPDF):
+    def rounded_rect(self, x, y, w, h, r, style='F'):
+        if style == 'F':
+            self.rect(x + r, y, w - 2 * r, h, style='F')
+            self.rect(x, y + r, w, h - 2 * r, style='F')
+            self.ellipse(x, y, 2 * r, 2 * r, style='F')
+            self.ellipse(x + w - 2 * r, y, 2 * r, 2 * r, style='F')
+            self.ellipse(x, y + h - 2 * r, 2 * r, 2 * r, style='F')
+            self.ellipse(x + w - 2 * r, y + h - 2 * r, 2 * r, 2 * r, style='F')
+
+    def header(self):
+        # Si tienes tu logo en la carpeta assets, lo cargará. Si no, omite el error para no colapsar.
+        if os.path.exists("assets/logopl.png"): 
+            try: self.image("assets/logopl.png", x=10, y=8, w=190)
+            except: pass
+        self.set_y(40) 
+        
+    def footer(self):
+        self.set_y(-25)
+        self.set_font('helvetica', '', 8)
+        self.set_text_color(150, 150, 150)
+        self.set_draw_color(200, 200, 200)
+        self.line(30, self.get_y(), 180, self.get_y())
+        self.ln(2)
+        self.cell(0, 4, "INGECTEC S.A.S: CALLE 2 N # 4-53 BELALCAZAR CELULAR: 317 504 64 04 - 3172736356", border=0, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        self.cell(0, 4, "comercial@ingectec.com - gerencia@ingectec.com", border=0, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        self.cell(0, 4, "WWW.INGECTEC.COM", border=0, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        self.set_y(-10)
+        self.cell(0, 4, f'Página {self.page_no()}', border=0, align='R')
 
 def conectar_db():
     try: return sqlite3.connect('ingectec.db', timeout=10)
@@ -21,6 +56,7 @@ def main(page: ft.Page):
 
     lista_items = []
     estado = {"nro_edicion": None}
+    MI_WHATSAPP = "573175046404"
 
     header = ft.Container(content=ft.Text("⚡ INGECTEC SAS", size=22, weight="bold", color="#fbbf24"), alignment=ft.alignment.center, padding=5)
 
@@ -35,7 +71,6 @@ def main(page: ft.Page):
     def actualizar_tabla_visual():
         columna_tabla_items.controls.clear()
         for idx, item in enumerate(lista_items):
-            # Conversión segura para evitar el error de base 10
             total_seguro = int(float(item['total']))
             columna_tabla_items.controls.append(
                 ft.ResponsiveRow([
@@ -46,7 +81,7 @@ def main(page: ft.Page):
             )
         page.update()
 
-    # --- 1. AÑADIR ÍTEM ---
+    # --- MÓDULOS DE INTERFAZ ---
     def abrir_modal_item(e):
         resultados_inv = ft.ListView(expand=True, spacing=10, height=150)
         input_desc = ft.TextField(label="Producto Seleccionado", read_only=True)
@@ -81,14 +116,9 @@ def main(page: ft.Page):
             except: pass
 
         buscador_inv = ft.TextField(label="Buscar en bodega...", on_change=buscar_inv_bd)
-        dlg = ft.AlertDialog(
-            title=ft.Text("➕ Añadir a Propuesta"),
-            content=ft.Column([buscador_inv, resultados_inv, input_desc, ft.ResponsiveRow([input_cant, input_precio]), ft.ResponsiveRow([input_imp_tipo, input_imp_pct])], tight=True),
-            actions=[ft.ElevatedButton("Guardar", bgcolor="#10b981", color="white", on_click=guardar_item), ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))]
-        )
+        dlg = ft.AlertDialog(title=ft.Text("➕ Añadir a Propuesta"), content=ft.Column([buscador_inv, resultados_inv, input_desc, ft.ResponsiveRow([input_cant, input_precio]), ft.ResponsiveRow([input_imp_tipo, input_imp_pct])], tight=True), actions=[ft.ElevatedButton("Guardar", bgcolor="#10b981", color="white", on_click=guardar_item), ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))])
         page.dialog = dlg; dlg.open = True; buscar_inv_bd(None)
 
-    # --- 2. BODEGA (CRUD) ---
     def abrir_modal_bodega(e):
         resultados_bod = ft.ListView(height=150)
         e_desc = ft.TextField(label="Nombre del Producto")
@@ -111,8 +141,7 @@ def main(page: ft.Page):
             if not e_desc.value: return
             try:
                 db = conectar_db()
-                db.execute("INSERT INTO inv VALUES (?,?,?) ON CONFLICT(d) DO UPDATE SET stock=stock+excluded.stock, p=excluded.p", 
-                           (e_desc.value.upper(), float(e_precio.value or 0), float(e_stock.value or 0)))
+                db.execute("INSERT INTO inv VALUES (?,?,?) ON CONFLICT(d) DO UPDATE SET stock=stock+excluded.stock, p=excluded.p", (e_desc.value.upper(), float(e_precio.value or 0), float(e_stock.value or 0)))
                 db.commit(); db.close()
                 e_desc.value = ""; e_precio.value = ""; e_stock.value = "0"; buscar_bodega(None)
                 page.snack_bar = ft.SnackBar(ft.Text("✅ Bodega actualizada"), bgcolor="#2563eb"); page.snack_bar.open = True; page.update()
@@ -122,7 +151,6 @@ def main(page: ft.Page):
         dlg = ft.AlertDialog(title=ft.Text("📦 Gestión de Bodega"), content=ft.Column([e_desc, resultados_bod, ft.ResponsiveRow([e_precio, e_stock])], tight=True), actions=[ft.ElevatedButton("Guardar/Sumar", bgcolor="#2563eb", color="white", on_click=guardar_bodega), ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))])
         page.dialog = dlg; dlg.open = True; buscar_bodega(None)
 
-    # --- 3. CLIENTES (VENTANA FLOTANTE) ---
     def abrir_modal_clientes(e):
         resultados_cli = ft.ListView(expand=True, spacing=10, height=250)
         def buscar_clientes_bd(evt):
@@ -132,8 +160,7 @@ def main(page: ft.Page):
             if db:
                 for row in db.execute("SELECT n, i FROM cli WHERE UPPER(n) LIKE ? ORDER BY n ASC LIMIT 50", ('%'+txt+'%',)):
                     n, i = row[0], (row[1] if row[1] else "")
-                    def sel(evt, nom=n, nit=i):
-                        input_cliente.value = nom; input_nit.value = nit; cerrar_dialogo(dlg)
+                    def sel(evt, nom=n, nit=i): input_cliente.value = nom; input_nit.value = nit; cerrar_dialogo(dlg)
                     resultados_cli.controls.append(ft.ListTile(title=ft.Text(n, color="#fbbf24", weight="bold"), subtitle=ft.Text(f"NIT: {i}"), on_click=sel))
                 db.close()
             page.update()
@@ -142,7 +169,6 @@ def main(page: ft.Page):
         dlg = ft.AlertDialog(title=ft.Text("👥 Base de Datos Clientes"), content=ft.Column([buscador_cli, resultados_cli], tight=True), actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))])
         page.dialog = dlg; dlg.open = True; buscar_clientes_bd(None)
 
-    # --- 4. HISTORIAL CON AUTO-REPARACIÓN DE DATOS ---
     def abrir_modal_historial(e):
         resultados_hist = ft.ListView(height=300)
         db = conectar_db()
@@ -155,30 +181,21 @@ def main(page: ft.Page):
                     if cab: 
                         input_cliente.value = cab[0] if cab[0] else ""
                         input_nit.value = cab[1] if cab[1] else ""
-                    
                     lista_items.clear()
-                    # Escudo protector para datos corruptos del historial antiguo
                     for d in db_h.execute("SELECT desc, cant, und, unit, sub, imp FROM h_det WHERE nro=?", (numero,)):
                         desc_str = d[0] if d[0] else ""
                         try: cant_f = float(d[1])
                         except: cant_f = 1.0
-                        
                         und_str = str(d[2]) if d[2] else "UNID"
-                        
                         try: unit_f = float(d[3])
                         except: unit_f = 100.0
-                        
                         try: sub_f = float(d[4])
                         except: sub_f = cant_f * unit_f
-
                         impuesto_str = str(d[5]) if d[5] else "EXENTO"
-
-                        # Restauramos la lógica antigua para corregir las columnas invertidas de la DB vieja
                         if "AIU" in und_str or "IVA" in und_str or "EXENTO" in und_str:
                             temp = impuesto_str
                             impuesto_str = und_str
                             und_str = temp if temp not in ["EXENTO", ""] else "UNID"
-
                         lista_items.append({"desc": desc_str, "cant": cant_f, "und": und_str, "precio": unit_f, "total": sub_f, "impuesto": impuesto_str})
                     db_h.close()
                     estado["nro_edicion"] = numero
@@ -187,11 +204,9 @@ def main(page: ft.Page):
                     mostrar_alerta("Cargado", f"Propuesta N° {numero} cargada correctamente.")
                 resultados_hist.controls.append(ft.ListTile(title=ft.Text(f"N° {nro} - {cli}", color="#fbbf24", weight="bold"), subtitle=ft.Text(f"Fecha: {fec} | Total: ${int(float(tot)):,}"), on_click=cargar_historial))
             db.close()
-            
         dlg = ft.AlertDialog(title=ft.Text("🔍 Historial de Propuestas"), content=resultados_hist, actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))])
         page.dialog = dlg; dlg.open = True; page.update()
 
-    # --- 5. EDITAR ÍTEMS ACTUALES ---
     def abrir_modal_editar(e):
         if not lista_items: return mostrar_alerta("Aviso", "No hay ítems para editar.")
         lista_edicion = ft.ListView(height=250)
@@ -211,7 +226,6 @@ def main(page: ft.Page):
                         except: pass
                     dlg_ind = ft.AlertDialog(content=ft.Column([ft.Text(lista_items[index]['desc']), e_cant, e_precio], tight=True), actions=[ft.ElevatedButton("Actualizar", on_click=guardar_cambio)])
                     page.dialog = dlg_ind; dlg_ind.open = True; page.update()
-                
                 tot_seguro = int(float(item['total']))
                 lista_edicion.controls.append(ft.ListTile(title=ft.Text(f"{item['desc']}", size=13), subtitle=ft.Text(f"Cant: {item['cant']} | Total: ${tot_seguro:,}"), on_click=abrir_edicion_individual))
             dlg_editar.content = lista_edicion; page.update()
@@ -219,7 +233,6 @@ def main(page: ft.Page):
         construir_lista()
         page.dialog = dlg_editar; dlg_editar.open = True; page.update()
 
-    # --- BACKUPS Y LIMPIAR ---
     def descargar_backup(e):
         try:
             shutil.copy2('ingectec.db', 'assets/backup_ingectec.db')
@@ -233,7 +246,6 @@ def main(page: ft.Page):
     def quitar_seleccionado(e):
         if lista_items: lista_items.pop(); actualizar_tabla_visual()
 
-    # --- BOTONES PRINCIPALES ACTIVOS ---
     botones_top = ft.Row([
         ft.ElevatedButton("➕ AÑADIR ÍTEM", bgcolor="#10b981", color="white", on_click=abrir_modal_item),
         ft.ElevatedButton("📦 BODEGA", bgcolor="#2563eb", color="white", on_click=abrir_modal_bodega),
@@ -269,23 +281,27 @@ def main(page: ft.Page):
         else: lista_busqueda_cli.visible = False
         page.update()
 
+    # --- CAMPOS DE LA INTERFAZ NECESARIOS PARA EL PDF ---
     input_cliente = ft.TextField(label="Buscar nombre de cliente...", on_change=buscar_cliente_realtime)
     input_nit = ft.TextField(label="NIT / C.C.", col={"sm": 6, "md": 4, "lg": 4})
     input_ciudad = ft.TextField(label="Ciudad", value="Yumbo", col={"sm": 6, "md": 3, "lg": 3})
     input_atencion = ft.TextField(label="Atención a:", col={"sm": 12, "md": 6, "lg": 5})
+    input_pago = ft.TextField(label="Forma Pago", value="30 DIAS", col={"sm": 6, "md": 3, "lg": 4})
+    input_tiempo = ft.TextField(label="Tiempo Oferta", value="15 DIAS", col={"sm": 6, "md": 3, "lg": 3})
+    input_ref = ft.TextField(label="REFERENCIA", col={"sm": 12, "md": 6, "lg": 7})
+    
+    input_pct_i = ft.TextField(label="Imprev %", value="2", col={"sm": 4, "md": 3})
+    input_pct_u = ft.TextField(label="Util %", value="8", col={"sm": 4, "md": 3})
+    input_pct_iva_u = ft.TextField(label="IVA s/U %", value="19", col={"sm": 4, "md": 3})
 
     f_cli = ft.ResponsiveRow([
         ft.Column([input_cliente, lista_busqueda_cli], col={"sm": 12, "md": 5, "lg": 5}),
-        input_nit, input_ciudad, input_atencion,
-        ft.TextField(label="Forma Pago", value="30 DIAS", col={"sm": 6, "md": 3, "lg": 4}),
-        ft.TextField(label="Tiempo Oferta", value="15 DIAS", col={"sm": 6, "md": 3, "lg": 3}),
-        ft.TextField(label="REFERENCIA", col={"sm": 12, "md": 6, "lg": 7}),
+        input_nit, input_ciudad, input_atencion, input_pago, input_tiempo, input_ref,
         ft.Dropdown(label="Asesor", options=[ft.dropdown.Option("OSCAR MERA"), ft.dropdown.Option("YEISON FABIAN RESTREPO"), ft.dropdown.Option("PAULO LEAL")], value="YEISON FABIAN RESTREPO", col={"sm": 12, "md": 6, "lg": 5}),
     ])
+    f_aiu = ft.ResponsiveRow([ft.Text("⚙️ Config. AIU:", weight="bold", col={"sm": 12, "md": 3}), input_pct_i, input_pct_u, input_pct_iva_u], vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
-    f_aiu = ft.ResponsiveRow([ft.Text("⚙️ Config. AIU:", weight="bold", col={"sm": 12, "md": 3}), ft.TextField(label="Imprev %", value="2", col={"sm": 4, "md": 3}), ft.TextField(label="Util %", value="8", col={"sm": 4, "md": 3}), ft.TextField(label="IVA s/U %", value="19", col={"sm": 4, "md": 3})], vertical_alignment=ft.CrossAxisAlignment.CENTER)
-
-    # --- 6. GENERADOR ROBUSTO DE PDF (LIBRE DE ERRORES INT) ---
+    # --- 6. GENERADOR ROBUSTO Y DISEÑO ORIGINAL DEL PDF ---
     def generar_pdf_web(e):
         try:
             if not lista_items or not input_cliente.value: 
@@ -295,6 +311,7 @@ def main(page: ft.Page):
             c_nit = str(input_nit.value or "")
             c_ciu = str(input_ciudad.value or "Yumbo")
             c_atn = str(input_atencion.value or "")
+            c_ref = str(input_ref.value or "")
 
             db = conectar_db()
             nro_doc = estado["nro_edicion"]
@@ -310,43 +327,218 @@ def main(page: ft.Page):
             db.execute("INSERT OR IGNORE INTO cli (n, i) VALUES (?, ?)", (c_nom, c_nit))
             db.execute("INSERT INTO h_cab VALUES (?,?,?,?,?,?,?)", (nro_doc, c_nom, c_nit, "", "", "", ""))
             
-            subtotal = 0
+            subtotal_aiu = 0
+            subtotal_exe = 0
+            iva_bases = {}
+            aiu_bases = {}
+            
             for item in lista_items:
-                db.execute("INSERT INTO h_det VALUES (?,?,?,?,?,?,?)", (nro_doc, item['desc'], item['cant'], item.get('und', 'UNID'), float(item['precio']), float(item['total']), item.get('impuesto', 'EXENTO')))
-                if not estado["nro_edicion"]: 
-                    db.execute("UPDATE inv SET stock = stock - ? WHERE d=?", (item['cant'], item['desc']))
-                subtotal += float(item['total'])
+                cant_n = float(item['cant'])
+                unit_n = float(item['precio'])
+                tot_item_n = float(item['total'])
+                imp_str = item.get('impuesto', 'EXENTO')
+                und_str = item.get('und', 'UNID')
                 
-            db.execute("INSERT INTO historial VALUES (?,?,?,?,?,?)", (nro_doc, c_nom, datetime.now().strftime("%Y-%m-%d"), "web.pdf", subtotal, "WEB"))
+                db.execute("INSERT INTO h_det VALUES (?,?,?,?,?,?,?)", (nro_doc, item['desc'], cant_n, und_str, unit_n, tot_item_n, imp_str))
+                if not estado["nro_edicion"]: 
+                    db.execute("UPDATE inv SET stock = stock - ? WHERE d=?", (cant_n, item['desc']))
+                
+                if "AIU" in imp_str:
+                    subtotal_aiu += tot_item_n
+                    try: pct = float(re.findall(r"[\d.]+", imp_str)[0])
+                    except: pct = 10
+                    aiu_bases[pct] = aiu_bases.get(pct, 0) + tot_item_n
+                elif "IVA" in imp_str:
+                    try: pct = float(re.findall(r"[\d.]+", imp_str)[0])
+                    except: pct = 19
+                    iva_bases[pct] = iva_bases.get(pct, 0) + tot_item_n
+                else:
+                    subtotal_exe += tot_item_n
+
+            subtotal_global = subtotal_aiu + sum(iva_bases.values()) + subtotal_exe
+            db.execute("INSERT INTO historial VALUES (?,?,?,?,?,?)", (nro_doc, c_nom, datetime.now().strftime("%Y-%m-%d"), "web.pdf", subtotal_global, "WEB"))
             db.commit(); db.close()
 
-            pdf = FPDF()
-            pdf.add_page(); pdf.set_font('helvetica', 'B', 14)
-            pdf.cell(0, 10, f"PROPUESTA COMERCIAL - ING {nro_doc}", new_x="LMARGIN", new_y="NEXT", align="C")
-            pdf.set_font('helvetica', '', 10)
-            pdf.cell(0, 5, f"Fecha: {datetime.now().strftime('%Y-%m-%d')} - {c_ciu}", new_x="LMARGIN", new_y="NEXT")
-            pdf.cell(0, 5, f"Cliente: {c_nom} | NIT: {c_nit}", new_x="LMARGIN", new_y="NEXT")
-            if c_atn: pdf.cell(0, 5, f"Atención: {c_atn}", new_x="LMARGIN", new_y="NEXT")
+            # --- GENERACIÓN DEL ARCHIVO PDF FÍSICO ---
+            qr = qrcode.QRCode(box_size=10, border=2)
+            qr.add_data(f"https://wa.me/{MI_WHATSAPP}")
+            qr.make(fit=True)
+            qr.make_image(fill_color="black", back_color="white").save("assets/qr_temp.png")
+
+            p = PDF()
+            p.set_margins(10, 10, 10)
+            p.set_auto_page_break(auto=True, margin=30)
+            p.add_page()
             
-            pdf.ln(5); pdf.set_font('helvetica', 'B', 9); pdf.set_fill_color(220, 220, 220)
-            pdf.cell(100, 8, "DESCRIPCIÓN", border=1, fill=True); pdf.cell(20, 8, "CANT", border=1, align="C", fill=True)
-            pdf.cell(30, 8, "V. UNIT", border=1, align="C", fill=True); pdf.cell(40, 8, "TOTAL", border=1, align="C", new_x="LMARGIN", new_y="NEXT", fill=True)
-            pdf.set_font('helvetica', '', 9)
+            p.set_font('helvetica', 'B', 11)
+            meses = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+            hoy = datetime.now()
+            p.cell(0, 5, f"{c_ciu}, {hoy.day} de {meses[hoy.month-1]} de {hoy.year}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            p.ln(4)
+
+            # --- CAJAS GRISES CLIENTE ---
+            y_start_cli = p.get_y()
+            lines_client = 1 
+            if c_atn: lines_client += 1
+            if c_nom: lines_client += 1
+            if c_nit: lines_client += 1
+            p.set_fill_color(240, 240, 240)
+            p.rounded_rect(8, y_start_cli - 2, 105, (lines_client * 5) + 4, r=3, style='F') 
+            p.rounded_rect(118, y_start_cli - 2, 84, 14, r=3, style='F') 
             
-            for item in lista_items:
-                desc_corta = str(item['desc'])[:50]
-                # Conversión segura forzando float antes de int
-                precio_int = int(float(item['precio']))
-                total_int = int(float(item['total']))
+            p.set_xy(10, y_start_cli)
+            p.cell(0, 5, "Señores:", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            
+            if c_atn:
+                p.set_font('helvetica', 'B', 11)
+                p.set_text_color(31, 73, 125)
+                p.cell(110, 5, c_atn, border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            p.set_text_color(0, 0, 0)
+            p.set_font('helvetica', 'B', 11)
+            p.cell(110, 5, c_nom, border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            p.set_font('helvetica', '', 11)
+            if c_nit: p.cell(110, 5, f"NIT / CC: {c_nit}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            y_end_cli = p.get_y()
+
+            p.set_xy(120, y_start_cli + 2)
+            p.set_font('helvetica', 'B', 12)
+            p.set_text_color(31, 73, 125)
+            p.cell(80, 5, f"PROPUESTA ING {nro_doc}", border=0, align='C')
+            p.set_text_color(0, 0, 0) 
+
+            p.set_y(max(y_end_cli, y_start_cli + 10) + 5)
+            if c_ref:
+                y_start_ref = p.get_y()
+                num_lines = (len("REFERENCIA: " + c_ref) // 85) + 1  
+                p.set_fill_color(240, 240, 240)
+                p.rounded_rect(8, y_start_ref - 2, 194, (num_lines * 5) + 4, r=3, style='F')
+                p.set_font('helvetica', 'B', 11)
+                p.set_text_color(31, 73, 125) 
+                p.write(5, "REFERENCIA: ")
+                p.set_font('helvetica', '', 11)
+                p.set_text_color(0, 0, 0) 
+                p.write(5, f"{c_ref}\n")
+                p.ln(5)
+
+            # --- TABLA DE ÍTEMS ---
+            p.set_fill_color(194, 229, 194) 
+            p.set_text_color(0, 0, 0)
+            p.set_font("helvetica", '', 8) 
+            p.cell(10, 6, "ITEM", 1, fill=True, align='C')
+            p.cell(78, 6, "DESCRIPCION", 1, fill=True, align='C')
+            p.cell(12, 6, "CANT", 1, fill=True, align='C')
+            p.cell(25, 6, "UND", 1, fill=True, align='C')
+            p.cell(20, 6, "V. UNIT", 1, fill=True, align='C')
+            p.cell(20, 6, "IMPUESTO", 1, fill=True, align='C')
+            p.cell(25, 6, "VALOR", 1, fill=True, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+
+            p.set_fill_color(255, 255, 255)
+            for idx, i in enumerate(lista_items):
+                cant_n = float(i['cant'])
+                unit_n = float(i['precio'])
+                tot_item_n = float(i['total'])
+                desc_lines = textwrap.wrap(i['desc'], width=43) 
+                if not desc_lines: desc_lines = [""]
                 
-                pdf.cell(100, 8, f"{desc_corta} ({item.get('impuesto', 'EXENTO')})", border=1); pdf.cell(20, 8, str(item['cant']), border=1, align="C")
-                pdf.cell(30, 8, f"${precio_int:,}", border=1, align="R"); pdf.cell(40, 8, f"${total_int:,}", border=1, align="R", new_x="LMARGIN", new_y="NEXT")
+                for line_idx, line_text in enumerate(desc_lines):
+                    if len(desc_lines) == 1: b_style = 1
+                    elif line_idx == 0: b_style = 'LTR'
+                    elif line_idx == len(desc_lines) - 1: b_style = 'LBR'
+                    else: b_style = 'LR'
+                        
+                    if line_idx == 0:
+                        p.cell(10, 6, f"{idx+1}", border=b_style, align='C')
+                        p.cell(78, 6, f" {line_text}", border=b_style)
+                        p.cell(12, 6, f"{cant_n:g}", border=b_style, align='C')
+                        p.cell(25, 6, i.get('und', 'UNID'), border=b_style, align='C')
+                        p.cell(20, 6, f"${int(unit_n):,}", border=b_style, align='R')
+                        p.cell(20, 6, i.get('impuesto', 'EXENTO'), border=b_style, align='C')
+                        p.cell(25, 6, f"${int(tot_item_n):,}", border=b_style, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                    else:
+                        p.cell(10, 6, "", border=b_style, align='C')
+                        p.cell(78, 6, f" {line_text}", border=b_style)
+                        p.cell(12, 6, "", border=b_style, align='C')
+                        p.cell(25, 6, "", border=b_style, align='C')
+                        p.cell(20, 6, "", border=b_style, align='R')
+                        p.cell(20, 6, "", border=b_style, align='C')
+                        p.cell(25, 6, "", border=b_style, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+
+            # --- CÁLCULOS FINALES Y TOTALES ---
+            try: pct_i = float(input_pct_i.value)
+            except: pct_i = 0
+            try: pct_u = float(input_pct_u.value)
+            except: pct_u = 0
+            try: pct_iva_u = float(input_pct_iva_u.value)
+            except: pct_iva_u = 0
+
+            total_global = subtotal_global
             
-            pdf.ln(5); pdf.set_font('helvetica', 'B', 12); pdf.cell(150, 10, "TOTAL PROPUESTA:", align="R")
-            pdf.cell(40, 10, f"${int(float(subtotal)):,}", align="R", new_x="LMARGIN", new_y="NEXT")
+            def print_total_row(label, value, bold=False):
+                if bold: p.set_font('helvetica', 'B', 9)
+                p.set_x(135) 
+                p.cell(40, 5, label, 1, align='C') 
+                p.cell(25, 5, f"$ {int(value):,}", 1, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT) 
+                if bold: p.set_font('helvetica', '', 9)
+
+            p.set_font('helvetica', '', 9)
+            print_total_row("SUBTOTAL", subtotal_global)
             
+            if subtotal_aiu > 0:
+                val_a_total = 0
+                for pct_a, base_amt in aiu_bases.items():
+                    if pct_a > 0:
+                        val_a = base_amt * (pct_a / 100)
+                        print_total_row(f"ADMINISTRACIÓN ({pct_a:g}%)", val_a)
+                        val_a_total += val_a
+                        total_global += val_a
+
+                val_i = subtotal_aiu * (pct_i / 100)
+                val_u = subtotal_aiu * (pct_u / 100)
+                val_iva_u_val = val_u * (pct_iva_u / 100)
+
+                if pct_i > 0: 
+                    print_total_row(f"IMPREVISTOS ({pct_i:g}%)", val_i)
+                    total_global += val_i
+                if pct_u > 0: 
+                    print_total_row(f"UTILIDAD ({pct_u:g}%)", val_u)
+                    total_global += val_u
+                    
+                total_aiu_sum = val_a_total + val_i + val_u
+                if total_aiu_sum > 0:
+                    print_total_row("TOTAL AIU", total_aiu_sum, bold=True)
+
+                if pct_iva_u > 0: 
+                    print_total_row(f"IVA S/UTILIDAD ({pct_iva_u:g}%)", val_iva_u_val)
+                    total_global += val_iva_u_val
+            
+            for pct_iva, base_amt in iva_bases.items():
+                if pct_iva > 0:
+                    val_iva_normal = base_amt * (pct_iva / 100)
+                    print_total_row(f"IVA ({pct_iva:g}%)", val_iva_normal)
+                    total_global += val_iva_normal
+            
+            print_total_row("TOTAL", total_global, bold=True)
+
+            p.ln(10)
+            p.set_font('helvetica', 'B', 10)
+            p.cell(0, 5, "CONDICIONES COMERCIALES", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            p.ln(2)
+            p.set_font('helvetica', '', 10)
+            p.cell(45, 5, "FORMA DE PAGO:", border=0)
+            p.cell(0, 5, str(input_pago.value), border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            p.cell(45, 5, "TIEMPO DE OFERTA:", border=0)
+            p.cell(0, 5, str(input_tiempo.value), border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+
+            p.ln(8)
+            p.set_font("helvetica", 'B', 8)
+            p.cell(0, 5, "Escanee este código para atención personalizada y directa con nuestra Gerencia.", border=0, align='L', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            p.image("assets/qr_temp.png", 10, p.get_y(), 25, 25)
+
             nombre_archivo = f"Cotizacion_{nro_doc}.pdf"
-            pdf.output(f"assets/{nombre_archivo}")
+            p.output(f"assets/{nombre_archivo}")
+            
+            try: os.remove("assets/qr_temp.png")
+            except: pass
             
             dlg_d = ft.AlertDialog(
                 title=ft.Text("✅ Guardado y Generado", color="#10b981"), 
