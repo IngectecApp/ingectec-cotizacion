@@ -68,7 +68,7 @@ def main(page: ft.Page):
         dialogo = ft.AlertDialog(title=ft.Text(titulo, weight="bold", color="#fbbf24"), content=ft.Text(str(mensaje)), actions=[ft.TextButton("OK", on_click=lambda e: cerrar_dialogo(dialogo))])
         page.dialog = dialogo; dialogo.open = True; page.update()
 
-    # --- PILOTO AUTOMÁTICO: INSTALACIÓN DE SEGURIDAD Y USUARIOS ---
+    # --- PILOTO AUTOMÁTICO: INSTALACIÓN DE SEGURIDAD Y ACTUALIZACIÓN DE TABLAS ---
     db_setup = conectar_db()
     if db_setup:
         db_setup.execute("CREATE TABLE IF NOT EXISTS usuarios (usuario TEXT PRIMARY KEY, password TEXT, rol TEXT)")
@@ -76,7 +76,10 @@ def main(page: ft.Page):
         db_setup.execute("INSERT OR IGNORE INTO usuarios VALUES ('YEISON', '1234', 'ASESOR')")
         db_setup.execute("INSERT OR IGNORE INTO usuarios VALUES ('PAULO', '1234', 'ASESOR')")
         
+        # Blindaje contra columnas faltantes en historial
         try: db_setup.execute("ALTER TABLE historial ADD COLUMN creador TEXT DEFAULT 'SISTEMA'")
+        except: pass
+        try: db_setup.execute("ALTER TABLE historial ADD COLUMN origen TEXT DEFAULT 'WEB'")
         except: pass
         
         cursor_r = db_setup.cursor()
@@ -376,7 +379,6 @@ def main(page: ft.Page):
                 ft.ResponsiveRow([
                     ft.Container(content=input_ref, col={"sm": 12, "md": 12, "lg": 12})
                 ]),
-                # Fila horizontal exacta para los impuestos (AIU) tal como pediste
                 ft.ResponsiveRow([
                     ft.Container(content=ft.Text("⚙️ Config. AIU (Global):", weight="bold", color="#fbbf24"), col={"sm": 12, "md": 3, "lg": 3}, alignment=ft.alignment.center_left),
                     ft.Container(content=input_pct_i, col={"sm": 4, "md": 3, "lg": 3}),
