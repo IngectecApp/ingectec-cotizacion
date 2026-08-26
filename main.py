@@ -94,6 +94,7 @@ def main(page: ft.Page):
     # ==========================================
     def iniciar_app_principal():
         page.controls.clear()
+        
         header = ft.Container(content=ft.Text(f"⚡ INGECTEC SAS - (Bienvenido, {sesion['usuario']})", size=22, weight="bold", color="#fbbf24"), alignment=ft.alignment.center, padding=5)
 
         columna_tabla_items = ft.Column()
@@ -336,6 +337,7 @@ def main(page: ft.Page):
             else: lista_busqueda_cli.visible = False
             page.update()
 
+        nonlocal input_cliente, input_nit, input_atencion, input_direccion, input_ciudad_empresa, input_telefono, input_ciudad, input_pago, input_tiempo, input_ref, input_pct_i, input_pct_u, input_pct_iva_u
         input_cliente = ft.TextField(label="Buscar nombre de cliente...", on_change=buscar_cliente_realtime)
         input_nit = ft.TextField(label="NIT / C.C.", col={"sm": 6, "md": 3, "lg": 3})
         input_atencion = ft.TextField(label="Atención a:", col={"sm": 12, "md": 5, "lg": 5})
@@ -360,193 +362,210 @@ def main(page: ft.Page):
         ])
         f_aiu = ft.ResponsiveRow([ft.Text("⚙️ Config. AIU:", weight="bold", col={"sm": 12, "md": 3}), input_pct_i, input_pct_u, input_pct_iva_u], vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
-        def generar_pdf_web(e):
-            try:
-                if not lista_items or not input_cliente.value: 
-                    return mostrar_alerta("Aviso", "Faltan ítems o nombre del cliente.")
-                
-                c_nom = str(input_cliente.value or "").upper()
-                c_nit = str(input_nit.value or "")
-                c_ciu = str(input_ciudad.value or "Yumbo")
-                c_atn = str(input_atencion.value or "")
-                c_dir = str(input_direccion.value or "")
-                c_ciu_emp = str(input_ciudad_empresa.value or "")
-                c_tel = str(input_telefono.value or "")
-                c_ref = str(input_ref.value or "")
-
-                db = conectar_db()
-                nro_doc = estado["nro_edicion"]
-                
-                if not nro_doc:
-                    cursor_num = db.cursor()
-                    cursor_num.execute("BEGIN IMMEDIATE")
-                    cursor_num.execute("UPDATE n_cot SET num = num + 1 WHERE id=1")
-                    cursor_num.execute("SELECT num FROM n_cot WHERE id=1")
-                    num_fetch = cursor_num.fetchone()
-                    nro_doc = f"{num_fetch[0]:03d}" if num_fetch else "100"
-                    db.commit()
-                else:
-                    db.execute("DELETE FROM h_cab WHERE nro=?", (nro_doc,))
-                    db.execute("DELETE FROM h_det WHERE nro=?", (nro_doc,))
-                    db.execute("DELETE FROM historial WHERE nro=?", (nro_doc,))
-                    
-                db.execute("INSERT OR IGNORE INTO cli (n, i) VALUES (?, ?)", (c_nom, c_nit))
-                db.execute("INSERT INTO h_cab VALUES (?,?,?,?,?,?,?)", (nro_doc, c_nom, c_nit, "", "", "", ""))
-                
-                subtotal_aiu = 0; subtotal_exe = 0; iva_bases = {}; aiu_bases = {}
-                
-                for item in lista_items:
-                    cant_n = float(item['cant']); unit_n = float(item['precio']); tot_item_n = float(item['total'])
-                    imp_str = item.get('impuesto', 'EXENTO'); und_str = item.get('und', 'UNID')
-                    
-                    db.execute("INSERT INTO h_det VALUES (?,?,?,?,?,?,?)", (nro_doc, item['desc'], cant_n, und_str, unit_n, tot_item_n, imp_str))
-                    if not estado["nro_edicion"]: db.execute("UPDATE inv SET stock = stock - ? WHERE d=?", (cant_n, item['desc']))
-                    
-                    if "AIU" in imp_str:
-                        subtotal_aiu += tot_item_n
-                        try: pct = float(re.findall(r"[\d.]+", imp_str)[0])
-                        except: pct = 10
-                        aiu_bases[pct] = aiu_bases.get(pct, 0) + tot_item_n
-                    elif "IVA" in imp_str:
-                        try: pct = float(re.findall(r"[\d.]+", imp_str)[0])
-                        except: pct = 19
-                        iva_bases[pct] = iva_bases.get(pct, 0) + tot_item_n
-                    else: subtotal_exe += tot_item_n
-
-                subtotal_global = subtotal_aiu + sum(iva_bases.values()) + subtotal_exe
-                db.execute("INSERT INTO historial (nro, cliente, fecha, archivo, total, origen, creador) VALUES (?,?,?,?,?,?,?)", 
-                           (nro_doc, c_nom, datetime.now().strftime("%Y-%m-%d"), "web.pdf", subtotal_global, "WEB", sesion["usuario"]))
-                db.commit(); db.close()
-
-                qr = qrcode.QRCode(box_size=10, border=2)
-                qr.add_data(f"https://wa.me/{MI_WHATSAPP}")
-                qr.make(fit=True)
-                qr.make_image(fill_color="black", back_color="white").save("assets/qr_temp.png")
-
-                p = PDF()
-                p.set_margins(10, 10, 10)
-                p.set_auto_page_break(auto=True, margin=30)
-                p.add_page()
-                
-                p.set_font('helvetica', 'B', 11)
-                meses = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
-                hoy = datetime.now()
-                p.cell(0, 5, f"{c_ciu}, {hoy.day} de {meses[hoy.month-1]} de {hoy.year}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                p.ln(4)
-
-                linea_direccion = c_dir
-                if c_ciu_emp: linea_direccion = f"{c_dir} {c_ciu_emp}".strip()
-                
-                y_start_cli = p.get_y()
-                lines_client = 1 
-                if c_atn: lines_client += 1
-                if c_nom: lines_client += 1
-                if c_nit: lines_client += 1
-                if linea_direccion: lines_client += 1
-                if c_tel: lines_client += 1
-                
-                p.set_fill_color(240, 240, 240)
-                p.rounded_rect(8, y_start_cli - 2, 105, (lines_client * 5) + 4, r=3, style='F') 
-                p.rounded_rect(118, y_start_cli - 2, 84, 14, r=3, style='F') 
-                
-                p.set_xy(10, y_start_cli)
-                p.cell(0, 5, "Señores:", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                
-                if c_atn: p.set_font('helvetica', 'B', 11); p.set_text_color(31, 73, 125); p.cell(110, 5, c_atn, border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                p.set_text_color(0, 0, 0); p.set_font('helvetica', 'B', 11); p.cell(110, 5, c_nom, border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                p.set_font('helvetica', '', 11)
-                if c_nit: p.cell(110, 5, f"NIT / CC: {c_nit}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                if linea_direccion: p.cell(110, 5, linea_direccion, border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                if c_tel: p.cell(110, 5, f"Tel: {c_tel}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                
-                y_end_cli = p.get_y()
-                p.set_xy(120, y_start_cli + 2); p.set_font('helvetica', 'B', 12); p.set_text_color(31, 73, 125); p.cell(80, 5, f"PROPUESTA ING {nro_doc}", border=0, align='C'); p.set_text_color(0, 0, 0) 
-
-                p.set_y(max(y_end_cli, y_start_cli + 10) + 5)
-                if c_ref:
-                    y_start_ref = p.get_y()
-                    num_lines = (len("REFERENCIA: " + c_ref) // 85) + 1  
-                    p.set_fill_color(240, 240, 240); p.rounded_rect(8, y_start_ref - 2, 194, (num_lines * 5) + 4, r=3, style='F')
-                    p.set_font('helvetica', 'B', 11); p.set_text_color(31, 73, 125); p.write(5, "REFERENCIA: ")
-                    p.set_font('helvetica', '', 11); p.set_text_color(0, 0, 0); p.write(5, f"{c_ref}\n"); p.ln(5)
-
-                p.set_fill_color(194, 229, 194); p.set_text_color(0, 0, 0); p.set_font("helvetica", '', 8) 
-                p.cell(10, 6, "ITEM", 1, fill=True, align='C'); p.cell(78, 6, "DESCRIPCION", 1, fill=True, align='C')
-                p.cell(12, 6, "CANT", 1, fill=True, align='C'); p.cell(25, 6, "UND", 1, fill=True, align='C')
-                p.cell(20, 6, "V. UNIT", 1, fill=True, align='C'); p.cell(20, 6, "IMPUESTO", 1, fill=True, align='C')
-                p.cell(25, 6, "VALOR", 1, fill=True, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-
-                p.set_fill_color(255, 255, 255)
-                for idx, i in enumerate(lista_items):
-                    cant_n = float(i['cant']); unit_n = float(i['precio']); tot_item_n = float(i['total'])
-                    desc_lines = textwrap.wrap(i['desc'], width=43) 
-                    if not desc_lines: desc_lines = [""]
-                    for line_idx, line_text in enumerate(desc_lines):
-                        if len(desc_lines) == 1: b_style = 1
-                        elif line_idx == 0: b_style = 'LTR'
-                        elif line_idx == len(desc_lines) - 1: b_style = 'LBR'
-                        else: b_style = 'LR'
-                            
-                        if line_idx == 0:
-                            p.cell(10, 6, f"{idx+1}", border=b_style, align='C'); p.cell(78, 6, f" {line_text}", border=b_style)
-                            p.cell(12, 6, f"{cant_n:g}", border=b_style, align='C'); p.cell(25, 6, i.get('und', 'UNID'), border=b_style, align='C')
-                            p.cell(20, 6, f"${int(unit_n):,}", border=b_style, align='R'); p.cell(20, 6, i.get('impuesto', 'EXENTO'), border=b_style, align='C')
-                            p.cell(25, 6, f"${int(tot_item_n):,}", border=b_style, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                        else:
-                            p.cell(10, 6, "", border=b_style, align='C'); p.cell(78, 6, f" {line_text}", border=b_style)
-                            p.cell(12, 6, "", border=b_style, align='C'); p.cell(25, 6, "", border=b_style, align='C')
-                            p.cell(20, 6, "", border=b_style, align='R'); p.cell(20, 6, "", border=b_style, align='C')
-                            p.cell(25, 6, "", border=b_style, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-
-                try: pct_i = float(input_pct_i.value)
-                except: pct_i = 0
-                try: pct_u = float(input_pct_u.value)
-                except: pct_u = 0
-                try: pct_iva_u = float(input_pct_iva_u.value)
-                except: pct_iva_u = 0
-
-                total_global = subtotal_global
-                def print_total_row(label, value, bold=False):
-                    if bold: p.set_font('helvetica', 'B', 9)
-                    p.set_x(135); p.cell(40, 5, label, 1, align='C'); p.cell(25, 5, f"$ {int(value):,}", 1, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT) 
-                    if bold: p.set_font('helvetica', '', 9)
-
-                p.set_font('helvetica', '', 9); print_total_row("SUBTOTAL", subtotal_global)
-                
-                if subtotal_aiu > 0:
-                    val_a_total = 0
-                    for pct_a, base_amt in aiu_bases.items():
-                        if pct_a > 0: val_a = base_amt * (pct_a / 100); print_total_row(f"ADMINISTRACIÓN ({pct_a:g}%)", val_a); val_a_total += val_a; total_global += val_a
-                    val_i = subtotal_aiu * (pct_i / 100); val_u = subtotal_aiu * (pct_u / 100); val_iva_u_val = val_u * (pct_iva_u / 100)
-                    if pct_i > 0: print_total_row(f"IMPREVISTOS ({pct_i:g}%)", val_i); total_global += val_i
-                    if pct_u > 0: print_total_row(f"UTILIDAD ({pct_u:g}%)", val_u); total_global += val_u
-                    total_aiu_sum = val_a_total + val_i + val_u
-                    if total_aiu_sum > 0: print_total_row("TOTAL AIU", total_aiu_sum, bold=True)
-                    if pct_iva_u > 0: print_total_row(f"IVA S/UTILIDAD ({pct_iva_u:g}%)", val_iva_u_val); total_global += val_iva_u_val
-                
-                for pct_iva, base_amt in iva_bases.items():
-                    if pct_iva > 0: val_iva_normal = base_amt * (pct_iva / 100); print_total_row(f"IVA ({pct_iva:g}%)", val_iva_normal); total_global += val_iva_normal
-                
-                print_total_row("TOTAL", total_global, bold=True)
-                p.ln(10); p.set_font('helvetica', 'B', 10); p.cell(0, 5, "CONDICIONES COMERCIALES", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                p.ln(2); p.set_font('helvetica', '', 10)
-                p.cell(45, 5, "FORMA DE PAGO:", border=0); p.cell(0, 5, str(input_pago.value), border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                p.cell(45, 5, "TIEMPO DE OFERTA:", border=0); p.cell(0, 5, str(input_tiempo.value), border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                p.ln(8); p.set_font("helvetica", 'B', 8); p.cell(0, 5, "Escanee este código para atención personalizada y directa con nuestra Gerencia.", border=0, align='L', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                p.image("assets/qr_temp.png", 10, p.get_y(), 25, 25)
-
-                nombre_archivo = f"Cotizacion_{nro_doc}.pdf"
-                p.output(f"assets/{nombre_archivo}")
-                try: os.remove("assets/qr_temp.png")
-                except: pass
-                
-                dlg_d = ft.AlertDialog(title=ft.Text("✅ Guardado y Generado", color="#10b981"), content=ft.Text("Tu cotización está lista en PDF."), actions=[ft.ElevatedButton("📥 DESCARGAR PDF", bgcolor="#2563eb", color="white", on_click=lambda evt: page.launch_url(f"/{nombre_archivo}")) , ft.TextButton("Cerrar", on_click=lambda evt: cerrar_dialogo(dlg_d))])
-                page.dialog = dlg_d; dlg_d.open = True; page.update()
-            except Exception as errorFallo: mostrar_alerta("Error al generar PDF", f"Hubo un fallo: {str(errorFallo)}")
-
         btn_generar = ft.Container(content=ft.ElevatedButton("🚀 GENERAR PROPUESTA PROFESIONAL", bgcolor="#f59e0b", color="black", height=50, on_click=generar_pdf_web), alignment=ft.alignment.center, padding=ft.padding.only(top=10, bottom=20))
         page.add(header, botones_top, tabla, f_cli, f_aiu, btn_generar)
         page.update()
+
+    # --- 6. GENERADOR DE PDF ---
+    def generar_pdf_web(e):
+        try:
+            if not lista_items or not input_cliente.value: 
+                return mostrar_alerta("Aviso", "Faltan ítems o nombre del cliente.")
+            
+            c_nom = str(input_cliente.value or "").upper()
+            c_nit = str(input_nit.value or "")
+            c_ciu = str(input_ciudad.value or "Yumbo")
+            c_atn = str(input_atencion.value or "")
+            c_dir = str(input_direccion.value or "")
+            c_ciu_emp = str(input_ciudad_empresa.value or "")
+            c_tel = str(input_telefono.value or "")
+            c_ref = str(input_ref.value or "")
+
+            db = conectar_db()
+            nro_doc = estado["nro_edicion"]
+            
+            if not nro_doc:
+                cursor_num = db.cursor()
+                cursor_num.execute("BEGIN IMMEDIATE")
+                cursor_num.execute("UPDATE n_cot SET num = num + 1 WHERE id=1")
+                cursor_num.execute("SELECT num FROM n_cot WHERE id=1")
+                num_fetch = cursor_num.fetchone()
+                nro_doc = f"{num_fetch[0]:03d}" if num_fetch else "100"
+                db.commit()
+            else:
+                db.execute("DELETE FROM h_cab WHERE nro=?", (nro_doc,))
+                db.execute("DELETE FROM h_det WHERE nro=?", (nro_doc,))
+                db.execute("DELETE FROM historial WHERE nro=?", (nro_doc,))
+                
+            db.execute("INSERT OR IGNORE INTO cli (n, i) VALUES (?, ?)", (c_nom, c_nit))
+            db.execute("INSERT INTO h_cab VALUES (?,?,?,?,?,?,?)", (nro_doc, c_nom, c_nit, "", "", "", ""))
+            
+            subtotal_aiu = 0; subtotal_exe = 0; iva_bases = {}; aiu_bases = {}
+            
+            for item in lista_items:
+                cant_n = float(item['cant']); unit_n = float(item['precio']); tot_item_n = float(item['total'])
+                imp_str = item.get('impuesto', 'EXENTO'); und_str = item.get('und', 'UNID')
+                
+                db.execute("INSERT INTO h_det VALUES (?,?,?,?,?,?,?)", (nro_doc, item['desc'], cant_n, und_str, unit_n, tot_item_n, imp_str))
+                if not estado["nro_edicion"]: db.execute("UPDATE inv SET stock = stock - ? WHERE d=?", (cant_n, item['desc']))
+                
+                if "AIU" in imp_str:
+                    subtotal_aiu += tot_item_n
+                    try: pct = float(re.findall(r"[\d.]+", imp_str)[0])
+                    except: pct = 10
+                    aiu_bases[pct] = aiu_bases.get(pct, 0) + tot_item_n
+                elif "IVA" in imp_str:
+                    try: pct = float(re.findall(r"[\d.]+", imp_str)[0])
+                    except: pct = 19
+                    iva_bases[pct] = iva_bases.get(pct, 0) + tot_item_n
+                else: subtotal_exe += tot_item_n
+
+            subtotal_global = subtotal_aiu + sum(iva_bases.values()) + subtotal_exe
+            db.execute("INSERT INTO historial (nro, cliente, fecha, archivo, total, origen, creador) VALUES (?,?,?,?,?,?,?)", 
+                       (nro_doc, c_nom, datetime.now().strftime("%Y-%m-%d"), "web.pdf", subtotal_global, "WEB", sesion["usuario"]))
+            db.commit(); db.close()
+
+            qr = qrcode.QRCode(box_size=10, border=2)
+            qr.add_data(f"https://wa.me/{MI_WHATSAPP}")
+            qr.make(fit=True)
+            qr.make_image(fill_color="black", back_color="white").save("assets/qr_temp.png")
+
+            p = PDF()
+            p.set_margins(10, 10, 10)
+            p.set_auto_page_break(auto=True, margin=30)
+            p.add_page()
+            
+            p.set_font('helvetica', 'B', 11)
+            meses = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+            hoy = datetime.now()
+            p.cell(0, 5, f"{c_ciu}, {hoy.day} de {meses[hoy.month-1]} de {hoy.year}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            p.ln(4)
+
+            linea_direccion = c_dir
+            if c_ciu_emp: linea_direccion = f"{c_dir} {c_ciu_emp}".strip()
+            
+            y_start_cli = p.get_y()
+            lines_client = 1 
+            if c_atn: lines_client += 1
+            if c_nom: lines_client += 1
+            if c_nit: lines_client += 1
+            if linea_direccion: lines_client += 1
+            if c_tel: lines_client += 1
+            
+            p.set_fill_color(240, 240, 240)
+            p.rounded_rect(8, y_start_cli - 2, 105, (lines_client * 5) + 4, r=3, style='F') 
+            p.rounded_rect(118, y_start_cli - 2, 84, 14, r=3, style='F') 
+            
+            p.set_xy(10, y_start_cli)
+            p.cell(0, 5, "Señores:", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            
+            if c_atn: p.set_font('helvetica', 'B', 11); p.set_text_color(31, 73, 125); p.cell(110, 5, c_atn, border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            p.set_text_color(0, 0, 0); p.set_font('helvetica', 'B', 11); p.cell(110, 5, c_nom, border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            p.set_font('helvetica', '', 11)
+            if c_nit: p.cell(110, 5, f"NIT / CC: {c_nit}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            if linea_direccion: p.cell(110, 5, linea_direccion, border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            if c_tel: p.cell(110, 5, f"Tel: {c_tel}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            
+            y_end_cli = p.get_y()
+            p.set_xy(120, y_start_cli + 2); p.set_font('helvetica', 'B', 12); p.set_text_color(31, 73, 125); p.cell(80, 5, f"PROPUESTA ING {nro_doc}", border=0, align='C'); p.set_text_color(0, 0, 0) 
+
+            p.set_y(max(y_end_cli, y_start_cli + 10) + 5)
+            if c_ref:
+                y_start_ref = p.get_y()
+                num_lines = (len("REFERENCIA: " + c_ref) // 85) + 1  
+                p.set_fill_color(240, 240, 240); p.rounded_rect(8, y_start_ref - 2, 194, (num_lines * 5) + 4, r=3, style='F')
+                p.set_font('helvetica', 'B', 11); p.set_text_color(31, 73, 125); p.write(5, "REFERENCIA: ")
+                p.set_font('helvetica', '', 11); p.set_text_color(0, 0, 0); p.write(5, f"{c_ref}\n"); p.ln(5)
+
+            p.set_fill_color(194, 229, 194); p.set_text_color(0, 0, 0); p.set_font("helvetica", '', 8) 
+            p.cell(10, 6, "ITEM", 1, fill=True, align='C'); p.cell(78, 6, "DESCRIPCION", 1, fill=True, align='C')
+            p.cell(12, 6, "CANT", 1, fill=True, align='C'); p.cell(25, 6, "UND", 1, fill=True, align='C')
+            p.cell(20, 6, "V. UNIT", 1, fill=True, align='C'); p.cell(20, 6, "IMPUESTO", 1, fill=True, align='C')
+            p.cell(25, 6, "VALOR", 1, fill=True, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+
+            p.set_fill_color(255, 255, 255)
+            for idx, i in enumerate(lista_items):
+                cant_n = float(i['cant']); unit_n = float(i['precio']); tot_item_n = float(i['total'])
+                desc_lines = textwrap.wrap(i['desc'], width=43) 
+                if not desc_lines: desc_lines = [""]
+                for line_idx, line_text in enumerate(desc_lines):
+                    if len(desc_lines) == 1: b_style = 1
+                    elif line_idx == 0: b_style = 'LTR'
+                    elif line_idx == len(desc_lines) - 1: b_style = 'LBR'
+                    else: b_style = 'LR'
+                        
+                    if line_idx == 0:
+                        p.cell(10, 6, f"{idx+1}", border=b_style, align='C'); p.cell(78, 6, f" {line_text}", border=b_style)
+                        p.cell(12, 6, f"{cant_n:g}", border=b_style, align='C'); p.cell(25, 6, i.get('und', 'UNID'), border=b_style, align='C')
+                        p.cell(20, 6, f"${int(unit_n):,}", border=b_style, align='R'); p.cell(20, 6, i.get('impuesto', 'EXENTO'), border=b_style, align='C')
+                        p.cell(25, 6, f"${int(tot_item_n):,}", border=b_style, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                    else:
+                        p.cell(10, 6, "", border=b_style, align='C'); p.cell(78, 6, f" {line_text}", border=b_style)
+                        p.cell(12, 6, "", border=b_style, align='C'); p.cell(25, 6, "", border=b_style, align='C')
+                        p.cell(20, 6, "", border=b_style, align='R'); p.cell(20, 6, "", border=b_style, align='C')
+                        p.cell(25, 6, "", border=b_style, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+
+            try: pct_i = float(input_pct_i.value)
+            except: pct_i = 0
+            try: pct_u = float(input_pct_u.value)
+            except: pct_u = 0
+            try: pct_iva_u = float(input_pct_iva_u.value)
+            except: pct_iva_u = 0
+
+            total_global = subtotal_global
+            def print_total_row(label, value, bold=False):
+                if bold: p.set_font('helvetica', 'B', 9)
+                p.set_x(135); p.cell(40, 5, label, 1, align='C'); p.cell(25, 5, f"$ {int(value):,}", 1, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT) 
+                if bold: p.set_font('helvetica', '', 9)
+
+            p.set_font('helvetica', '', 9); print_total_row("SUBTOTAL", subtotal_global)
+            
+            if subtotal_aiu > 0:
+                val_a_total = 0
+                for pct_a, base_amt in aiu_bases.items():
+                    if pct_a > 0: val_a = base_amt * (pct_a / 100); print_total_row(f"ADMINISTRACIÓN ({pct_a:g}%)", val_a); val_a_total += val_a; total_global += val_a
+                val_i = subtotal_aiu * (pct_i / 100); val_u = subtotal_aiu * (pct_u / 100); val_iva_u_val = val_u * (pct_iva_u / 100)
+                if pct_i > 0: print_total_row(f"IMPREVISTOS ({pct_i:g}%)", val_i); total_global += val_i
+                if pct_u > 0: print_total_row(f"UTILIDAD ({pct_u:g}%)", val_u); total_global += val_u
+                total_aiu_sum = val_a_total + val_i + val_u
+                if total_aiu_sum > 0: print_total_row("TOTAL AIU", total_aiu_sum, bold=True)
+                if pct_iva_u > 0: print_total_row(f"IVA S/UTILIDAD ({pct_iva_u:g}%)", val_iva_u_val); total_global += val_iva_u_val
+            
+            for pct_iva, base_amt in iva_bases.items():
+                if pct_iva > 0: val_iva_normal = base_amt * (pct_iva / 100); print_total_row(f"IVA ({pct_iva:g}%)", val_iva_normal); total_global += val_iva_normal
+            
+            print_total_row("TOTAL", total_global, bold=True)
+            p.ln(10); p.set_font('helvetica', 'B', 10); p.cell(0, 5, "CONDICIONES COMERCIALES", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            p.ln(2); p.set_font('helvetica', '', 10)
+            p.cell(45, 5, "FORMA DE PAGO:", border=0); p.cell(0, 5, str(input_pago.value), border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            p.cell(45, 5, "TIEMPO DE OFERTA:", border=0); p.cell(0, 5, str(input_tiempo.value), border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            p.ln(8); p.set_font("helvetica", 'B', 8); p.cell(0, 5, "Escanee este código para atención personalizada y directa con nossa Gerencia.", border=0, align='L', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            p.image("assets/qr_temp.png", 10, p.get_y(), 25, 25)
+
+            nombre_archivo = f"Cotizacion_{nro_doc}.pdf"
+            p.output(f"assets/{nombre_archivo}")
+            try: os.remove("assets/qr_temp.png")
+            except: pass
+            
+            dlg_d = ft.AlertDialog(title=ft.Text("✅ Guardado y Generado", color="#10b981"), content=ft.Text("Tu cotización está lista en PDF."), actions=[ft.ElevatedButton("📥 DESCARGAR PDF", bgcolor="#2563eb", color="white", on_click=lambda evt: page.launch_url(f"/{nombre_archivo}")), ft.TextButton("Cerrar", on_click=lambda evt: cerrar_dialogo(dlg_d))])
+            page.dialog = dlg_d; dlg_d.open = True; page.update()
+        except Exception as errorFallo: mostrar_alerta("Error al generar PDF", f"Hubo un fallo: {str(errorFallo)}")
+
+    # Variables globales para los inputs de la app principal
+    global input_cliente, input_nit, input_atencion, input_direccion, input_ciudad_empresa, input_telefono, input_ciudad, input_pago, input_tiempo, input_ref, input_pct_i, input_pct_u, input_pct_iva_u
+    input_cliente = ft.TextField(label="Buscar nombre de cliente...")
+    input_nit = ft.TextField(label="NIT / C.C.")
+    input_atencion = ft.TextField(label="Atención a:")
+    input_direccion = ft.TextField(label="Dirección")
+    input_ciudad_empresa = ft.TextField(label="Ciudad Cliente")
+    input_telefono = ft.TextField(label="Teléfono")
+    input_ciudad = ft.TextField(label="Ciudad Origen (Fecha)", value="Yumbo")
+    input_pago = ft.TextField(label="Forma Pago", value="30 DIAS")
+    input_tiempo = ft.TextField(label="Tiempo Oferta", value="15 DIAS")
+    input_ref = ft.TextField(label="REFERENCIA")
+    input_pct_i = ft.TextField(label="Imprev %", value="2")
+    input_pct_u = ft.TextField(label="Util %", value="8")
+    input_pct_iva_u = ft.TextField(label="IVA s/U %", value="19")
 
     # --- PANTALLA DE INICIO DE SESIÓN ---
     def procesar_login(e):
@@ -568,29 +587,24 @@ def main(page: ft.Page):
     input_usr = ft.TextField(label="Usuario (Ej. OSCAR, PAULO, YEISON)", width=300)
     input_pwd = ft.TextField(label="Contraseña", password=True, can_reveal_password=True, width=300)
     
-    pantalla_login = ft.View(
-        "/login",
-        [
-            ft.Container(
-                content=ft.Column(
-                    [
-                        ft.Icon(ft.icons.LOCK_PERSON, size=50, color="#fbbf24"),
-                        ft.Text("INGECTEC - Acceso Seguro", size=20, weight="bold"),
-                        input_usr,
-                        input_pwd,
-                        ft.ElevatedButton("INICIAR SESIÓN", bgcolor="#2563eb", color="white", width=300, height=45, on_click=procesar_login)
-                    ],
-                    alignment=ft.MainAxisAlignment.CENTER,
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                ),
-                alignment=ft.alignment.center,
-                expand=True
-            )
-        ],
-        bgcolor="#1e293b"
+    pantalla_login = ft.Container(
+        content=ft.Column(
+            [
+                ft.Icon(ft.icons.LOCK_PERSON, size=50, color="#fbbf24"),
+                ft.Text("INGECTEC - Acceso Seguro", size=20, weight="bold", color="white"),
+                input_usr,
+                input_pwd,
+                ft.ElevatedButton("INICIAR SESIÓN", bgcolor="#2563eb", color="white", width=300, height=45, on_click=procesar_login)
+            ],
+            alignment=ft.MainAxisAlignment.CENTER,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=15
+        ),
+        alignment=ft.alignment.center,
+        expand=True
     )
 
-    page.views.append(pantalla_login)
+    page.add(pantalla_login)
     page.update()
 
 ft.app(target=main, view=ft.AppView.WEB_BROWSER, port=PORT, host="0.0.0.0", assets_dir="assets")
