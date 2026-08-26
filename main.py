@@ -337,14 +337,31 @@ def main(page: ft.Page):
             else: lista_busqueda_cli.visible = False
             page.update()
 
+        # Interfaz limpia original sin casillas saturadas
+        nonlocal input_cliente, input_nit, input_atencion, input_ciudad, input_pago, input_tiempo, input_ref, input_pct_i, input_pct_u, input_pct_iva_u
+        input_cliente = ft.TextField(label="Buscar nombre de cliente...", on_change=buscar_cliente_realtime)
+        input_nit = ft.TextField(label="NIT / C.C.", col={"sm": 6, "md": 4, "lg": 4})
+        input_atencion = ft.TextField(label="Atención a: (Ej. ING. OSCAR MERA)", col={"sm": 12, "md": 6, "lg": 5})
+        input_ciudad = ft.TextField(label="Ciudad", value="Yumbo", col={"sm": 6, "md": 3, "lg": 3})
+        input_pago = ft.TextField(label="Forma Pago", value="30 DIAS", col={"sm": 6, "md": 3, "lg": 4})
+        input_tiempo = ft.TextField(label="Tiempo Oferta", value="15 DIAS", col={"sm": 6, "md": 3, "lg": 3})
+        input_ref = ft.TextField(label="REFERENCIA", col={"sm": 12, "md": 6, "lg": 7})
+        
+        input_pct_i = ft.TextField(label="Imprev %", value="2", col={"sm": 4, "md": 3, "lg": 2})
+        input_pct_u = ft.TextField(label="Util %", value="8", col={"sm": 4, "md": 3, "lg": 2})
+        input_pct_iva_u = ft.TextField(label="IVA s/U %", value="19", col={"sm": 4, "md": 3, "lg": 2})
+
         f_cli = ft.ResponsiveRow([
-            ft.Column([input_cliente, lista_busqueda_cli], col={"sm": 12, "md": 4, "lg": 4}),
-            input_nit, input_atencion, input_direccion, input_ciudad_empresa, input_telefono,
-            input_ciudad, input_pago, input_tiempo, 
-            ft.Dropdown(label="Asesor", options=[ft.dropdown.Option("OSCAR MERA"), ft.dropdown.Option("YEISON FABIAN RESTREPO"), ft.dropdown.Option("PAULO LEAL")], value=sesion["usuario"], col={"sm": 12, "md": 3, "lg": 3}),
-            input_ref
+            ft.Column([input_cliente, lista_busqueda_cli], col={"sm": 12, "md": 5, "lg": 5}),
+            input_nit,
+            input_ciudad,
+            input_atencion,
+            input_pago,
+            input_tiempo,
+            input_ref,
+            ft.Dropdown(label="Asesor", options=[ft.dropdown.Option("OSCAR MERA"), ft.dropdown.Option("YEISON FABIAN RESTREPO"), ft.dropdown.Option("PAULO LEAL")], value=sesion["usuario"], col={"sm": 12, "md": 6, "lg": 5}),
         ])
-        f_aiu = ft.ResponsiveRow([ft.Text("⚙️ Config. AIU:", weight="bold", col={"sm": 12, "md": 3}), input_pct_i, input_pct_u, input_pct_iva_u], vertical_alignment=ft.CrossAxisAlignment.CENTER)
+        f_aiu = ft.ResponsiveRow([ft.Text("⚙️ Config. AIU (Global):", weight="bold", col={"sm": 12, "md": 3, "lg": 3}), input_pct_i, input_pct_u, input_pct_iva_u], vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
         btn_generar = ft.Container(content=ft.ElevatedButton("🚀 GENERAR PROPUESTA PROFESIONAL", bgcolor="#f59e0b", color="black", height=50, on_click=generar_pdf_web), alignment=ft.alignment.center, padding=ft.padding.only(top=10, bottom=20))
         page.add(header, botones_top, tabla, f_cli, f_aiu, btn_generar)
@@ -360,9 +377,6 @@ def main(page: ft.Page):
             c_nit = str(input_nit.value or "")
             c_ciu = str(input_ciudad.value or "Yumbo")
             c_atn = str(input_atencion.value or "")
-            c_dir = str(input_direccion.value or "")
-            c_ciu_emp = str(input_ciudad_empresa.value or "")
-            c_tel = str(input_telefono.value or "")
             c_ref = str(input_ref.value or "")
 
             db = conectar_db()
@@ -425,16 +439,11 @@ def main(page: ft.Page):
             p.cell(0, 5, f"{c_ciu}, {hoy.day} de {meses[hoy.month-1]} de {hoy.year}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
             p.ln(4)
 
-            linea_direccion = c_dir
-            if c_ciu_emp: linea_direccion = f"{c_dir} {c_ciu_emp}".strip()
-            
             y_start_cli = p.get_y()
             lines_client = 1 
             if c_atn: lines_client += 1
             if c_nom: lines_client += 1
             if c_nit: lines_client += 1
-            if linea_direccion: lines_client += 1
-            if c_tel: lines_client += 1
             
             p.set_fill_color(240, 240, 240)
             p.rounded_rect(8, y_start_cli - 2, 105, (lines_client * 5) + 4, r=3, style='F') 
@@ -447,8 +456,6 @@ def main(page: ft.Page):
             p.set_text_color(0, 0, 0); p.set_font('helvetica', 'B', 11); p.cell(110, 5, c_nom, border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
             p.set_font('helvetica', '', 11)
             if c_nit: p.cell(110, 5, f"NIT / CC: {c_nit}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-            if linea_direccion: p.cell(110, 5, linea_direccion, border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-            if c_tel: p.cell(110, 5, f"Tel: {c_tel}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
             
             y_end_cli = p.get_y()
             p.set_xy(120, y_start_cli + 2); p.set_font('helvetica', 'B', 12); p.set_text_color(31, 73, 125); p.cell(80, 5, f"PROPUESTA ING {nro_doc}", border=0, align='C'); p.set_text_color(0, 0, 0) 
@@ -535,15 +542,12 @@ def main(page: ft.Page):
             page.dialog = dlg_d; dlg_d.open = True; page.update()
         except Exception as errorFallo: mostrar_alerta("Error al generar PDF", f"Hubo un fallo: {str(errorFallo)}")
 
-    # Variables globales para los inputs de la app principal
-    global input_cliente, input_nit, input_atencion, input_direccion, input_ciudad_empresa, input_telefono, input_ciudad, input_pago, input_tiempo, input_ref, input_pct_i, input_pct_u, input_pct_iva_u
+    # Variables globales limpias
+    global input_cliente, input_nit, input_atencion, input_ciudad, input_pago, input_tiempo, input_ref, input_pct_i, input_pct_u, input_pct_iva_u
     input_cliente = ft.TextField(label="Buscar nombre de cliente...")
     input_nit = ft.TextField(label="NIT / C.C.")
-    input_atencion = ft.TextField(label="Atención a:")
-    input_direccion = ft.TextField(label="Dirección")
-    input_ciudad_empresa = ft.TextField(label="Ciudad Cliente")
-    input_telefono = ft.TextField(label="Teléfono")
-    input_ciudad = ft.TextField(label="Ciudad Origen (Fecha)", value="Yumbo")
+    input_atencion = ft.TextField(label="Atención a: (Ej. ING. OSCAR MERA)")
+    input_ciudad = ft.TextField(label="Ciudad", value="Yumbo")
     input_pago = ft.TextField(label="Forma Pago", value="30 DIAS")
     input_tiempo = ft.TextField(label="Tiempo Oferta", value="15 DIAS")
     input_ref = ft.TextField(label="REFERENCIA")
