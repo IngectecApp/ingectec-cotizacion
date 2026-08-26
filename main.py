@@ -12,7 +12,7 @@ from datetime import datetime
 PORT = int(os.environ.get("PORT", 8080))
 if not os.path.exists("assets"): os.makedirs("assets")
 
-# --- CLASE PDF ORIGINAL DE INGECTEC (CON REPARACIÓN DE LOGO) ---
+# --- CLASE PDF ORIGINAL DE INGECTEC ---
 class PDF(FPDF):
     def rounded_rect(self, x, y, w, h, r, style='F'):
         if style == 'F':
@@ -24,13 +24,12 @@ class PDF(FPDF):
             self.ellipse(x + w - 2 * r, y + h - 2 * r, 2 * r, 2 * r, style='F')
 
     def header(self):
-        # Radar inteligente para encontrar tu logo en GitHub
         rutas_posibles = ["logo pl.png", "logopl.png", "logo.png", "logo1.png"]
         for ruta in rutas_posibles:
             if os.path.exists(ruta):
                 try: 
                     self.image(ruta, x=10, y=8, w=190)
-                    break # Si lo encuentra, lo dibuja y deja de buscar
+                    break 
                 except: 
                     pass
         self.set_y(40) 
@@ -80,18 +79,43 @@ def main(page: ft.Page):
             columna_tabla_items.controls.append(
                 ft.ResponsiveRow([
                     ft.Text(f"{idx+1}. {item['desc']} ({item.get('impuesto', '')})", col={"sm": 6}, color="white", size=12),
-                    ft.Text(f"{item['cant']}", col={"sm": 3}, text_align="center", color="white"),
+                    ft.Text(f"{item['cant']} {item.get('und', '')}", col={"sm": 3}, text_align="center", color="white"),
                     ft.Text(f"${total_seguro:,}", col={"sm": 3}, text_align="right", color="#fbbf24"),
                 ])
             )
         page.update()
 
-    # --- MÓDULOS DE INTERFAZ ---
+    # --- 1. MÓDULO AÑADIR ÍTEM (UNIDADES PERSONALIZABLES) ---
     def abrir_modal_item(e):
         resultados_inv = ft.ListView(expand=True, spacing=10, height=150)
         input_desc = ft.TextField(label="Producto Seleccionado", read_only=True)
-        input_cant = ft.TextField(label="Cantidad", value="1", col={"sm": 6})
-        input_precio = ft.TextField(label="Precio Unit", col={"sm": 6})
+        
+        input_cant = ft.TextField(label="Cantidad", value="1", col={"sm": 4})
+        input_und_custom = ft.TextField(label="Escriba Und", visible=False, col={"sm": 3})
+        input_precio = ft.TextField(label="Precio Unit", col={"sm": 4})
+        
+        def cambiar_und(evt):
+            if input_und.value == "OTRA...":
+                input_und_custom.visible = True
+                input_cant.col = {"sm": 3}
+                input_und.col = {"sm": 3}
+                input_precio.col = {"sm": 3}
+            else:
+                input_und_custom.visible = False
+                input_cant.col = {"sm": 4}
+                input_und.col = {"sm": 4}
+                input_precio.col = {"sm": 4}
+            page.update()
+
+        lista_unidades = ["ML", "UNID", "MTS", "GLB", "ROLLO", "DIA", "PAQ", "OTRA..."]
+        input_und = ft.Dropdown(
+            label="Und", 
+            options=[ft.dropdown.Option(u) for u in lista_unidades], 
+            value="UNID", 
+            col={"sm": 4},
+            on_change=cambiar_und
+        )
+        
         input_imp_tipo = ft.Dropdown(label="Impuesto", options=[ft.dropdown.Option("AIU"), ft.dropdown.Option("IVA"), ft.dropdown.Option("EXENTO")], value="AIU", col={"sm": 6})
         input_imp_pct = ft.TextField(label="% Imp", value="10", col={"sm": 6})
 
@@ -104,7 +128,25 @@ def main(page: ft.Page):
                 cursor.execute("SELECT d, p FROM inv WHERE UPPER(d) LIKE ? ORDER BY d ASC LIMIT 30", ('%'+txt+'%',))
                 for row in cursor.fetchall():
                     d, p = row[0], (row[1] if row[1] else 0)
-                    def sel(evt, desc=d, precio=p): input_desc.value = desc; input_precio.value = str(int(float(precio))); page.update()
+                    def sel(evt, desc=d, precio=p): 
+                        input_desc.value = desc
+                        input_precio.value = str(int(float(precio)))
+                        
+                        # Inteligencia de detección de unidad
+                        if "TUBO" in desc.upper() or "CABLE" in desc.upper():
+                            input_und.value = "ML"
+                        elif "INSTALACION" in desc.upper():
+                            input_und.value = "GLB"
+                        else:
+                            input_und.value = "UNID"
+                            
+                        # Restaurar el diseño por si estaba en "OTRA..."
+                        input_und_custom.visible = False
+                        input_cant.col = {"sm": 4}
+                        input_und.col = {"sm": 4}
+                        input_precio.col = {"sm": 4}
+                        page.update()
+                        
                     resultados_inv.controls.append(ft.ListTile(title=ft.Text(d, color="#fbbf24", size=14), subtitle=ft.Text(f"${int(float(p)):,}"), on_click=sel))
                 db.close()
             page.update()
@@ -114,14 +156,38 @@ def main(page: ft.Page):
             try:
                 d, c, p = input_desc.value, float(input_cant.value), float(input_precio.value)
                 imp = "EXENTO" if input_imp_tipo.value == "EXENTO" else f"{input_imp_tipo.value} {input_imp_pct.value}%"
-                lista_items.append({"desc": d, "cant": c, "precio": p, "total": c*p, "impuesto": imp, "und": "UNID"})
+                
+                # Rescatar la unidad seleccionada o la escrita a mano
+                und_final = str(input_und_custom.value).upper().strip() if input_und.value == "OTRA..." else input_und.value
+                if not und_final: und_final = "UNID"
+                
+                lista_items.append({"desc": d, "cant": c, "precio": p, "total": c*p, "impuesto": imp, "und": und_final})
                 actualizar_tabla_visual()
-                input_desc.value = ""; input_cant.value = "1"; input_precio.value = ""; buscador_inv.value = ""; buscar_inv_bd(None)
+                
+                # Resetear la ventana para un nuevo ítem
+                input_desc.value = ""; input_cant.value = "1"; input_precio.value = ""
+                input_und.value = "UNID"; input_und_custom.value = ""; input_und_custom.visible = False
+                input_cant.col = {"sm": 4}; input_und.col = {"sm": 4}; input_precio.col = {"sm": 4}
+                
+                buscador_inv.value = ""; buscar_inv_bd(None)
                 page.snack_bar = ft.SnackBar(ft.Text("✅ Ítem agregado"), bgcolor="#10b981"); page.snack_bar.open = True; page.update()
             except: pass
 
         buscador_inv = ft.TextField(label="Buscar en bodega...", on_change=buscar_inv_bd)
-        dlg = ft.AlertDialog(title=ft.Text("➕ Añadir a Propuesta"), content=ft.Column([buscador_inv, resultados_inv, input_desc, ft.ResponsiveRow([input_cant, input_precio]), ft.ResponsiveRow([input_imp_tipo, input_imp_pct])], tight=True), actions=[ft.ElevatedButton("Guardar", bgcolor="#10b981", color="white", on_click=guardar_item), ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))])
+        dlg = ft.AlertDialog(
+            title=ft.Text("➕ Añadir a Propuesta"), 
+            content=ft.Column([
+                buscador_inv, 
+                resultados_inv, 
+                input_desc, 
+                ft.ResponsiveRow([input_cant, input_und, input_und_custom, input_precio]), 
+                ft.ResponsiveRow([input_imp_tipo, input_imp_pct])
+            ], tight=True), 
+            actions=[
+                ft.ElevatedButton("Guardar", bgcolor="#10b981", color="white", on_click=guardar_item), 
+                ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))
+            ]
+        )
         page.dialog = dlg; dlg.open = True; buscar_inv_bd(None)
 
     def abrir_modal_bodega(e):
@@ -286,7 +352,6 @@ def main(page: ft.Page):
         else: lista_busqueda_cli.visible = False
         page.update()
 
-    # --- CAMPOS DE LA INTERFAZ NECESARIOS PARA EL PDF ---
     input_cliente = ft.TextField(label="Buscar nombre de cliente...", on_change=buscar_cliente_realtime)
     input_nit = ft.TextField(label="NIT / C.C.", col={"sm": 6, "md": 4, "lg": 4})
     input_ciudad = ft.TextField(label="Ciudad", value="Yumbo", col={"sm": 6, "md": 3, "lg": 3})
@@ -306,7 +371,6 @@ def main(page: ft.Page):
     ])
     f_aiu = ft.ResponsiveRow([ft.Text("⚙️ Config. AIU:", weight="bold", col={"sm": 12, "md": 3}), input_pct_i, input_pct_u, input_pct_iva_u], vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
-    # --- 6. GENERADOR ROBUSTO Y DISEÑO ORIGINAL DEL PDF ---
     def generar_pdf_web(e):
         try:
             if not lista_items or not input_cliente.value: 
