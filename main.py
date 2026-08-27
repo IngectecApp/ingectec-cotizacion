@@ -68,13 +68,17 @@ def main(page: ft.Page):
         dialogo = ft.AlertDialog(title=ft.Text(titulo, weight="bold", color="#fbbf24"), content=ft.Text(str(mensaje)), actions=[ft.TextButton("OK", on_click=lambda e: cerrar_dialogo(dialogo))])
         page.dialog = dialogo; dialogo.open = True; page.update()
 
-    # --- PILOTO AUTOMÁTICO: LIMPIEZA DE BD Y SEGURIDAD ---
+    # --- PILOTO AUTOMÁTICO: TODOS LOS USUARIOS COMO ADMIN ---
     db_setup = conectar_db()
     if db_setup:
         db_setup.execute("CREATE TABLE IF NOT EXISTS usuarios (usuario TEXT PRIMARY KEY, password TEXT, rol TEXT)")
+        # Insertar si no existen, todos como ADMIN
         db_setup.execute("INSERT OR IGNORE INTO usuarios VALUES ('OSCAR', '1234', 'ADMIN')")
-        db_setup.execute("INSERT OR IGNORE INTO usuarios VALUES ('YEISON', '1234', 'ASESOR')")
-        db_setup.execute("INSERT OR IGNORE INTO usuarios VALUES ('PAULO', '1234', 'ASESOR')")
+        db_setup.execute("INSERT OR IGNORE INTO usuarios VALUES ('YEISON', '1234', 'ADMIN')")
+        db_setup.execute("INSERT OR IGNORE INTO usuarios VALUES ('PAULO', '1234', 'ADMIN')")
+        
+        # Forzar actualización a ADMIN por si ya existían con otro rol
+        db_setup.execute("UPDATE usuarios SET rol='ADMIN'")
         
         db_setup.execute("CREATE TABLE IF NOT EXISTS n_cot (id INTEGER PRIMARY KEY, num INTEGER)")
         db_setup.execute("INSERT OR IGNORE INTO n_cot (id, num) VALUES (1, 100)")
@@ -84,18 +88,6 @@ def main(page: ft.Page):
         try: db_setup.execute("ALTER TABLE historial ADD COLUMN origen TEXT DEFAULT 'WEB'")
         except: pass
         
-        # --- LIMPIEZA EXTREMA SOLICITADA ---
-        try:
-            # Borra todo lo que no sea 133 o 134
-            db_setup.execute("DELETE FROM historial WHERE nro NOT LIKE '%133' AND nro NOT LIKE '%134'")
-            db_setup.execute("DELETE FROM h_cab WHERE nro NOT LIKE '%133' AND nro NOT LIKE '%134'")
-            db_setup.execute("DELETE FROM h_det WHERE nro NOT LIKE '%133' AND nro NOT LIKE '%134'")
-            
-            # Asigna la 133 a PAULO y la 134 a YEISON para que las puedan ver y modificar
-            db_setup.execute("UPDATE historial SET creador='PAULO' WHERE nro LIKE '%133'")
-            db_setup.execute("UPDATE historial SET creador='YEISON' WHERE nro LIKE '%134'")
-        except: pass
-
         cursor_r = db_setup.cursor()
         items_perdidos = [("BREAKER 2X40", 101861, 100), ("TUBO EMT DE 1\" (INCLUYE ASCESORIOS DE INSTALACION)", 35547, 100)]
         for desc, precio, stock in items_perdidos:
@@ -332,10 +324,8 @@ def main(page: ft.Page):
             resultados_hist = ft.ListView(height=300)
             db = conectar_db()
             if db:
-                if sesion["rol"] == "ADMIN":
-                    filas = db.execute("SELECT nro, cliente, fecha, total, creador FROM historial ORDER BY nro DESC LIMIT 30").fetchall()
-                else:
-                    filas = db.execute("SELECT nro, cliente, fecha, total, creador FROM historial WHERE creador=? ORDER BY nro DESC LIMIT 30", (sesion["usuario"],)).fetchall()
+                # SIN RESTRICCIONES: Todos ven todo el historial siempre
+                filas = db.execute("SELECT nro, cliente, fecha, total, creador FROM historial ORDER BY nro DESC LIMIT 30").fetchall()
 
                 for row in filas:
                     nro, cli, fec, tot, creador = row[0], row[1], row[2], row[3], row[4]
@@ -362,7 +352,7 @@ def main(page: ft.Page):
                         actualizar_tabla_visual(); cerrar_dialogo(dlg)
                         mostrar_alerta("Cargado", f"Cotización N° {numero} cargada correctamente.")
                     
-                    etiqueta_creador = f" (Por: {creador})" if sesion["rol"] == "ADMIN" else ""
+                    etiqueta_creador = f" (Por: {creador})"
                     resultados_hist.controls.append(ft.ListTile(title=ft.Text(f"N° {nro} - {cli}{etiqueta_creador}", color="#fbbf24", weight="bold"), subtitle=ft.Text(f"Fecha/Hora: {fec} | Total: ${int(float(tot)):,}"), on_click=cargar_historial))
                 db.close()
             dlg = ft.AlertDialog(title=ft.Text("🔍 Historial de Cotizaciones"), content=resultados_hist, actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))])
@@ -395,8 +385,6 @@ def main(page: ft.Page):
             page.dialog = dlg_editar; dlg_editar.open = True; page.update()
 
         def descargar_backup(e):
-            if sesion["rol"] != "ADMIN":
-                return mostrar_alerta("Acceso Denegado", "Solo el Administrador puede descargar la base de datos.")
             try:
                 shutil.copy2('ingectec.db', 'assets/backup_ingectec.db')
                 page.launch_url('/backup_ingectec.db')
