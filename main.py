@@ -71,17 +71,14 @@ def main(page: ft.Page):
     # --- PILOTO AUTOMÁTICO: BLINDAJE DE TABLAS Y USUARIOS ---
     db_setup = conectar_db()
     if db_setup:
-        # Usuarios
         db_setup.execute("CREATE TABLE IF NOT EXISTS usuarios (usuario TEXT PRIMARY KEY, password TEXT, rol TEXT)")
         db_setup.execute("INSERT OR IGNORE INTO usuarios VALUES ('OSCAR', '1234', 'ADMIN')")
         db_setup.execute("INSERT OR IGNORE INTO usuarios VALUES ('YEISON', '1234', 'ASESOR')")
         db_setup.execute("INSERT OR IGNORE INTO usuarios VALUES ('PAULO', '1234', 'ASESOR')")
         
-        # Consecutivos (Si no existe, se crea para evitar bloqueos)
         db_setup.execute("CREATE TABLE IF NOT EXISTS n_cot (id INTEGER PRIMARY KEY, num INTEGER)")
         db_setup.execute("INSERT OR IGNORE INTO n_cot (id, num) VALUES (1, 100)")
         
-        # Historial y auditorías
         try: db_setup.execute("ALTER TABLE historial ADD COLUMN creador TEXT DEFAULT 'SISTEMA'")
         except: pass
         try: db_setup.execute("ALTER TABLE historial ADD COLUMN origen TEXT DEFAULT 'WEB'")
@@ -96,15 +93,62 @@ def main(page: ft.Page):
         
         db_setup.commit(); db_setup.close()
 
+    input_usr = ft.TextField(label="Usuario (Ej. OSCAR, PAULO, YEISON)", width=300)
+    input_pwd = ft.TextField(label="Contraseña", password=True, can_reveal_password=True, width=300)
+
+    def procesar_login(e):
+        u = input_usr.value.upper().strip()
+        p = input_pwd.value.strip()
+        db_login = conectar_db()
+        if db_login:
+            user = db_login.execute("SELECT rol FROM usuarios WHERE usuario=? AND password=?", (u, p)).fetchone()
+            db_login.close()
+            if user:
+                sesion["usuario"] = u
+                sesion["rol"] = user[0]
+                iniciar_app_principal()
+            else:
+                page.snack_bar = ft.SnackBar(ft.Text("❌ Usuario o contraseña incorrectos"), bgcolor="#ef4444")
+                page.snack_bar.open = True
+                page.update()
+
+    pantalla_login = ft.Container(
+        content=ft.Column(
+            [
+                ft.Icon(ft.icons.LOCK_PERSON, size=50, color="#fbbf24"),
+                ft.Text("INGECTEC - Acceso Seguro", size=20, weight="bold", color="white"),
+                input_usr,
+                input_pwd,
+                ft.ElevatedButton("INICIAR SESIÓN", bgcolor="#2563eb", color="white", width=300, height=45, on_click=procesar_login)
+            ],
+            alignment=ft.MainAxisAlignment.CENTER,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=15
+        ),
+        alignment=ft.alignment.center,
+        expand=True
+    )
+
+    def mostrar_login():
+        sesion["usuario"] = None
+        sesion["rol"] = None
+        lista_items.clear()
+        estado["nro_edicion"] = None
+        input_usr.value = ""
+        input_pwd.value = ""
+        
+        page.scroll = None  
+        page.controls.clear()
+        page.add(pantalla_login)
+        page.update()
+
     # ==========================================
-    # INTERFAZ PRINCIPAL AISLADA (Una copia por usuario)
+    # INTERFAZ PRINCIPAL AISLADA (100% PRIVADA POR SESIÓN)
     # ==========================================
     def iniciar_app_principal():
         page.scroll = ft.ScrollMode.AUTO
         page.controls.clear()
         
-        # --- 1. INSTANCIACIÓN AISLADA DE CONTROLES VISUALES ---
-        # Estos controles le pertenecen SOLO al usuario actual. No se cruzan jamás.
         input_cliente = ft.TextField(label="Buscar nombre de cliente...")
         input_nit = ft.TextField(label="NIT / C.C.")
         input_ciudad = ft.TextField(label="Ciudad", value="Yumbo")
@@ -112,12 +156,14 @@ def main(page: ft.Page):
         input_pago = ft.TextField(label="Forma Pago", value="30 DIAS")
         input_tiempo = ft.TextField(label="Tiempo Oferta", value="15 DIAS")
         input_ref = ft.TextField(label="REFERENCIA")
+        
+        # --- NUEVA CONFIGURACIÓN AIU CON ADMINISTRACIÓN INCLUIDA ---
+        input_pct_a = ft.TextField(label="Admin %", value="10")
         input_pct_i = ft.TextField(label="Imprev %", value="2")
         input_pct_u = ft.TextField(label="Util %", value="8")
         input_pct_iva_u = ft.TextField(label="IVA s/Util %", value="19")
         lista_busqueda_cli = ft.ListView(height=150, visible=False, spacing=2)
 
-        # Funciones de autocompletado enlazadas a los campos privados
         def buscar_cliente_realtime(e):
             texto = (input_cliente.value or "").upper().strip()
             lista_busqueda_cli.controls.clear()
@@ -134,12 +180,12 @@ def main(page: ft.Page):
 
         input_cliente.on_change = buscar_cliente_realtime
 
-        # --- 2. CONFIGURACIÓN DEL ENCABEZADO Y TABLA ---
         db_num = conectar_db()
         nro_actual = "100"
+        mes_actual_ui = datetime.now().strftime("%m")
         if db_num:
             res_num = db_num.execute("SELECT num FROM n_cot WHERE id=1").fetchone()
-            if res_num: nro_actual = f"{res_num[0]:03d}"
+            if res_num: nro_actual = f"{mes_actual_ui}-{res_num[0]:03d}"
             db_num.close()
 
         header = ft.Container(content=ft.Text(f"⚡ INGECTEC SAS", size=22, weight="bold", color="#fbbf24"), alignment=ft.alignment.center, padding=5)
@@ -161,7 +207,6 @@ def main(page: ft.Page):
         def quitar_seleccionado(e):
             if lista_items: lista_items.pop(); actualizar_tabla_visual()
 
-        # --- 3. MODALES DE TRABAJO ---
         def abrir_modal_item(e):
             resultados_inv = ft.ListView(expand=True, spacing=10, height=150)
             input_desc = ft.TextField(label="Producto Seleccionado", read_only=True)
@@ -304,12 +349,12 @@ def main(page: ft.Page):
                         db_h.close()
                         estado["nro_edicion"] = numero
                         actualizar_tabla_visual(); cerrar_dialogo(dlg)
-                        mostrar_alerta("Cargado", f"Propuesta N° {numero} cargada correctamente.")
+                        mostrar_alerta("Cargado", f"Cotización N° {numero} cargada correctamente.")
                     
                     etiqueta_creador = f" (Por: {creador})" if sesion["rol"] == "ADMIN" else ""
                     resultados_hist.controls.append(ft.ListTile(title=ft.Text(f"N° {nro} - {cli}{etiqueta_creador}", color="#fbbf24", weight="bold"), subtitle=ft.Text(f"Fecha/Hora: {fec} | Total: ${int(float(tot)):,}"), on_click=cargar_historial))
                 db.close()
-            dlg = ft.AlertDialog(title=ft.Text("🔍 Historial de Propuestas"), content=resultados_hist, actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))])
+            dlg = ft.AlertDialog(title=ft.Text("🔍 Historial de Cotizaciones"), content=resultados_hist, actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))])
             page.dialog = dlg; dlg.open = True; page.update()
 
         def abrir_modal_editar(e):
@@ -350,7 +395,6 @@ def main(page: ft.Page):
         def limpiar_todo(e):
             lista_items.clear(); estado["nro_edicion"] = None; actualizar_tabla_visual(); input_cliente.value = ""; input_nit.value = ""; lista_busqueda_cli.visible = False; page.update()
 
-        # --- 4. MOTOR PRINCIPAL DE GENERACIÓN (CON CANDADO ANTICHOQUE) ---
         def generar_pdf_web(e):
             try:
                 if not lista_items or not input_cliente.value: 
@@ -364,15 +408,16 @@ def main(page: ft.Page):
 
                 db = conectar_db()
                 nro_doc = estado["nro_edicion"]
+                mes_actual = datetime.now().strftime("%m")
                 
-                # Candado de Base de Datos - 100% Protegido contra concurrencia
                 if not nro_doc:
                     cursor_num = db.cursor()
                     cursor_num.execute("BEGIN IMMEDIATE")
                     cursor_num.execute("UPDATE n_cot SET num = num + 1 WHERE id=1")
                     cursor_num.execute("SELECT num FROM n_cot WHERE id=1")
                     num_fetch = cursor_num.fetchone()
-                    nro_doc = f"{num_fetch[0]:03d}" if num_fetch else "100"
+                    num_puro = num_fetch[0] if num_fetch else 100
+                    nro_doc = f"{mes_actual}-{num_puro:03d}"
                     db.commit()
                 else:
                     db.execute("DELETE FROM h_cab WHERE nro=?", (nro_doc,))
@@ -382,7 +427,7 @@ def main(page: ft.Page):
                 db.execute("INSERT OR IGNORE INTO cli (n, i) VALUES (?, ?)", (c_nom, c_nit))
                 db.execute("INSERT INTO h_cab VALUES (?,?,?,?,?,?,?)", (nro_doc, c_nom, c_nit, "", "", "", ""))
                 
-                subtotal_aiu = 0; subtotal_exe = 0; iva_bases = {}; aiu_bases = {}
+                subtotal_aiu = 0; subtotal_exe = 0; iva_bases = {}
                 
                 for item in lista_items:
                     cant_n = float(item['cant']); unit_n = float(item['precio']); tot_item_n = float(item['total'])
@@ -391,16 +436,14 @@ def main(page: ft.Page):
                     db.execute("INSERT INTO h_det VALUES (?,?,?,?,?,?,?)", (nro_doc, item['desc'], cant_n, und_str, unit_n, tot_item_n, imp_str))
                     if not estado["nro_edicion"]: db.execute("UPDATE inv SET stock = stock - ? WHERE d=?", (cant_n, item['desc']))
                     
-                    if "AIU" in imp_str:
+                    if "AIU" in imp_str.upper():
                         subtotal_aiu += tot_item_n
-                        try: pct = float(re.findall(r"[\d.]+", imp_str)[0])
-                        except: pct = 10
-                        aiu_bases[pct] = aiu_bases.get(pct, 0) + tot_item_n
-                    elif "IVA" in imp_str:
+                    elif "IVA" in imp_str.upper():
                         try: pct = float(re.findall(r"[\d.]+", imp_str)[0])
                         except: pct = 19
                         iva_bases[pct] = iva_bases.get(pct, 0) + tot_item_n
-                    else: subtotal_exe += tot_item_n
+                    else: 
+                        subtotal_exe += tot_item_n
 
                 subtotal_global = subtotal_aiu + sum(iva_bases.values()) + subtotal_exe
                 
@@ -444,7 +487,7 @@ def main(page: ft.Page):
                 if c_nit: p.cell(110, 5, f"NIT / CC: {c_nit}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                 
                 y_end_cli = p.get_y()
-                p.set_xy(120, y_start_cli + 2); p.set_font('helvetica', 'B', 12); p.set_text_color(31, 73, 125); p.cell(80, 5, f"PROPUESTA ING {nro_doc}", border=0, align='C'); p.set_text_color(0, 0, 0) 
+                p.set_xy(120, y_start_cli + 2); p.set_font('helvetica', 'B', 12); p.set_text_color(31, 73, 125); p.cell(80, 5, f"COTIZACIÓN ING {nro_doc}", border=0, align='C'); p.set_text_color(0, 0, 0) 
 
                 p.set_y(max(y_end_cli, y_start_cli + 10) + 5)
                 if c_ref:
@@ -482,6 +525,8 @@ def main(page: ft.Page):
                             p.cell(20, 6, "", border=b_style, align='R'); p.cell(20, 6, "", border=b_style, align='C')
                             p.cell(25, 6, "", border=b_style, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
+                try: pct_a = float(input_pct_a.value)
+                except: pct_a = 0
                 try: pct_i = float(input_pct_i.value)
                 except: pct_i = 0
                 try: pct_u = float(input_pct_u.value)
@@ -497,15 +542,21 @@ def main(page: ft.Page):
 
                 p.set_font('helvetica', '', 9); print_total_row("SUBTOTAL", subtotal_global)
                 
+                # --- APLICACIÓN DE LOS PORCENTAJES GLOBALES (ADMIN, IMPREVISTOS, UTILIDAD) ---
                 if subtotal_aiu > 0:
-                    val_a_total = 0
-                    for pct_a, base_amt in aiu_bases.items():
-                        if pct_a > 0: val_a = base_amt * (pct_a / 100); print_total_row(f"ADMINISTRACIÓN ({pct_a:g}%)", val_a); val_a_total += val_a; total_global += val_a
-                    val_i = subtotal_aiu * (pct_i / 100); val_u = subtotal_aiu * (pct_u / 100); val_iva_u_val = val_u * (pct_iva_u / 100)
+                    val_a = subtotal_aiu * (pct_a / 100)
+                    if pct_a > 0: print_total_row(f"ADMINISTRACIÓN ({pct_a:g}%)", val_a); total_global += val_a
+                    
+                    val_i = subtotal_aiu * (pct_i / 100)
                     if pct_i > 0: print_total_row(f"IMPREVISTOS ({pct_i:g}%)", val_i); total_global += val_i
+                    
+                    val_u = subtotal_aiu * (pct_u / 100)
                     if pct_u > 0: print_total_row(f"UTILIDAD ({pct_u:g}%)", val_u); total_global += val_u
-                    total_aiu_sum = val_a_total + val_i + val_u
+                    
+                    total_aiu_sum = val_a + val_i + val_u
                     if total_aiu_sum > 0: print_total_row("TOTAL AIU", total_aiu_sum, bold=True)
+                    
+                    val_iva_u_val = val_u * (pct_iva_u / 100)
                     if pct_iva_u > 0: print_total_row(f"IVA S/UTILIDAD ({pct_iva_u:g}%)", val_iva_u_val); total_global += val_iva_u_val
                 
                 for pct_iva, base_amt in iva_bases.items():
@@ -528,20 +579,23 @@ def main(page: ft.Page):
                 page.dialog = dlg_d; dlg_d.open = True; page.update()
             except Exception as errorFallo: mostrar_alerta("Error al generar PDF", f"Hubo un fallo: {str(errorFallo)}")
 
-        # --- 5. ENSAMBLAJE FINAL DE LA PANTALLA ---
+        # Botón destacado y funcional de cerrar sesión
+        btn_salir = ft.ElevatedButton("🚪 CERRAR SESIÓN", bgcolor="#ef4444", color="white", on_click=lambda e: mostrar_login())
+
         botones_top = ft.Row([
             ft.ElevatedButton("➕ AÑADIR ÍTEM", bgcolor="#10b981", color="white", on_click=abrir_modal_item),
             ft.ElevatedButton("📦 BODEGA", bgcolor="#2563eb", color="white", on_click=abrir_modal_bodega),
             ft.ElevatedButton("👥 CLIENTES", bgcolor="#2563eb", color="white", on_click=abrir_modal_clientes),
             ft.ElevatedButton("🔍 HISTORIAL", bgcolor="#2563eb", color="white", on_click=abrir_modal_historial),
             ft.ElevatedButton("✏️ EDITAR", bgcolor="#475569", color="white", on_click=abrir_modal_editar),
-            ft.ElevatedButton("🧹 LIMPIAR", bgcolor="#ef4444", color="white", on_click=limpiar_todo),
+            ft.ElevatedButton("🧹 LIMPIAR", bgcolor="#64748b", color="white", on_click=limpiar_todo),
             ft.ElevatedButton("📂 BACKUPS", bgcolor="#475569", color="white", on_click=descargar_backup),
+            btn_salir
         ], wrap=True, alignment=ft.MainAxisAlignment.CENTER)
 
         tabla = ft.Container(
             content=ft.Column([
-                ft.Row([ft.Text(f"PROPUESTA ING {nro_actual}", weight="bold", color="#fbbf24", size=16)], alignment=ft.MainAxisAlignment.CENTER),
+                ft.Row([ft.Text(f"COTIZACIÓN ING {nro_actual}", weight="bold", color="#fbbf24", size=16)], alignment=ft.MainAxisAlignment.CENTER),
                 ft.Divider(color="white24"),
                 ft.ResponsiveRow([
                     ft.Text("DESCRIPCIÓN", weight="bold", color="#fbbf24", col={"sm": 6}, text_align="center"), 
@@ -568,60 +622,24 @@ def main(page: ft.Page):
                 ft.ResponsiveRow([
                     ft.Container(content=input_ref, col={"sm": 12, "md": 12, "lg": 12})
                 ]),
+                # Fila horizontal con la nueva opción de "Admin %" global
                 ft.ResponsiveRow([
                     ft.Container(content=ft.Text("⚙️ Config. AIU (Global):", weight="bold", color="#fbbf24"), col={"sm": 12, "md": 3, "lg": 3}, alignment=ft.alignment.center_left),
-                    ft.Container(content=input_pct_i, col={"sm": 4, "md": 3, "lg": 3}),
-                    ft.Container(content=input_pct_u, col={"sm": 4, "md": 3, "lg": 3}),
+                    ft.Container(content=input_pct_a, col={"sm": 4, "md": 2, "lg": 2}),
+                    ft.Container(content=input_pct_i, col={"sm": 4, "md": 2, "lg": 2}),
+                    ft.Container(content=input_pct_u, col={"sm": 4, "md": 2, "lg": 2}),
                     ft.Container(content=input_pct_iva_u, col={"sm": 4, "md": 3, "lg": 3}),
                 ], vertical_alignment=ft.CrossAxisAlignment.CENTER)
             ], spacing=10),
             bgcolor="#0f172a", padding=15, border_radius=8, border=ft.border.all(1, "white12")
         )
 
-        btn_generar = ft.Container(content=ft.ElevatedButton("🚀 GENERAR PROPUESTA PROFESIONAL", bgcolor="#f59e0b", color="black", height=50, on_click=generar_pdf_web), alignment=ft.alignment.center, padding=ft.padding.only(top=10, bottom=20))
+        btn_generar = ft.Container(content=ft.ElevatedButton("🚀 GENERAR COTIZACIÓN PROFESIONAL", bgcolor="#f59e0b", color="black", height=50, on_click=generar_pdf_web), alignment=ft.alignment.center, padding=ft.padding.only(top=10, bottom=20))
         lbl_bienvenida = ft.Container(content=ft.Text(f"👤 Usuario conectado: {sesion['usuario']} ({sesion['rol']})", size=12, color="#94a3b8"), alignment=ft.alignment.center_right)
         
         page.add(header, lbl_bienvenida, botones_top, tabla, f_cli, btn_generar)
         page.update()
 
-    # --- PANTALLA DE INICIO DE SESIÓN ---
-    def procesar_login(e):
-        u = input_usr.value.upper().strip()
-        p = input_pwd.value.strip()
-        db_login = conectar_db()
-        if db_login:
-            user = db_login.execute("SELECT rol FROM usuarios WHERE usuario=? AND password=?", (u, p)).fetchone()
-            db_login.close()
-            if user:
-                sesion["usuario"] = u
-                sesion["rol"] = user[0]
-                iniciar_app_principal()
-            else:
-                page.snack_bar = ft.SnackBar(ft.Text("❌ Usuario o contraseña incorrectos"), bgcolor="#ef4444")
-                page.snack_bar.open = True
-                page.update()
-
-    input_usr = ft.TextField(label="Usuario (Ej. OSCAR, PAULO, YEISON)", width=300)
-    input_pwd = ft.TextField(label="Contraseña", password=True, can_reveal_password=True, width=300)
-    
-    pantalla_login = ft.Container(
-        content=ft.Column(
-            [
-                ft.Icon(ft.icons.LOCK_PERSON, size=50, color="#fbbf24"),
-                ft.Text("INGECTEC - Acceso Seguro", size=20, weight="bold", color="white"),
-                input_usr,
-                input_pwd,
-                ft.ElevatedButton("INICIAR SESIÓN", bgcolor="#2563eb", color="white", width=300, height=45, on_click=procesar_login)
-            ],
-            alignment=ft.MainAxisAlignment.CENTER,
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=15
-        ),
-        alignment=ft.alignment.center,
-        expand=True
-    )
-
-    page.add(pantalla_login)
-    page.update()
+    mostrar_login()
 
 ft.app(target=main, view=ft.AppView.WEB_BROWSER, port=PORT, host="0.0.0.0", assets_dir="assets")
