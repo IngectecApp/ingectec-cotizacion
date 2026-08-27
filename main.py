@@ -68,16 +68,13 @@ def main(page: ft.Page):
         dialogo = ft.AlertDialog(title=ft.Text(titulo, weight="bold", color="#fbbf24"), content=ft.Text(str(mensaje)), actions=[ft.TextButton("OK", on_click=lambda e: cerrar_dialogo(dialogo))])
         page.dialog = dialogo; dialogo.open = True; page.update()
 
-    # --- PILOTO AUTOMÁTICO: TODOS LOS USUARIOS COMO ADMIN ---
+    # --- PILOTO AUTOMÁTICO: BD, SEGURIDAD Y LIMPIEZA ÚNICA ---
     db_setup = conectar_db()
     if db_setup:
         db_setup.execute("CREATE TABLE IF NOT EXISTS usuarios (usuario TEXT PRIMARY KEY, password TEXT, rol TEXT)")
-        # Insertar si no existen, todos como ADMIN
         db_setup.execute("INSERT OR IGNORE INTO usuarios VALUES ('OSCAR', '1234', 'ADMIN')")
         db_setup.execute("INSERT OR IGNORE INTO usuarios VALUES ('YEISON', '1234', 'ADMIN')")
         db_setup.execute("INSERT OR IGNORE INTO usuarios VALUES ('PAULO', '1234', 'ADMIN')")
-        
-        # Forzar actualización a ADMIN por si ya existían con otro rol
         db_setup.execute("UPDATE usuarios SET rol='ADMIN'")
         
         db_setup.execute("CREATE TABLE IF NOT EXISTS n_cot (id INTEGER PRIMARY KEY, num INTEGER)")
@@ -88,6 +85,22 @@ def main(page: ft.Page):
         try: db_setup.execute("ALTER TABLE historial ADD COLUMN origen TEXT DEFAULT 'WEB'")
         except: pass
         
+        # --- LIMPIEZA INTELIGENTE (SE EJECUTA SOLO UNA VEZ) ---
+        try:
+            cursor_limpieza = db_setup.execute("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='limpieza_agosto_ok'")
+            if cursor_limpieza.fetchone()[0] == 0:
+                # Borra todo lo que no sea la 133
+                db_setup.execute("DELETE FROM historial WHERE nro NOT LIKE '%133'")
+                db_setup.execute("DELETE FROM h_cab WHERE nro NOT LIKE '%133'")
+                db_setup.execute("DELETE FROM h_det WHERE nro NOT LIKE '%133'")
+                
+                # Resetea el generador interno a 133 para que el siguiente salto sea perfecto
+                db_setup.execute("UPDATE n_cot SET num = 133 WHERE id = 1")
+                
+                # Crea el sello de seguridad para no volver a borrar nada mañana
+                db_setup.execute("CREATE TABLE limpieza_agosto_ok (id INTEGER PRIMARY KEY)")
+        except: pass
+
         cursor_r = db_setup.cursor()
         items_perdidos = [("BREAKER 2X40", 101861, 100), ("TUBO EMT DE 1\" (INCLUYE ASCESORIOS DE INSTALACION)", 35547, 100)]
         for desc, precio, stock in items_perdidos:
@@ -324,7 +337,6 @@ def main(page: ft.Page):
             resultados_hist = ft.ListView(height=300)
             db = conectar_db()
             if db:
-                # SIN RESTRICCIONES: Todos ven todo el historial siempre
                 filas = db.execute("SELECT nro, cliente, fecha, total, creador FROM historial ORDER BY nro DESC LIMIT 30").fetchall()
 
                 for row in filas:
