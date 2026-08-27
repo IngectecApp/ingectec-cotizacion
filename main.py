@@ -68,7 +68,7 @@ def main(page: ft.Page):
         dialogo = ft.AlertDialog(title=ft.Text(titulo, weight="bold", color="#fbbf24"), content=ft.Text(str(mensaje)), actions=[ft.TextButton("OK", on_click=lambda e: cerrar_dialogo(dialogo))])
         page.dialog = dialogo; dialogo.open = True; page.update()
 
-    # --- PILOTO AUTOMÁTICO: BLINDAJE DE TABLAS Y USUARIOS ---
+    # --- PILOTO AUTOMÁTICO: LIMPIEZA DE BD Y SEGURIDAD ---
     db_setup = conectar_db()
     if db_setup:
         db_setup.execute("CREATE TABLE IF NOT EXISTS usuarios (usuario TEXT PRIMARY KEY, password TEXT, rol TEXT)")
@@ -84,6 +84,18 @@ def main(page: ft.Page):
         try: db_setup.execute("ALTER TABLE historial ADD COLUMN origen TEXT DEFAULT 'WEB'")
         except: pass
         
+        # --- LIMPIEZA EXTREMA SOLICITADA ---
+        try:
+            # Borra todo lo que no sea 133 o 134
+            db_setup.execute("DELETE FROM historial WHERE nro NOT LIKE '%133' AND nro NOT LIKE '%134'")
+            db_setup.execute("DELETE FROM h_cab WHERE nro NOT LIKE '%133' AND nro NOT LIKE '%134'")
+            db_setup.execute("DELETE FROM h_det WHERE nro NOT LIKE '%133' AND nro NOT LIKE '%134'")
+            
+            # Asigna la 133 a PAULO y la 134 a YEISON para que las puedan ver y modificar
+            db_setup.execute("UPDATE historial SET creador='PAULO' WHERE nro LIKE '%133'")
+            db_setup.execute("UPDATE historial SET creador='YEISON' WHERE nro LIKE '%134'")
+        except: pass
+
         cursor_r = db_setup.cursor()
         items_perdidos = [("BREAKER 2X40", 101861, 100), ("TUBO EMT DE 1\" (INCLUYE ASCESORIOS DE INSTALACION)", 35547, 100)]
         for desc, precio, stock in items_perdidos:
@@ -143,7 +155,7 @@ def main(page: ft.Page):
         page.update()
 
     # ==========================================
-    # INTERFAZ PRINCIPAL AISLADA (100% PRIVADA POR SESIÓN)
+    # INTERFAZ PRINCIPAL AISLADA
     # ==========================================
     def iniciar_app_principal():
         page.scroll = ft.ScrollMode.AUTO
@@ -157,7 +169,6 @@ def main(page: ft.Page):
         input_tiempo = ft.TextField(label="Tiempo Oferta", value="15 DIAS")
         input_ref = ft.TextField(label="REFERENCIA")
         
-        # --- NUEVA CONFIGURACIÓN AIU CON ADMINISTRACIÓN INCLUIDA ---
         input_pct_a = ft.TextField(label="Admin %", value="10")
         input_pct_i = ft.TextField(label="Imprev %", value="2")
         input_pct_u = ft.TextField(label="Util %", value="8")
@@ -542,7 +553,6 @@ def main(page: ft.Page):
 
                 p.set_font('helvetica', '', 9); print_total_row("SUBTOTAL", subtotal_global)
                 
-                # --- APLICACIÓN DE LOS PORCENTAJES GLOBALES (ADMIN, IMPREVISTOS, UTILIDAD) ---
                 if subtotal_aiu > 0:
                     val_a = subtotal_aiu * (pct_a / 100)
                     if pct_a > 0: print_total_row(f"ADMINISTRACIÓN ({pct_a:g}%)", val_a); total_global += val_a
@@ -579,7 +589,6 @@ def main(page: ft.Page):
                 page.dialog = dlg_d; dlg_d.open = True; page.update()
             except Exception as errorFallo: mostrar_alerta("Error al generar PDF", f"Hubo un fallo: {str(errorFallo)}")
 
-        # Botón destacado y funcional de cerrar sesión
         btn_salir = ft.ElevatedButton("🚪 CERRAR SESIÓN", bgcolor="#ef4444", color="white", on_click=lambda e: mostrar_login())
 
         botones_top = ft.Row([
@@ -622,7 +631,6 @@ def main(page: ft.Page):
                 ft.ResponsiveRow([
                     ft.Container(content=input_ref, col={"sm": 12, "md": 12, "lg": 12})
                 ]),
-                # Fila horizontal con la nueva opción de "Admin %" global
                 ft.ResponsiveRow([
                     ft.Container(content=ft.Text("⚙️ Config. AIU (Global):", weight="bold", color="#fbbf24"), col={"sm": 12, "md": 3, "lg": 3}, alignment=ft.alignment.center_left),
                     ft.Container(content=input_pct_a, col={"sm": 4, "md": 2, "lg": 2}),
