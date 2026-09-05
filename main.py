@@ -34,11 +34,19 @@ class PDF(FPDF):
         self.set_y(40) 
         
     def footer(self):
+        # --- TRAZABILIDAD DEL ASESOR (Justo arriba de la línea) ---
+        self.set_y(-28)
+        if hasattr(self, 'asesor_nombre') and self.asesor_nombre:
+            self.set_font('helvetica', '', 7)
+            self.set_text_color(210, 210, 210)
+            self.set_x(30) # Se alinea perfectamente con el inicio de la línea horizontal
+            self.cell(0, 3, f"Cod. Asesor: {self.asesor_nombre}", border=0, align='L')
+            
         self.set_y(-25)
         self.set_font('helvetica', '', 8)
         self.set_text_color(150, 150, 150)
         self.set_draw_color(200, 200, 200)
-        self.line(30, self.get_y(), 180, self.get_y())
+        self.line(30, self.get_y(), 180, self.get_y()) # LÍNEA DIVISORIA
         self.ln(2)
         self.cell(0, 4, "INGECTEC S.A.S: CALLE 2 N # 4-53 BELALCAZAR CELULAR: 317 504 64 04 - 3172736356", border=0, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         self.cell(0, 4, "comercial@ingectec.com - gerencia@ingectec.com", border=0, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
@@ -649,6 +657,9 @@ def main(page: ft.Page):
                 qr.make_image(fill_color="black", back_color="white").save("assets/qr_temp.png")
 
                 p = PDF()
+                # --- PASAR EL NOMBRE DEL ASESOR AL PDF PARA EL PIE DE PÁGINA ---
+                p.asesor_nombre = sesion["usuario"]
+                # ---------------------------------------------------------------
                 p.set_margins(10, 10, 10)
                 p.set_auto_page_break(auto=True, margin=30)
                 p.add_page()
@@ -753,15 +764,9 @@ def main(page: ft.Page):
                 
                 p.ln(8); p.set_font("helvetica", 'B', 8); p.cell(0, 5, "Escanee este código para atención personalizada y directa con nuestra Gerencia.", border=0, align='L', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                 
-                # --- TRAZABILIDAD DEL ASESOR ---
                 current_y = p.get_y()
                 p.image("assets/qr_temp.png", 10, current_y, 25, 25)
-                
-                p.set_xy(10, current_y + 20)
-                p.set_font("helvetica", '', 7)
-                p.set_text_color(210, 210, 210) 
-                p.cell(190, 5, f"Cod. Asesor: {sesion['usuario']}", border=0, align='R')
-                # --------------------------------
+                # El texto de Cod. Asesor ahora está programado directamente en la función footer() arriba.
 
                 nombre_archivo = f"Cotizacion_{nro_doc}.pdf"
                 p.output(f"assets/{nombre_archivo}")
