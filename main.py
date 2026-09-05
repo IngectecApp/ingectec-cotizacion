@@ -34,19 +34,18 @@ class PDF(FPDF):
         self.set_y(40) 
         
     def footer(self):
-        # --- TRAZABILIDAD DEL ASESOR (Justo arriba de la línea) ---
         self.set_y(-28)
         if hasattr(self, 'asesor_nombre') and self.asesor_nombre:
             self.set_font('helvetica', '', 7)
             self.set_text_color(210, 210, 210)
-            self.set_x(30) # Se alinea perfectamente con el inicio de la línea horizontal
+            self.set_x(30)
             self.cell(0, 3, f"Cod. Asesor: {self.asesor_nombre}", border=0, align='L')
             
         self.set_y(-25)
         self.set_font('helvetica', '', 8)
         self.set_text_color(150, 150, 150)
         self.set_draw_color(200, 200, 200)
-        self.line(30, self.get_y(), 180, self.get_y()) # LÍNEA DIVISORIA
+        self.line(30, self.get_y(), 180, self.get_y())
         self.ln(2)
         self.cell(0, 4, "INGECTEC S.A.S: CALLE 2 N # 4-53 BELALCAZAR CELULAR: 317 504 64 04 - 3172736356", border=0, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         self.cell(0, 4, "comercial@ingectec.com - gerencia@ingectec.com", border=0, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
@@ -80,9 +79,16 @@ def main(page: ft.Page):
     db_setup = conectar_db()
     if db_setup:
         db_setup.execute("CREATE TABLE IF NOT EXISTS usuarios (usuario TEXT PRIMARY KEY, password TEXT, rol TEXT)")
-        db_setup.execute("INSERT OR IGNORE INTO usuarios VALUES ('OSCAR', '1234', 'ADMIN')")
-        db_setup.execute("INSERT OR IGNORE INTO usuarios VALUES ('YEISON', '1234', 'ADMIN')")
-        db_setup.execute("INSERT OR IGNORE INTO usuarios VALUES ('PAULO', '1234', 'ADMIN')")
+        
+        # INYECTOR DE SEGURIDAD PARA BLOQUEOS
+        try: db_setup.execute("ALTER TABLE usuarios ADD COLUMN intentos INTEGER DEFAULT 0")
+        except: pass
+        try: db_setup.execute("ALTER TABLE usuarios ADD COLUMN bloqueado INTEGER DEFAULT 0")
+        except: pass
+
+        db_setup.execute("INSERT OR IGNORE INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES ('OSCAR', '1234', 'ADMIN', 0, 0)")
+        db_setup.execute("INSERT OR IGNORE INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES ('YEISON', '1234', 'ADMIN', 0, 0)")
+        db_setup.execute("INSERT OR IGNORE INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES ('PAULO', '1234', 'ADMIN', 0, 0)")
         
         db_setup.execute("CREATE TABLE IF NOT EXISTS n_cot (id INTEGER PRIMARY KEY, num INTEGER)")
         db_setup.execute("INSERT OR IGNORE INTO n_cot (id, num) VALUES (1, 100)")
@@ -108,19 +114,51 @@ def main(page: ft.Page):
     input_usr = ft.TextField(label="Usuario (Ej. OSCAR, PAULO, YEISON)", width=300)
     input_pwd = ft.TextField(label="Contraseña", password=True, can_reveal_password=True, width=300)
 
+    # ==========================================
+    # LÓGICA DE INGRESO CON SEGURIDAD 3 INTENTOS
+    # ==========================================
     def procesar_login(e):
         u = input_usr.value.upper().strip()
         p = input_pwd.value.strip()
         db_login = conectar_db()
         if db_login:
-            user = db_login.execute("SELECT rol FROM usuarios WHERE usuario=? AND password=?", (u, p)).fetchone()
-            db_login.close()
-            if user:
-                sesion["usuario"] = u
-                sesion["rol"] = user[0]
-                iniciar_app_principal()
+            user_row = db_login.execute("SELECT password, rol, bloqueado, intentos FROM usuarios WHERE usuario=?", (u,)).fetchone()
+            
+            if user_row:
+                db_pwd, rol, bloqueado, intentos = user_row
+                
+                # Si el usuario ya está bloqueado, no lo dejamos pasar
+                if bloqueado == 1:
+                    mostrar_alerta("Acceso Bloqueado 🔒", "Tu usuario ha sido bloqueado por superar los 3 intentos fallidos. Contacta al administrador del sistema para desbloquearlo.")
+                    db_login.close()
+                    return
+                
+                # Verificamos la contraseña
+                if db_pwd == p:
+                    # Todo bien: se reinician los intentos a cero
+                    db_login.execute("UPDATE usuarios SET intentos=0, bloqueado=0 WHERE usuario=?", (u,))
+                    db_login.commit()
+                    db_login.close()
+                    sesion["usuario"] = u
+                    sesion["rol"] = rol
+                    iniciar_app_principal()
+                else:
+                    # Contraseña mala: sumamos un intento
+                    intentos += 1
+                    if intentos >= 3:
+                        db_login.execute("UPDATE usuarios SET intentos=?, bloqueado=1 WHERE usuario=?", (intentos, u))
+                        db_login.commit()
+                        mostrar_alerta("Acceso Bloqueado 🚫", "Has superado los 3 intentos de acceso fallidos. Tu usuario ha sido bloqueado por seguridad.")
+                    else:
+                        db_login.execute("UPDATE usuarios SET intentos=? WHERE usuario=?", (intentos, u))
+                        db_login.commit()
+                        page.snack_bar = ft.SnackBar(ft.Text(f"❌ Contraseña incorrecta. Intento {intentos} de 3."), bgcolor="#ef4444")
+                        page.snack_bar.open = True
+                        page.update()
+                    db_login.close()
             else:
-                page.snack_bar = ft.SnackBar(ft.Text("❌ Usuario o contraseña incorrectos"), bgcolor="#ef4444")
+                db_login.close()
+                page.snack_bar = ft.SnackBar(ft.Text("❌ El usuario no existe"), bgcolor="#ef4444")
                 page.snack_bar.open = True
                 page.update()
 
@@ -438,8 +476,10 @@ def main(page: ft.Page):
                 resultados_usr.controls.clear()
                 db = conectar_db()
                 if db:
-                    for row in db.execute("SELECT usuario, rol FROM usuarios ORDER BY usuario ASC"):
-                        u, r = row[0], row[1]
+                    for row in db.execute("SELECT usuario, rol, bloqueado FROM usuarios ORDER BY usuario ASC"):
+                        u, r, b = row[0], row[1], row[2]
+                        
+                        estado_txt = " (Bloqueado 🔒)" if b == 1 else ""
                         
                         def editar(evt, user_name=u, user_role=r):
                             e_usr_nom.value = user_name
@@ -456,11 +496,23 @@ def main(page: ft.Page):
                             cargar_usuarios()
                             page.snack_bar = ft.SnackBar(ft.Text(f"🗑️ Usuario {user_name} eliminado"), bgcolor="#ef4444"); page.snack_bar.open = True; page.update()
 
+                        # --- BOTÓN PARA DESBLOQUEAR USUARIO ---
+                        def desbloquear(evt, user_name=u):
+                            db_u = conectar_db()
+                            db_u.execute("UPDATE usuarios SET intentos=0, bloqueado=0 WHERE usuario=?", (user_name,))
+                            db_u.commit(); db_u.close()
+                            cargar_usuarios()
+                            page.snack_bar = ft.SnackBar(ft.Text(f"✅ Usuario {user_name} desbloqueado exitosamente"), bgcolor="#10b981"); page.snack_bar.open = True; page.update()
+
+                        botones_accion = [ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", tooltip="Eliminar Usuario", on_click=eliminar)]
+                        if b == 1:
+                            botones_accion.insert(0, ft.IconButton(ft.icons.LOCK_OPEN, icon_color="#10b981", tooltip="Desbloquear Usuario", on_click=desbloquear))
+
                         resultados_usr.controls.append(
                             ft.ListTile(
-                                title=ft.Text(u, color="#fbbf24", weight="bold"),
+                                title=ft.Text(f"{u}{estado_txt}", color="#ef4444" if b==1 else "#fbbf24", weight="bold"),
                                 subtitle=ft.Text(f"Rol asignado: {r}"),
-                                trailing=ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=eliminar),
+                                trailing=ft.Row(botones_accion, tight=True),
                                 on_click=editar
                             )
                         )
@@ -472,12 +524,21 @@ def main(page: ft.Page):
                     return mostrar_alerta("Aviso", "Falta el nombre o la contraseña.")
                 db = conectar_db()
                 if db:
-                    db.execute("INSERT OR REPLACE INTO usuarios (usuario, password, rol) VALUES (?,?,?)", 
-                               (e_usr_nom.value.upper().strip(), e_usr_pwd.value.strip(), e_usr_rol.value))
+                    # Lógica inteligente: Si el usuario existe lo actualiza (y desbloquea), si no, lo crea.
+                    usr_nom_limpio = e_usr_nom.value.upper().strip()
+                    existe = db.execute("SELECT count(*) FROM usuarios WHERE usuario=?", (usr_nom_limpio,)).fetchone()[0]
+                    
+                    if existe > 0:
+                        db.execute("UPDATE usuarios SET password=?, rol=?, intentos=0, bloqueado=0 WHERE usuario=?", 
+                                   (e_usr_pwd.value.strip(), e_usr_rol.value, usr_nom_limpio))
+                    else:
+                        db.execute("INSERT INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES (?,?,?,0,0)", 
+                                   (usr_nom_limpio, e_usr_pwd.value.strip(), e_usr_rol.value))
+                    
                     db.commit(); db.close()
                     e_usr_nom.value = ""; e_usr_pwd.value = ""; e_usr_rol.value = "ASESOR"
                     cargar_usuarios()
-                    page.snack_bar = ft.SnackBar(ft.Text("✅ Usuario guardado/actualizado con éxito"), bgcolor="#8b5cf6"); page.snack_bar.open = True; page.update()
+                    page.snack_bar = ft.SnackBar(ft.Text("✅ Usuario guardado y habilitado con éxito"), bgcolor="#8b5cf6"); page.snack_bar.open = True; page.update()
 
             dlg = ft.AlertDialog(
                 title=ft.Text("🔐 Gestión de Usuarios"), 
@@ -494,41 +555,60 @@ def main(page: ft.Page):
             page.dialog = dlg; dlg.open = True; cargar_usuarios()
 
         def abrir_modal_historial(e):
-            resultados_hist = ft.ListView(height=300)
-            db = conectar_db()
-            if db:
-                filas = db.execute("SELECT nro, cliente, fecha, total, creador FROM historial ORDER BY nro DESC LIMIT 30").fetchall()
+            resultados_hist = ft.ListView(expand=True, spacing=10, height=300)
+            buscador_hist = ft.TextField(label="🔍 Buscar por nombre de cliente...", width=400)
 
-                for row in filas:
-                    nro, cli, fec, tot, creador = row[0], row[1], row[2], row[3], row[4]
-                    def cargar_historial(evt, numero=nro):
-                        db_h = conectar_db()
-                        cab = db_h.execute("SELECT cli, nit FROM h_cab WHERE nro=?", (numero,)).fetchone()
-                        if cab: input_cliente.value = cab[0] if cab[0] else ""; input_nit.value = cab[1] if cab[1] else ""
-                        lista_items.clear()
-                        for d in db_h.execute("SELECT desc, cant, und, unit, sub, imp FROM h_det WHERE nro=?", (numero,)):
-                            desc_str = d[0] if d[0] else ""
-                            try: cant_f = float(d[1])
-                            except: cant_f = 1.0
-                            und_str = str(d[2]) if d[2] else "UNID"
-                            try: unit_f = float(d[3])
-                            except: unit_f = 100.0
-                            try: sub_f = float(d[4])
-                            except: sub_f = cant_f * unit_f
-                            impuesto_str = str(d[5]) if d[5] else "EXENTO"
-                            if "AIU" in und_str or "IVA" in und_str or "EXENTO" in und_str:
-                                temp = impuesto_str; impuesto_str = und_str; und_str = temp if temp not in ["EXENTO", ""] else "UNID"
-                            lista_items.append({"desc": desc_str, "cant": cant_f, "und": und_str, "precio": unit_f, "total": sub_f, "impuesto": impuesto_str})
-                        db_h.close()
-                        estado["nro_edicion"] = numero
-                        actualizar_tabla_visual(); cerrar_dialogo(dlg)
-                        mostrar_alerta("Cargado", f"Cotización N° {numero} cargada correctamente.")
-                    
-                    etiqueta_creador = f" (Por: {creador})"
-                    resultados_hist.controls.append(ft.ListTile(title=ft.Text(f"N° {nro} - {cli}{etiqueta_creador}", color="#fbbf24", weight="bold"), subtitle=ft.Text(f"Fecha/Hora: {fec} | Total: ${int(float(tot)):,}"), on_click=cargar_historial))
+            def cargar_historial_lista(evt=None):
+                resultados_hist.controls.clear()
+                txt_busqueda = (buscador_hist.value or "").upper().strip()
+                db = conectar_db()
+                if db:
+                    if txt_busqueda:
+                        # Si hay texto, filtra por cliente
+                        filas = db.execute("SELECT nro, cliente, fecha, total, creador FROM historial WHERE UPPER(cliente) LIKE ? ORDER BY nro DESC LIMIT 50", ('%'+txt_busqueda+'%',)).fetchall()
+                    else:
+                        # Si está vacío, trae los últimos 30
+                        filas = db.execute("SELECT nro, cliente, fecha, total, creador FROM historial ORDER BY nro DESC LIMIT 30").fetchall()
+
+                    for row in filas:
+                        nro, cli, fec, tot, creador = row[0], row[1], row[2], row[3], row[4]
+                        
+                        def cargar_cotizacion(evt, numero=nro):
+                            db_h = conectar_db()
+                            cab = db_h.execute("SELECT cli, nit FROM h_cab WHERE nro=?", (numero,)).fetchone()
+                            if cab: input_cliente.value = cab[0] if cab[0] else ""; input_nit.value = cab[1] if cab[1] else ""
+                            lista_items.clear()
+                            for d in db_h.execute("SELECT desc, cant, und, unit, sub, imp FROM h_det WHERE nro=?", (numero,)):
+                                desc_str = d[0] if d[0] else ""
+                                try: cant_f = float(d[1])
+                                except: cant_f = 1.0
+                                und_str = str(d[2]) if d[2] else "UNID"
+                                try: unit_f = float(d[3])
+                                except: unit_f = 100.0
+                                try: sub_f = float(d[4])
+                                except: sub_f = cant_f * unit_f
+                                impuesto_str = str(d[5]) if d[5] else "EXENTO"
+                                if "AIU" in und_str or "IVA" in und_str or "EXENTO" in und_str:
+                                    temp = impuesto_str; impuesto_str = und_str; und_str = temp if temp not in ["EXENTO", ""] else "UNID"
+                                lista_items.append({"desc": desc_str, "cant": cant_f, "und": und_str, "precio": unit_f, "total": sub_f, "impuesto": impuesto_str})
+                            db_h.close()
+                            estado["nro_edicion"] = numero
+                            actualizar_tabla_visual(); cerrar_dialogo(dlg)
+                            mostrar_alerta("Cargado", f"Cotización N° {numero} cargada correctamente.")
+                        
+                        etiqueta_creador = f" (Por: {creador})"
+                        resultados_hist.controls.append(ft.ListTile(title=ft.Text(f"N° {nro} - {cli}{etiqueta_creador}", color="#fbbf24", weight="bold"), subtitle=ft.Text(f"Fecha/Hora: {fec} | Total: ${int(float(tot)):,}"), on_click=cargar_cotizacion))
                 db.close()
-            dlg = ft.AlertDialog(title=ft.Text("🔍 Historial de Cotizaciones"), content=resultados_hist, actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))])
-            page.dialog = dlg; dlg.open = True; page.update()
+                page.update()
+
+            buscador_hist.on_change = cargar_historial_lista
+
+            dlg = ft.AlertDialog(
+                title=ft.Text("🔍 Historial de Cotizaciones"), 
+                content=ft.Container(width=700, content=ft.Column([buscador_hist, resultados_hist], tight=True)), 
+                actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))]
+            )
+            page.dialog = dlg; dlg.open = True; cargar_historial_lista()
 
         def abrir_modal_editar(e):
             if not lista_items: return mostrar_alerta("Aviso", "No hay ítems para editar.")
@@ -657,9 +737,7 @@ def main(page: ft.Page):
                 qr.make_image(fill_color="black", back_color="white").save("assets/qr_temp.png")
 
                 p = PDF()
-                # --- PASAR EL NOMBRE DEL ASESOR AL PDF PARA EL PIE DE PÁGINA ---
-                p.asesor_nombre = sesion["usuario"]
-                # ---------------------------------------------------------------
+                p.asesor_nombre = sesion["usuario"] # Se inyecta para la trazabilidad
                 p.set_margins(10, 10, 10)
                 p.set_auto_page_break(auto=True, margin=30)
                 p.add_page()
@@ -766,7 +844,6 @@ def main(page: ft.Page):
                 
                 current_y = p.get_y()
                 p.image("assets/qr_temp.png", 10, current_y, 25, 25)
-                # El texto de Cod. Asesor ahora está programado directamente en la función footer() arriba.
 
                 nombre_archivo = f"Cotizacion_{nro_doc}.pdf"
                 p.output(f"assets/{nombre_archivo}")
