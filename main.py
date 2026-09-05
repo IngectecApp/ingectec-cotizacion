@@ -89,7 +89,6 @@ def main(page: ft.Page):
         db_setup.execute("INSERT OR IGNORE INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES ('YEISON', '1234', 'ASESOR', 0, 0)")
         db_setup.execute("INSERT OR IGNORE INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES ('PAULO', '1234', 'ADMIN', 0, 0)")
         
-        # Corrección única para bajar a Yeison a Asesor si ya existía como Admin
         try:
             c_rol = db_setup.execute("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='fix_rol_yeison'")
             if c_rol.fetchone()[0] == 0:
@@ -478,6 +477,9 @@ def main(page: ft.Page):
             page.dialog = dlg; dlg.open = True; cargar_clientes_lista()
 
         def abrir_modal_usuarios(e):
+            if sesion["rol"] != "ADMIN":
+                return mostrar_alerta("Acceso Denegado", "Solo el Administrador puede gestionar los usuarios del sistema.")
+            
             resultados_usr = ft.ListView(expand=True, spacing=10, height=200)
             e_usr_nom = ft.TextField(label="Nombre de Usuario*", col={"sm": 4})
             e_usr_pwd = ft.TextField(label="Contraseña*", password=True, can_reveal_password=True, col={"sm": 4})
@@ -643,7 +645,13 @@ def main(page: ft.Page):
             construir_lista()
             page.dialog = dlg_editar; dlg_editar.open = True; page.update()
 
+        # ==========================================
+        # SISTEMA: BACKUP Y RESET CON CONTRASEÑA MAESTRA
+        # ==========================================
         def abrir_modal_sistema(e):
+            if sesion["rol"] != "ADMIN":
+                return mostrar_alerta("Acceso Denegado", "Solo el Administrador tiene acceso a la configuración del sistema.")
+
             def hacer_backup(evt):
                 try:
                     shutil.copy2('ingectec.db', 'assets/backup_ingectec.db')
@@ -653,24 +661,35 @@ def main(page: ft.Page):
                 except Exception as ex: mostrar_alerta("Error", str(ex))
 
             def confirmar_reseteo(evt):
+                input_clave_maestra = ft.TextField(label="Contraseña Maestra", password=True, can_reveal_password=True, width=300)
+
                 def ejecutar_reseteo(ev):
-                    db = conectar_db()
-                    if db:
-                        db.execute("DELETE FROM cli")
-                        db.execute("DELETE FROM inv")
-                        db.execute("DELETE FROM historial")
-                        db.execute("DELETE FROM h_cab")
-                        db.execute("DELETE FROM h_det")
-                        db.execute("UPDATE n_cot SET num = 100 WHERE id=1")
-                        db.commit(); db.close()
-                    cerrar_dialogo(dlg_conf)
-                    cerrar_dialogo(dlg_sis)
-                    page.snack_bar = ft.SnackBar(ft.Text("✅ SISTEMA RESTAURADO DE FÁBRICA CORRECTAMENTE"), bgcolor="#10b981")
-                    page.snack_bar.open = True; page.update()
+                    # Validación de seguridad del doble factor (Cédula de Paulo)
+                    if input_clave_maestra.value.strip() == "7705178":
+                        db = conectar_db()
+                        if db:
+                            db.execute("DELETE FROM cli")
+                            db.execute("DELETE FROM inv")
+                            db.execute("DELETE FROM historial")
+                            db.execute("DELETE FROM h_cab")
+                            db.execute("DELETE FROM h_det")
+                            db.execute("UPDATE n_cot SET num = 100 WHERE id=1")
+                            db.commit(); db.close()
+                        cerrar_dialogo(dlg_conf)
+                        cerrar_dialogo(dlg_sis)
+                        page.snack_bar = ft.SnackBar(ft.Text("✅ SISTEMA RESTAURADO DE FÁBRICA CORRECTAMENTE"), bgcolor="#10b981")
+                        page.snack_bar.open = True; page.update()
+                    else:
+                        page.snack_bar = ft.SnackBar(ft.Text("❌ Contraseña Maestra Incorrecta"), bgcolor="#ef4444")
+                        page.snack_bar.open = True; page.update()
 
                 dlg_conf = ft.AlertDialog(
                     title=ft.Text("⚠️ ADVERTENCIA EXTREMA", color="#ef4444", weight="bold"),
-                    content=ft.Text("¿Estás 100% seguro? Esto borrará TODOS los clientes, TODOS los productos de la bodega y TODO el historial de cotizaciones. Solo quedarán los usuarios vivos. Esta acción NO se puede deshacer."),
+                    content=ft.Column([
+                        ft.Text("¿Estás 100% seguro? Esto borrará TODOS los clientes, TODOS los productos de la bodega y TODO el historial de cotizaciones. Solo quedarán los usuarios vivos. Esta acción NO se puede deshacer."),
+                        ft.Text("Digita la Contraseña Maestra de Seguridad para confirmar:", weight="bold", color="#fbbf24"),
+                        input_clave_maestra
+                    ], tight=True),
                     actions=[
                         ft.ElevatedButton("SÍ, BORRAR TODO", bgcolor="#ef4444", color="white", on_click=ejecutar_reseteo),
                         ft.TextButton("CANCELAR", on_click=lambda e: cerrar_dialogo(dlg_conf))
@@ -904,7 +923,6 @@ def main(page: ft.Page):
 
         btn_salir = ft.ElevatedButton("🚪 CERRAR SESIÓN", bgcolor="#ef4444", color="white", on_click=lambda e: mostrar_login())
 
-        # --- LÓGICA DE BOTONES VISIBLES SEGÚN EL ROL ---
         botones_lista = [
             ft.ElevatedButton("➕ AÑADIR ÍTEM", bgcolor="#10b981", color="white", on_click=abrir_modal_item),
             ft.ElevatedButton("📦 BODEGA", bgcolor="#2563eb", color="white", on_click=abrir_modal_bodega),
