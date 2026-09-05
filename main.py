@@ -80,7 +80,6 @@ def main(page: ft.Page):
     if db_setup:
         db_setup.execute("CREATE TABLE IF NOT EXISTS usuarios (usuario TEXT PRIMARY KEY, password TEXT, rol TEXT)")
         
-        # INYECTOR DE SEGURIDAD PARA BLOQUEOS
         try: db_setup.execute("ALTER TABLE usuarios ADD COLUMN intentos INTEGER DEFAULT 0")
         except: pass
         try: db_setup.execute("ALTER TABLE usuarios ADD COLUMN bloqueado INTEGER DEFAULT 0")
@@ -98,8 +97,15 @@ def main(page: ft.Page):
         try: db_setup.execute("ALTER TABLE historial ADD COLUMN origen TEXT DEFAULT 'WEB'")
         except: pass
 
-        try:
-            db_setup.execute("CREATE TABLE IF NOT EXISTS cli (n TEXT PRIMARY KEY, i TEXT, dir TEXT, email TEXT, ciu TEXT, tel TEXT)")
+        # CORRECCIÓN VITAL: INYECTORES DE COLUMNAS PARA CLIENTES
+        db_setup.execute("CREATE TABLE IF NOT EXISTS cli (n TEXT PRIMARY KEY, i TEXT)")
+        try: db_setup.execute("ALTER TABLE cli ADD COLUMN dir TEXT")
+        except: pass
+        try: db_setup.execute("ALTER TABLE cli ADD COLUMN email TEXT")
+        except: pass
+        try: db_setup.execute("ALTER TABLE cli ADD COLUMN ciu TEXT")
+        except: pass
+        try: db_setup.execute("ALTER TABLE cli ADD COLUMN tel TEXT")
         except: pass
 
         cursor_r = db_setup.cursor()
@@ -127,15 +133,12 @@ def main(page: ft.Page):
             if user_row:
                 db_pwd, rol, bloqueado, intentos = user_row
                 
-                # Si el usuario ya está bloqueado, no lo dejamos pasar
                 if bloqueado == 1:
                     mostrar_alerta("Acceso Bloqueado 🔒", "Tu usuario ha sido bloqueado por superar los 3 intentos fallidos. Contacta al administrador del sistema para desbloquearlo.")
                     db_login.close()
                     return
                 
-                # Verificamos la contraseña
                 if db_pwd == p:
-                    # Todo bien: se reinician los intentos a cero
                     db_login.execute("UPDATE usuarios SET intentos=0, bloqueado=0 WHERE usuario=?", (u,))
                     db_login.commit()
                     db_login.close()
@@ -143,7 +146,6 @@ def main(page: ft.Page):
                     sesion["rol"] = rol
                     iniciar_app_principal()
                 else:
-                    # Contraseña mala: sumamos un intento
                     intentos += 1
                     if intentos >= 3:
                         db_login.execute("UPDATE usuarios SET intentos=?, bloqueado=1 WHERE usuario=?", (intentos, u))
@@ -404,33 +406,36 @@ def main(page: ft.Page):
                 resultados_cli.controls.clear()
                 db = conectar_db()
                 if db:
-                    for row in db.execute("SELECT n, i, ciu, tel FROM cli ORDER BY n ASC"):
-                        n, i, ciu, tel = row
-                        
-                        def editar(evt, nombre=n):
-                            db_i = conectar_db()
-                            c_data = db_i.execute("SELECT n, i, dir, email, ciu, tel FROM cli WHERE n=?", (nombre,)).fetchone()
-                            db_i.close()
-                            if c_data:
-                                e_cli_nom.value, e_cli_nit.value, e_cli_dir.value, e_cli_email.value, e_cli_ciu.value, e_cli_tel.value = c_data
-                                page.update()
+                    try:
+                        for row in db.execute("SELECT n, i, ciu, tel FROM cli ORDER BY n ASC"):
+                            n, i, ciu, tel = row
+                            
+                            def editar(evt, nombre=n):
+                                db_i = conectar_db()
+                                c_data = db_i.execute("SELECT n, i, dir, email, ciu, tel FROM cli WHERE n=?", (nombre,)).fetchone()
+                                db_i.close()
+                                if c_data:
+                                    e_cli_nom.value, e_cli_nit.value, e_cli_dir.value, e_cli_email.value, e_cli_ciu.value, e_cli_tel.value = c_data
+                                    page.update()
 
-                        def eliminar(evt, nombre=n):
-                            db_d = conectar_db()
-                            db_d.execute("DELETE FROM cli WHERE n=?", (nombre,))
-                            db_d.commit(); db_d.close()
-                            limpiar_form_cliente(None)
-                            cargar_clientes_lista()
-                            page.snack_bar = ft.SnackBar(ft.Text(f"🗑️ Cliente {nombre} eliminado"), bgcolor="#ef4444"); page.snack_bar.open = True; page.update()
+                            def eliminar(evt, nombre=n):
+                                db_d = conectar_db()
+                                db_d.execute("DELETE FROM cli WHERE n=?", (nombre,))
+                                db_d.commit(); db_d.close()
+                                limpiar_form_cliente(None)
+                                cargar_clientes_lista()
+                                page.snack_bar = ft.SnackBar(ft.Text(f"🗑️ Cliente {nombre} eliminado"), bgcolor="#ef4444"); page.snack_bar.open = True; page.update()
 
-                        resultados_cli.controls.append(
-                            ft.ListTile(
-                                title=ft.Text(n, color="#fbbf24", weight="bold"),
-                                subtitle=ft.Text(f"NIT: {i} | Ciudad: {ciu or ''} | Tel: {tel or ''}"),
-                                trailing=ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=eliminar),
-                                on_click=editar
+                            resultados_cli.controls.append(
+                                ft.ListTile(
+                                    title=ft.Text(n, color="#fbbf24", weight="bold"),
+                                    subtitle=ft.Text(f"NIT: {i} | Ciudad: {ciu or ''} | Tel: {tel or ''}"),
+                                    trailing=ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=eliminar),
+                                    on_click=editar
+                                )
                             )
-                        )
+                    except Exception as e_sql:
+                        print(f"Error cargando clientes: {e_sql}")
                     db.close()
                 page.update()
 
@@ -438,9 +443,13 @@ def main(page: ft.Page):
                 if not e_cli_nom.value: return
                 db = conectar_db()
                 if db:
-                    db.execute("INSERT OR REPLACE INTO cli (n, i, dir, email, ciu, tel) VALUES (?,?,?,?,?,?)", 
-                               (e_cli_nom.value.upper(), e_cli_nit.value, e_cli_dir.value, e_cli_email.value, e_cli_ciu.value, e_cli_tel.value))
-                    db.commit(); db.close()
+                    try:
+                        db.execute("INSERT OR REPLACE INTO cli (n, i, dir, email, ciu, tel) VALUES (?,?,?,?,?,?)", 
+                                   (e_cli_nom.value.upper(), e_cli_nit.value, e_cli_dir.value, e_cli_email.value, e_cli_ciu.value, e_cli_tel.value))
+                        db.commit()
+                    except Exception as e_sql:
+                        print(f"Error guardando cliente: {e_sql}")
+                    db.close()
                     limpiar_form_cliente(None)
                     cargar_clientes_lista()
                     page.snack_bar = ft.SnackBar(ft.Text("✅ Cliente guardado/actualizado"), bgcolor="#10b981"); page.snack_bar.open = True; page.update()
@@ -496,7 +505,6 @@ def main(page: ft.Page):
                             cargar_usuarios()
                             page.snack_bar = ft.SnackBar(ft.Text(f"🗑️ Usuario {user_name} eliminado"), bgcolor="#ef4444"); page.snack_bar.open = True; page.update()
 
-                        # --- BOTÓN PARA DESBLOQUEAR USUARIO ---
                         def desbloquear(evt, user_name=u):
                             db_u = conectar_db()
                             db_u.execute("UPDATE usuarios SET intentos=0, bloqueado=0 WHERE usuario=?", (user_name,))
@@ -524,7 +532,6 @@ def main(page: ft.Page):
                     return mostrar_alerta("Aviso", "Falta el nombre o la contraseña.")
                 db = conectar_db()
                 if db:
-                    # Lógica inteligente: Si el usuario existe lo actualiza (y desbloquea), si no, lo crea.
                     usr_nom_limpio = e_usr_nom.value.upper().strip()
                     existe = db.execute("SELECT count(*) FROM usuarios WHERE usuario=?", (usr_nom_limpio,)).fetchone()[0]
                     
@@ -564,10 +571,8 @@ def main(page: ft.Page):
                 db = conectar_db()
                 if db:
                     if txt_busqueda:
-                        # Si hay texto, filtra por cliente
                         filas = db.execute("SELECT nro, cliente, fecha, total, creador FROM historial WHERE UPPER(cliente) LIKE ? ORDER BY nro DESC LIMIT 50", ('%'+txt_busqueda+'%',)).fetchall()
                     else:
-                        # Si está vacío, trae los últimos 30
                         filas = db.execute("SELECT nro, cliente, fecha, total, creador FROM historial ORDER BY nro DESC LIMIT 30").fetchall()
 
                     for row in filas:
@@ -737,7 +742,7 @@ def main(page: ft.Page):
                 qr.make_image(fill_color="black", back_color="white").save("assets/qr_temp.png")
 
                 p = PDF()
-                p.asesor_nombre = sesion["usuario"] # Se inyecta para la trazabilidad
+                p.asesor_nombre = sesion["usuario"]
                 p.set_margins(10, 10, 10)
                 p.set_auto_page_break(auto=True, margin=30)
                 p.add_page()
