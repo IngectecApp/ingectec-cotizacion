@@ -97,7 +97,6 @@ def main(page: ft.Page):
         try: db_setup.execute("ALTER TABLE historial ADD COLUMN origen TEXT DEFAULT 'WEB'")
         except: pass
 
-        # CORRECCIÓN VITAL: INYECTORES DE COLUMNAS PARA CLIENTES
         db_setup.execute("CREATE TABLE IF NOT EXISTS cli (n TEXT PRIMARY KEY, i TEXT)")
         try: db_setup.execute("ALTER TABLE cli ADD COLUMN dir TEXT")
         except: pass
@@ -121,7 +120,7 @@ def main(page: ft.Page):
     input_pwd = ft.TextField(label="Contraseña", password=True, can_reveal_password=True, width=300)
 
     # ==========================================
-    # LÓGICA DE INGRESO CON SEGURIDAD 3 INTENTOS
+    # LÓGICA DE INGRESO CON SEGURIDAD
     # ==========================================
     def procesar_login(e):
         u = input_usr.value.upper().strip()
@@ -434,8 +433,7 @@ def main(page: ft.Page):
                                     on_click=editar
                                 )
                             )
-                    except Exception as e_sql:
-                        print(f"Error cargando clientes: {e_sql}")
+                    except: pass
                     db.close()
                 page.update()
 
@@ -447,8 +445,7 @@ def main(page: ft.Page):
                         db.execute("INSERT OR REPLACE INTO cli (n, i, dir, email, ciu, tel) VALUES (?,?,?,?,?,?)", 
                                    (e_cli_nom.value.upper(), e_cli_nit.value, e_cli_dir.value, e_cli_email.value, e_cli_ciu.value, e_cli_tel.value))
                         db.commit()
-                    except Exception as e_sql:
-                        print(f"Error guardando cliente: {e_sql}")
+                    except: pass
                     db.close()
                     limpiar_form_cliente(None)
                     cargar_clientes_lista()
@@ -641,12 +638,59 @@ def main(page: ft.Page):
             construir_lista()
             page.dialog = dlg_editar; dlg_editar.open = True; page.update()
 
-        def descargar_backup(e):
-            try:
-                shutil.copy2('ingectec.db', 'assets/backup_ingectec.db')
-                page.launch_url('/backup_ingectec.db')
-                page.snack_bar = ft.SnackBar(ft.Text("✅ Backup descargando..."), bgcolor="#2563eb"); page.snack_bar.open = True; page.update()
-            except Exception as ex: mostrar_alerta("Error", str(ex))
+        # ==========================================
+        # NUEVO MÓDULO DE SISTEMA (BACKUP Y RESET)
+        # ==========================================
+        def abrir_modal_sistema(e):
+            if sesion["rol"] != "ADMIN":
+                return mostrar_alerta("Acceso Denegado", "Solo el Administrador tiene acceso a la configuración del sistema.")
+
+            def hacer_backup(evt):
+                try:
+                    shutil.copy2('ingectec.db', 'assets/backup_ingectec.db')
+                    page.launch_url('/backup_ingectec.db')
+                    page.snack_bar = ft.SnackBar(ft.Text("✅ Backup descargando..."), bgcolor="#2563eb")
+                    page.snack_bar.open = True; page.update()
+                except Exception as ex: mostrar_alerta("Error", str(ex))
+
+            def confirmar_reseteo(evt):
+                def ejecutar_reseteo(ev):
+                    db = conectar_db()
+                    if db:
+                        db.execute("DELETE FROM cli")
+                        db.execute("DELETE FROM inv")
+                        db.execute("DELETE FROM historial")
+                        db.execute("DELETE FROM h_cab")
+                        db.execute("DELETE FROM h_det")
+                        db.execute("UPDATE n_cot SET num = 100 WHERE id=1")
+                        db.commit(); db.close()
+                    cerrar_dialogo(dlg_conf)
+                    cerrar_dialogo(dlg_sis)
+                    page.snack_bar = ft.SnackBar(ft.Text("✅ SISTEMA RESTAURADO DE FÁBRICA CORRECTAMENTE"), bgcolor="#10b981")
+                    page.snack_bar.open = True; page.update()
+
+                dlg_conf = ft.AlertDialog(
+                    title=ft.Text("⚠️ ADVERTENCIA EXTREMA", color="#ef4444", weight="bold"),
+                    content=ft.Text("¿Estás 100% seguro? Esto borrará TODOS los clientes, TODOS los productos de la bodega y TODO el historial de cotizaciones. Solo quedarán los usuarios vivos. Esta acción NO se puede deshacer."),
+                    actions=[
+                        ft.ElevatedButton("SÍ, BORRAR TODO", bgcolor="#ef4444", color="white", on_click=ejecutar_reseteo),
+                        ft.TextButton("CANCELAR", on_click=lambda e: cerrar_dialogo(dlg_conf))
+                    ]
+                )
+                page.dialog = dlg_conf; dlg_conf.open = True; page.update()
+
+            dlg_sis = ft.AlertDialog(
+                title=ft.Text("⚙️ Configuración del Sistema (ADMIN)"),
+                content=ft.Container(width=400, content=ft.Column([
+                    ft.Text("Opciones avanzadas de la base de datos:"),
+                    ft.ElevatedButton("📥 1. DESCARGAR BACKUP", bgcolor="#2563eb", color="white", width=350, on_click=hacer_backup),
+                    ft.Container(height=20),
+                    ft.Text("ZONA DE PELIGRO:", color="#ef4444", weight="bold"),
+                    ft.ElevatedButton("⚠️ 2. RESTAURAR DE FÁBRICA (Limpiar todo menos usuarios)", bgcolor="#ef4444", color="white", width=350, on_click=confirmar_reseteo)
+                ], tight=True)),
+                actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg_sis))]
+            )
+            page.dialog = dlg_sis; dlg_sis.open = True; page.update()
 
         def limpiar_todo(e):
             lista_items.clear(); estado["nro_edicion"] = None; actualizar_tabla_visual(); input_cliente.value = ""; input_nit.value = ""; lista_busqueda_cli.visible = False; page.update()
@@ -869,7 +913,7 @@ def main(page: ft.Page):
             ft.ElevatedButton("🔍 HISTORIAL", bgcolor="#2563eb", color="white", on_click=abrir_modal_historial),
             ft.ElevatedButton("✏️ EDITAR", bgcolor="#475569", color="white", on_click=abrir_modal_editar),
             ft.ElevatedButton("🧹 LIMPIAR", bgcolor="#64748b", color="white", on_click=limpiar_todo),
-            ft.ElevatedButton("📂 BACKUPS", bgcolor="#475569", color="white", on_click=descargar_backup),
+            ft.ElevatedButton("⚙️ SISTEMA", bgcolor="#475569", color="white", on_click=abrir_modal_sistema),
             btn_salir
         ], wrap=True, alignment=ft.MainAxisAlignment.CENTER)
 
