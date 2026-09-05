@@ -84,15 +84,8 @@ def main(page: ft.Page):
         try: db_setup.execute("ALTER TABLE historial ADD COLUMN origen TEXT DEFAULT 'WEB'")
         except: pass
 
-        # --- INYECTORES DE COLUMNAS PARA CLIENTES ---
-        db_setup.execute("CREATE TABLE IF NOT EXISTS cli (n TEXT PRIMARY KEY, i TEXT)")
-        try: db_setup.execute("ALTER TABLE cli ADD COLUMN dir TEXT")
-        except: pass
-        try: db_setup.execute("ALTER TABLE cli ADD COLUMN email TEXT")
-        except: pass
-        try: db_setup.execute("ALTER TABLE cli ADD COLUMN ciu TEXT")
-        except: pass
-        try: db_setup.execute("ALTER TABLE cli ADD COLUMN tel TEXT")
+        try:
+            db_setup.execute("CREATE TABLE IF NOT EXISTS cli (n TEXT PRIMARY KEY, i TEXT, dir TEXT, email TEXT, ciu TEXT, tel TEXT)")
         except: pass
 
         cursor_r = db_setup.cursor()
@@ -757,8 +750,18 @@ def main(page: ft.Page):
                 p.ln(2); p.set_font('helvetica', '', 10)
                 p.cell(45, 5, "FORMA DE PAGO:", border=0); p.cell(0, 5, str(input_pago.value), border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                 p.cell(45, 5, "TIEMPO DE OFERTA:", border=0); p.cell(0, 5, str(input_tiempo.value), border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                
                 p.ln(8); p.set_font("helvetica", 'B', 8); p.cell(0, 5, "Escanee este código para atención personalizada y directa con nuestra Gerencia.", border=0, align='L', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                p.image("assets/qr_temp.png", 10, p.get_y(), 25, 25)
+                
+                # --- TRAZABILIDAD DEL ASESOR ---
+                current_y = p.get_y()
+                p.image("assets/qr_temp.png", 10, current_y, 25, 25)
+                
+                p.set_xy(10, current_y + 20)
+                p.set_font("helvetica", '', 7)
+                p.set_text_color(210, 210, 210) 
+                p.cell(190, 5, f"Cod. Asesor: {sesion['usuario']}", border=0, align='R')
+                # --------------------------------
 
                 nombre_archivo = f"Cotizacion_{nro_doc}.pdf"
                 p.output(f"assets/{nombre_archivo}")
