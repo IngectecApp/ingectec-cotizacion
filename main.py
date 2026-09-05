@@ -84,8 +84,15 @@ def main(page: ft.Page):
         try: db_setup.execute("ALTER TABLE historial ADD COLUMN origen TEXT DEFAULT 'WEB'")
         except: pass
 
-        try:
-            db_setup.execute("CREATE TABLE IF NOT EXISTS cli (n TEXT PRIMARY KEY, i TEXT, dir TEXT, email TEXT, ciu TEXT, tel TEXT)")
+        # --- INYECTORES DE COLUMNAS PARA CLIENTES ---
+        db_setup.execute("CREATE TABLE IF NOT EXISTS cli (n TEXT PRIMARY KEY, i TEXT)")
+        try: db_setup.execute("ALTER TABLE cli ADD COLUMN dir TEXT")
+        except: pass
+        try: db_setup.execute("ALTER TABLE cli ADD COLUMN email TEXT")
+        except: pass
+        try: db_setup.execute("ALTER TABLE cli ADD COLUMN ciu TEXT")
+        except: pass
+        try: db_setup.execute("ALTER TABLE cli ADD COLUMN tel TEXT")
         except: pass
 
         cursor_r = db_setup.cursor()
@@ -558,9 +565,6 @@ def main(page: ft.Page):
         def limpiar_todo(e):
             lista_items.clear(); estado["nro_edicion"] = None; actualizar_tabla_visual(); input_cliente.value = ""; input_nit.value = ""; lista_busqueda_cli.visible = False; page.update()
 
-        # ==========================================
-        # MOTOR DE GENERACIÓN DE PDF
-        # ==========================================
         def generar_pdf_web(e):
             try:
                 if not lista_items or not input_cliente.value: 
@@ -578,12 +582,14 @@ def main(page: ft.Page):
                 c_tel = ""
 
                 db = conectar_db()
-                cli_data = db.execute("SELECT dir, email, ciu, tel FROM cli WHERE n=?", (c_nom,)).fetchone()
-                if cli_data:
-                    c_dir = cli_data[0] or ""
-                    c_email = cli_data[1] or ""
-                    c_ciu_cli = cli_data[2] or ""
-                    c_tel = cli_data[3] or ""
+                try:
+                    cli_data = db.execute("SELECT dir, email, ciu, tel FROM cli WHERE n=?", (c_nom,)).fetchone()
+                    if cli_data:
+                        c_dir = cli_data[0] or ""
+                        c_email = cli_data[1] or ""
+                        c_ciu_cli = cli_data[2] or ""
+                        c_tel = cli_data[3] or ""
+                except: pass
 
                 nro_doc = estado["nro_edicion"]
                 mes_actual = datetime.now().strftime("%m")
@@ -615,13 +621,11 @@ def main(page: ft.Page):
                     db.execute("INSERT INTO h_det VALUES (?,?,?,?,?,?,?)", (nro_doc, item['desc'], cant_n, und_str, unit_n, tot_item_n, imp_str))
                     subtotal_global += tot_item_n
                     
-                    # Si el ítem individual tiene IVA directo configurado
                     if "IVA" in imp_str.upper():
                         try: pct = float(re.findall(r"[\d.]+", imp_str)[0])
                         except: pct = 19
                         iva_bases[pct] = iva_bases.get(pct, 0) + tot_item_n
 
-                # Cálculos Financieros del AIU y totales
                 try: pct_a = float(input_pct_a.value)
                 except: pct_a = 0
                 try: pct_i = float(input_pct_i.value)
@@ -709,7 +713,7 @@ def main(page: ft.Page):
 
                 p.set_fill_color(255, 255, 255)
                 for idx, i in enumerate(lista_items):
-                    cant_n = float(i['cant']); unit_n = float(i['precio']); tot_item_n = float(item['total'])
+                    cant_n = float(i['cant']); unit_n = float(i['precio']); tot_item_n = float(i['total'])
                     desc_lines = textwrap.wrap(i['desc'], width=43) 
                     if not desc_lines: desc_lines = [""]
                     for line_idx, line_text in enumerate(desc_lines):
@@ -736,7 +740,6 @@ def main(page: ft.Page):
 
                 p.set_font('helvetica', '', 9)
                 
-                # --- DESGLOSE TOTAL OBLIGATORIO DE IMPUESTOS Y AIU ---
                 print_total_row("SUBTOTAL", subtotal_global)
                 print_total_row(f"ADMINISTRACIÓN ({pct_a:g}%)", val_a)
                 print_total_row(f"IMPREVISTOS ({pct_i:g}%)", val_i)
