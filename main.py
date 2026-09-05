@@ -86,9 +86,17 @@ def main(page: ft.Page):
         except: pass
 
         db_setup.execute("INSERT OR IGNORE INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES ('OSCAR', '1234', 'ADMIN', 0, 0)")
-        db_setup.execute("INSERT OR IGNORE INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES ('YEISON', '1234', 'ADMIN', 0, 0)")
+        db_setup.execute("INSERT OR IGNORE INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES ('YEISON', '1234', 'ASESOR', 0, 0)")
         db_setup.execute("INSERT OR IGNORE INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES ('PAULO', '1234', 'ADMIN', 0, 0)")
         
+        # Corrección única para bajar a Yeison a Asesor si ya existía como Admin
+        try:
+            c_rol = db_setup.execute("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='fix_rol_yeison'")
+            if c_rol.fetchone()[0] == 0:
+                db_setup.execute("UPDATE usuarios SET rol='ASESOR' WHERE usuario='YEISON'")
+                db_setup.execute("CREATE TABLE fix_rol_yeison (id INTEGER PRIMARY KEY)")
+        except: pass
+
         db_setup.execute("CREATE TABLE IF NOT EXISTS n_cot (id INTEGER PRIMARY KEY, num INTEGER)")
         db_setup.execute("INSERT OR IGNORE INTO n_cot (id, num) VALUES (1, 100)")
         
@@ -470,9 +478,6 @@ def main(page: ft.Page):
             page.dialog = dlg; dlg.open = True; cargar_clientes_lista()
 
         def abrir_modal_usuarios(e):
-            if sesion["rol"] != "ADMIN":
-                return mostrar_alerta("Acceso Denegado", "Solo el Administrador puede gestionar los usuarios del sistema.")
-            
             resultados_usr = ft.ListView(expand=True, spacing=10, height=200)
             e_usr_nom = ft.TextField(label="Nombre de Usuario*", col={"sm": 4})
             e_usr_pwd = ft.TextField(label="Contraseña*", password=True, can_reveal_password=True, col={"sm": 4})
@@ -638,13 +643,7 @@ def main(page: ft.Page):
             construir_lista()
             page.dialog = dlg_editar; dlg_editar.open = True; page.update()
 
-        # ==========================================
-        # NUEVO MÓDULO DE SISTEMA (BACKUP Y RESET)
-        # ==========================================
         def abrir_modal_sistema(e):
-            if sesion["rol"] != "ADMIN":
-                return mostrar_alerta("Acceso Denegado", "Solo el Administrador tiene acceso a la configuración del sistema.")
-
             def hacer_backup(evt):
                 try:
                     shutil.copy2('ingectec.db', 'assets/backup_ingectec.db')
@@ -905,17 +904,28 @@ def main(page: ft.Page):
 
         btn_salir = ft.ElevatedButton("🚪 CERRAR SESIÓN", bgcolor="#ef4444", color="white", on_click=lambda e: mostrar_login())
 
-        botones_top = ft.Row([
+        # --- LÓGICA DE BOTONES VISIBLES SEGÚN EL ROL ---
+        botones_lista = [
             ft.ElevatedButton("➕ AÑADIR ÍTEM", bgcolor="#10b981", color="white", on_click=abrir_modal_item),
             ft.ElevatedButton("📦 BODEGA", bgcolor="#2563eb", color="white", on_click=abrir_modal_bodega),
-            ft.ElevatedButton("👥 CLIENTES", bgcolor="#2563eb", color="white", on_click=abrir_modal_clientes),
-            ft.ElevatedButton("🔐 USUARIOS", bgcolor="#8b5cf6", color="white", on_click=abrir_modal_usuarios),
+            ft.ElevatedButton("👥 CLIENTES", bgcolor="#2563eb", color="white", on_click=abrir_modal_clientes)
+        ]
+
+        if sesion["rol"] == "ADMIN":
+            botones_lista.append(ft.ElevatedButton("🔐 USUARIOS", bgcolor="#8b5cf6", color="white", on_click=abrir_modal_usuarios))
+
+        botones_lista.extend([
             ft.ElevatedButton("🔍 HISTORIAL", bgcolor="#2563eb", color="white", on_click=abrir_modal_historial),
             ft.ElevatedButton("✏️ EDITAR", bgcolor="#475569", color="white", on_click=abrir_modal_editar),
-            ft.ElevatedButton("🧹 LIMPIAR", bgcolor="#64748b", color="white", on_click=limpiar_todo),
-            ft.ElevatedButton("⚙️ SISTEMA", bgcolor="#475569", color="white", on_click=abrir_modal_sistema),
-            btn_salir
-        ], wrap=True, alignment=ft.MainAxisAlignment.CENTER)
+            ft.ElevatedButton("🧹 LIMPIAR", bgcolor="#64748b", color="white", on_click=limpiar_todo)
+        ])
+
+        if sesion["rol"] == "ADMIN":
+            botones_lista.append(ft.ElevatedButton("⚙️ SISTEMA", bgcolor="#475569", color="white", on_click=abrir_modal_sistema))
+
+        botones_lista.append(btn_salir)
+
+        botones_top = ft.Row(botones_lista, wrap=True, alignment=ft.MainAxisAlignment.CENTER)
 
         tabla = ft.Container(
             content=ft.Column([
