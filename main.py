@@ -266,7 +266,11 @@ def main(page: ft.Page):
 
         def abrir_modal_item(e):
             resultados_inv = ft.ListView(expand=True, spacing=10, height=150)
-            input_desc = ft.TextField(label="Producto Seleccionado", read_only=True)
+            
+            # --- MAGIA AQUÍ: read_only=False para que puedas agregar detalles ---
+            input_desc = ft.TextField(label="Descripción (Agrega detalles si necesitas)", read_only=False)
+            # -------------------------------------------------------------------
+            
             input_cant = ft.TextField(label="Cantidad", value="1", col={"sm": 3})
             input_und_custom = ft.TextField(label="Iniciales (Ej. KGS)", visible=False, col={"sm": 3})
             input_precio = ft.TextField(label="Precio Unit", col={"sm": 5})
@@ -645,9 +649,6 @@ def main(page: ft.Page):
             construir_lista()
             page.dialog = dlg_editar; dlg_editar.open = True; page.update()
 
-        # ==========================================
-        # SISTEMA: BACKUP Y RESET CON CONTRASEÑA MAESTRA
-        # ==========================================
         def abrir_modal_sistema(e):
             if sesion["rol"] != "ADMIN":
                 return mostrar_alerta("Acceso Denegado", "Solo el Administrador tiene acceso a la configuración del sistema.")
@@ -664,7 +665,6 @@ def main(page: ft.Page):
                 input_clave_maestra = ft.TextField(label="Contraseña Maestra", password=True, can_reveal_password=True, width=300)
 
                 def ejecutar_reseteo(ev):
-                    # Validación de seguridad del doble factor (Cédula de Paulo)
                     if input_clave_maestra.value.strip() == "7705178":
                         db = conectar_db()
                         if db:
