@@ -255,11 +255,12 @@ def main(page: ft.Page):
             disp = []
             curr_p = -1
             np, ns = 0, 0
-            for it in lista:
+            for i, it in enumerate(lista):
                 if it.get('tipo', 'P') == 'P':
                     np += 1; ns = 0
                     curr_p = len(disp)
                     disp.append({
+                        "raw_idx": i,
                         "desc": it['desc'], "cant": float(it['cant']), "und": it.get('und', ''),
                         "precio": float(it['precio']), "total": float(it['total']), 
                         "impuesto": it.get('impuesto', ''), "tipo": 'P', "num": str(np), "has_subs": False
@@ -268,6 +269,7 @@ def main(page: ft.Page):
                     ns += 1
                     num_str = f"{np}.{ns}" if np > 0 else f"0.{ns}"
                     disp.append({
+                        "raw_idx": i,
                         "desc": it['desc'], "cant": float(it['cant']), "und": it.get('und', ''),
                         "precio": float(it['precio']), "total": float(it['total']), 
                         "impuesto": it.get('impuesto', ''), "tipo": 'S', "num": num_str
@@ -285,27 +287,76 @@ def main(page: ft.Page):
             items_calculados = obtener_items_procesados(lista_items)
             
             for item in items_calculados:
+                # Si es Principal y tiene sub-ítems, oculta los detalles de precio base y muestra solo el gran total sumado
                 if item['tipo'] == 'P':
-                    tot_str = f"${int(item['total']):,}" if item['total'] > 0 else ""
-                    imp_label = f" ({item['impuesto']})" if item['total'] > 0 else ""
-                    c_str = f"{item['cant']:g} {item['und']}" if item['cant'] > 0 else ""
+                    if item.get('has_subs', False):
+                        tot_str = f"${int(item['total']):,}" if item['total'] > 0 else ""
+                        c_str = ""
+                        imp_label = ""
+                    else:
+                        tot_str = f"${int(item['total']):,}" if item['total'] > 0 else ""
+                        imp_label = f" ({item['impuesto']})" if item['total'] > 0 else ""
+                        c_str = f"{item['cant']:g} {item['und']}" if item['cant'] > 0 else ""
                 else:
-                    # En la UI, también ocultamos los precios de los sub-ítems para no confundir
+                    # Si es Sub-ítem, lo muestra pero oculta los precios para no confundir al cliente
                     tot_str = ""
                     imp_label = ""
                     c_str = f"{item['cant']:g} {item['und']}" if item['cant'] > 0 else ""
 
-                columna_tabla_items.controls.append(
-                    ft.ResponsiveRow([
+                # --- MAGIA DE EDICIÓN CON CLIC DIRECTO ---
+                def crear_evento_editar(indice_real):
+                    def abrir_edicion_directa(e):
+                        val_c = str(lista_items[indice_real]['cant'])
+                        val_p = str(int(float(lista_items[indice_real]['precio'])))
+                        
+                        e_cant = ft.TextField(label="Nueva Cantidad", value=val_c)
+                        e_precio = ft.TextField(label="Nuevo Precio", value=val_p)
+                        
+                        def guardar_cambio(ev):
+                            try:
+                                c = float(e_cant.value) if e_cant.value.strip() else 0.0
+                                p = float(e_precio.value) if e_precio.value.strip() else 0.0
+                                lista_items[indice_real]['cant'] = c
+                                lista_items[indice_real]['precio'] = p
+                                lista_items[indice_real]['total'] = c * p
+                                actualizar_tabla_visual()
+                                cerrar_dialogo(dlg_ind)
+                            except: pass
+                            
+                        def eliminar_item(ev):
+                            lista_items.pop(indice_real)
+                            actualizar_tabla_visual()
+                            cerrar_dialogo(dlg_ind)
+
+                        dlg_ind = ft.AlertDialog(
+                            title=ft.Text(f"✏️ Editar: {lista_items[indice_real]['desc']}", size=16, weight="bold"),
+                            content=ft.Column([e_cant, e_precio], tight=True), 
+                            actions=[
+                                ft.ElevatedButton("Guardar", bgcolor="#10b981", color="white", on_click=guardar_cambio),
+                                ft.ElevatedButton("Eliminar Ítem", bgcolor="#ef4444", color="white", on_click=eliminar_item),
+                                ft.TextButton("Cancelar", on_click=lambda ev: cerrar_dialogo(dlg_ind))
+                            ]
+                        )
+                        page.dialog = dlg_ind
+                        dlg_ind.open = True
+                        page.update()
+                    return abrir_edicion_directa
+
+                fila_visual = ft.Container(
+                    content=ft.ResponsiveRow([
                         ft.Text(f"{item['num']}. {item['desc']}{imp_label}", col={"sm": 6}, color="white", size=12),
                         ft.Text(c_str, col={"sm": 3}, text_align="center", color="white"),
                         ft.Text(tot_str, col={"sm": 3}, text_align="right", color="#fbbf24"),
-                    ])
+                    ]),
+                    on_click=crear_evento_editar(item['raw_idx']),
+                    padding=ft.padding.symmetric(vertical=5, horizontal=5),
+                    border_radius=5,
+                    ink=True,
+                    tooltip="Clic para Editar Cantidad, Precio o Eliminar"
                 )
+                
+                columna_tabla_items.controls.append(fila_visual)
             page.update()
-
-        def quitar_seleccionado(e):
-            if lista_items: lista_items.pop(); actualizar_tabla_visual()
 
         def abrir_modal_item(e):
             resultados_inv = ft.ListView(expand=True, spacing=10, height=150)
@@ -385,7 +436,6 @@ def main(page: ft.Page):
                     })
                     actualizar_tabla_visual()
                     
-                    # SE LIMPIA EL FORMULARIO PERO NO SE CAMBIA EL RADIO BUTTON, ASÍ MANTIENE EL FOCO
                     input_desc.value = ""; input_cant.value = "1"; input_precio.value = "0"; input_und.value = "UNID"; input_und_custom.value = ""; input_und_custom.visible = False
                     input_cant.col = {"sm": 3}; input_und.col = {"sm": 4}; input_precio.col = {"sm": 5}
                     input_imp_tipo.value = "AIU"; input_imp_pct.value = "10"
@@ -695,37 +745,6 @@ def main(page: ft.Page):
             )
             page.dialog = dlg; dlg.open = True; cargar_historial_lista()
 
-        def abrir_modal_editar(e):
-            if not lista_items: return mostrar_alerta("Aviso", "No hay ítems para editar.")
-            lista_edicion = ft.ListView(height=250)
-            dlg_editar = ft.AlertDialog(title=ft.Text("✏️ Editar Ítems Actuales"), actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg_editar))])
-            
-            def construir_lista():
-                lista_edicion.controls.clear()
-                for i, item in enumerate(lista_items):
-                    def abrir_edicion_individual(evt, index=i):
-                        val_c = str(lista_items[index]['cant']) if float(lista_items[index]['cant']) > 0 else "0"
-                        val_p = str(int(float(lista_items[index]['precio']))) if float(lista_items[index]['precio']) > 0 else "0"
-                        
-                        e_cant = ft.TextField(label="Nueva Cantidad", value=val_c)
-                        e_precio = ft.TextField(label="Nuevo Precio", value=val_p)
-                        
-                        def guardar_cambio(ev):
-                            try:
-                                c = float(e_cant.value) if e_cant.value.strip() else 0.0
-                                p = float(e_precio.value) if e_precio.value.strip() else 0.0
-                                lista_items[index]['cant'], lista_items[index]['precio'], lista_items[index]['total'] = c, p, c * p
-                                actualizar_tabla_visual(); cerrar_dialogo(dlg_ind); construir_lista()
-                            except: pass
-                        dlg_ind = ft.AlertDialog(content=ft.Column([ft.Text(lista_items[index]['desc']), e_cant, e_precio], tight=True), actions=[ft.ElevatedButton("Actualizar", on_click=guardar_cambio)])
-                        page.dialog = dlg_ind; dlg_ind.open = True; page.update()
-                    tot_seguro = float(item['total'])
-                    lista_edicion.controls.append(ft.ListTile(title=ft.Text(f"{item['desc']}", size=13), subtitle=ft.Text(f"Cant: {item['cant']} | Precio Base Interno: ${int(float(item['precio'])):,}"), on_click=abrir_edicion_individual))
-                dlg_editar.content = lista_edicion; page.update()
-                
-            construir_lista()
-            page.dialog = dlg_editar; dlg_editar.open = True; page.update()
-
         def abrir_modal_sistema(e):
             if sesion["rol"] != "ADMIN":
                 return mostrar_alerta("Acceso Denegado", "Solo el Administrador tiene acceso a la configuración del sistema.")
@@ -946,17 +965,22 @@ def main(page: ft.Page):
 
                 p.set_fill_color(255, 255, 255)
                 
-                # --- IMPRESION DEL SISTEMA DE JERARQUIAS EN EL PDF ---
                 items_para_pdf = obtener_items_procesados(lista_items)
                 
                 for idx, i in enumerate(items_para_pdf):
-                    # Determinamos qué variables imprimir según si es P o S
                     if i['tipo'] == 'P':
-                        c_str = f"{i['cant']:g}" if i['cant'] > 0 else ""
-                        u_str = i['und'] if i['cant'] > 0 else ""
-                        pu_str = f"${int(i['precio']):,}" if i['total'] > 0 else ""
-                        imp_str = i['impuesto'] if i['total'] > 0 else ""
-                        tot_str = f"${int(i['total']):,}" if i['total'] > 0 else ""
+                        if i.get('has_subs', False):
+                            c_str = ""
+                            u_str = ""
+                            pu_str = ""
+                            imp_str = ""
+                            tot_str = f"${int(i['total']):,}" if i['total'] > 0 else ""
+                        else:
+                            c_str = f"{i['cant']:g}" if i['cant'] > 0 else ""
+                            u_str = i['und'] if i['cant'] > 0 else ""
+                            pu_str = f"${int(i['precio']):,}" if i['total'] > 0 else ""
+                            imp_str = i['impuesto'] if i['total'] > 0 else ""
+                            tot_str = f"${int(i['total']):,}" if i['total'] > 0 else ""
                     else:
                         c_str = f"{i['cant']:g}" if i['cant'] > 0 else ""
                         u_str = i['und'] if i['cant'] > 0 else ""
@@ -1040,9 +1064,7 @@ def main(page: ft.Page):
             botones_lista.append(ft.ElevatedButton("🔐 USUARIOS", bgcolor="#8b5cf6", color="white", on_click=abrir_modal_usuarios))
 
         botones_lista.extend([
-            ft.ElevatedButton("🔍 HISTORIAL", bgcolor="#2563eb", color="white", on_click=abrir_modal_historial),
-            ft.ElevatedButton("✏️ EDITAR", bgcolor="#475569", color="white", on_click=abrir_modal_editar),
-            ft.ElevatedButton("🧹 LIMPIAR", bgcolor="#64748b", color="white", on_click=limpiar_todo)
+            ft.ElevatedButton("🔍 HISTORIAL", bgcolor="#2563eb", color="white", on_click=abrir_modal_historial)
         ])
 
         if sesion["rol"] == "ADMIN":
@@ -1057,12 +1079,11 @@ def main(page: ft.Page):
                 ft.Row([ft.Text(f"COTIZACIÓN ING {nro_actual}", weight="bold", color="#fbbf24", size=16)], alignment=ft.MainAxisAlignment.CENTER),
                 ft.Divider(color="white24"),
                 ft.ResponsiveRow([
-                    ft.Text("DESCRIPCIÓN", weight="bold", color="#fbbf24", col={"sm": 6}, text_align="center"), 
+                    ft.Text("DESCRIPCIÓN (Clic para editar)", weight="bold", color="#fbbf24", col={"sm": 6}, text_align="center"), 
                     ft.Text("CANTIDAD", weight="bold", color="#fbbf24", col={"sm": 3}, text_align="center"), 
                     ft.Text("TOTAL", weight="bold", color="#fbbf24", col={"sm": 3}, text_align="center")
                 ]),
-                columna_tabla_items, ft.Container(height=10),
-                ft.Row([ft.TextButton("❌ QUITAR SELECCIONADO", icon_color="#ef4444", on_click=quitar_seleccionado)], alignment=ft.MainAxisAlignment.CENTER)
+                columna_tabla_items, ft.Container(height=10)
             ]), bgcolor="#0f172a", padding=15, border_radius=8, border=ft.border.all(1, "white12")
         )
 
