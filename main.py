@@ -221,8 +221,33 @@ def main(page: ft.Page):
         input_pct_a = ft.TextField(label="Admin %", value="10")
         input_pct_i = ft.TextField(label="Imprev %", value="2")
         input_pct_u = ft.TextField(label="Util %", value="8")
-        input_pct_iva_u = ft.TextField(label="IVA s/Util %", value="19")
+        input_pct_iva_u = ft.TextField(label="IVA s/U %", value="19")
         lista_busqueda_cli = ft.ListView(height=150, visible=False, spacing=2)
+
+        # --- SELECTOR DE MODO AIU / IVA ---
+        dropdown_modo_cot = ft.Dropdown(
+            label="Tipo Cotización",
+            options=[ft.dropdown.Option("AIU"), ft.dropdown.Option("IVA")],
+            value="AIU"
+        )
+        
+        texto_config_aiu = ft.Text("⚙️ Config. AIU:", weight="bold", color="#fbbf24")
+        container_texto_aiu = ft.Container(content=texto_config_aiu, col={"sm": 12, "md": 2, "lg": 2}, alignment=ft.alignment.center_left)
+        cont_a = ft.Container(content=input_pct_a, col={"sm": 3, "md": 2, "lg": 2})
+        cont_i = ft.Container(content=input_pct_i, col={"sm": 3, "md": 2, "lg": 2})
+        cont_u = ft.Container(content=input_pct_u, col={"sm": 3, "md": 2, "lg": 2})
+        cont_iva_u = ft.Container(content=input_pct_iva_u, col={"sm": 3, "md": 2, "lg": 2})
+
+        def cambiar_modo_cot(e):
+            es_aiu = dropdown_modo_cot.value == "AIU"
+            container_texto_aiu.visible = es_aiu
+            cont_a.visible = es_aiu
+            cont_i.visible = es_aiu
+            cont_u.visible = es_aiu
+            cont_iva_u.visible = es_aiu
+            page.update()
+            
+        dropdown_modo_cot.on_change = cambiar_modo_cot
 
         def buscar_cliente_realtime(e):
             texto = (input_cliente.value or "").upper().strip()
@@ -250,7 +275,6 @@ def main(page: ft.Page):
 
         header = ft.Container(content=ft.Text(f"⚡ INGECTEC SAS", size=22, weight="bold", color="#fbbf24"), alignment=ft.alignment.center, padding=5)
 
-        # --- MOTOR DE SUMATORIA INTELIGENTE ---
         def obtener_items_procesados(lista):
             disp = []
             curr_p = -1
@@ -287,7 +311,6 @@ def main(page: ft.Page):
             items_calculados = obtener_items_procesados(lista_items)
             
             for item in items_calculados:
-                # Si es Principal y tiene sub-ítems, oculta los detalles de precio base y muestra solo el gran total sumado
                 if item['tipo'] == 'P':
                     if item.get('has_subs', False):
                         tot_str = f"${int(item['total']):,}" if item['total'] > 0 else ""
@@ -298,12 +321,10 @@ def main(page: ft.Page):
                         imp_label = f" ({item['impuesto']})" if item['total'] > 0 else ""
                         c_str = f"{item['cant']:g} {item['und']}" if item['cant'] > 0 else ""
                 else:
-                    # Si es Sub-ítem, lo muestra pero oculta los precios para no confundir al cliente
                     tot_str = ""
                     imp_label = ""
                     c_str = f"{item['cant']:g} {item['und']}" if item['cant'] > 0 else ""
 
-                # --- MAGIA DE EDICIÓN CON CLIC DIRECTO ---
                 def crear_evento_editar(indice_real):
                     def abrir_edicion_directa(e):
                         val_c = str(lista_items[indice_real]['cant'])
@@ -357,6 +378,9 @@ def main(page: ft.Page):
                 
                 columna_tabla_items.controls.append(fila_visual)
             page.update()
+
+        def quitar_seleccionado(e):
+            if lista_items: lista_items.pop(); actualizar_tabla_visual()
 
         def abrir_modal_item(e):
             resultados_inv = ft.ListView(expand=True, spacing=10, height=150)
@@ -892,7 +916,14 @@ def main(page: ft.Page):
                 total_aiu_sum = val_a + val_i + val_u
                 val_iva_u_val = val_u * (pct_iva_u / 100)
 
-                total_final_cotizacion = subtotal_global + total_aiu_sum + val_iva_u_val
+                # --- LÓGICA DE CÁLCULO SEGÚN EL SELECTOR ---
+                modo_cot = dropdown_modo_cot.value
+                
+                if modo_cot == "AIU":
+                    total_final_cotizacion = subtotal_global + total_aiu_sum + val_iva_u_val
+                else:
+                    total_final_cotizacion = subtotal_global
+                
                 for pct_iva, base_amt in iva_bases.items():
                     total_final_cotizacion += base_amt * (pct_iva / 100)
 
@@ -1021,11 +1052,14 @@ def main(page: ft.Page):
                 p.set_font('helvetica', '', 9)
                 
                 print_total_row("SUBTOTAL", subtotal_global)
-                print_total_row(f"ADMINISTRACIÓN ({pct_a:g}%)", val_a)
-                print_total_row(f"IMPREVISTOS ({pct_i:g}%)", val_i)
-                print_total_row(f"UTILIDAD ({pct_u:g}%)", val_u)
-                print_total_row("TOTAL AIU", total_aiu_sum, bold=True)
-                print_total_row(f"IVA S/UTILIDAD ({pct_iva_u:g}%)", val_iva_u_val)
+                
+                # --- CONDICIONAL PARA IMPRIMIR AIU SÓLO SI ESTÁ ACTIVO ---
+                if modo_cot == "AIU":
+                    print_total_row(f"ADMINISTRACIÓN ({pct_a:g}%)", val_a)
+                    print_total_row(f"IMPREVISTOS ({pct_i:g}%)", val_i)
+                    print_total_row(f"UTILIDAD ({pct_u:g}%)", val_u)
+                    print_total_row("TOTAL AIU", total_aiu_sum, bold=True)
+                    print_total_row(f"IVA S/UTILIDAD ({pct_iva_u:g}%)", val_iva_u_val)
                 
                 for pct_iva, base_amt in iva_bases.items():
                     val_iva_normal = base_amt * (pct_iva / 100)
@@ -1063,8 +1097,10 @@ def main(page: ft.Page):
         if sesion["rol"] == "ADMIN":
             botones_lista.append(ft.ElevatedButton("🔐 USUARIOS", bgcolor="#8b5cf6", color="white", on_click=abrir_modal_usuarios))
 
+        # --- SE REINCORPORÓ EL BOTÓN LIMPIAR ---
         botones_lista.extend([
-            ft.ElevatedButton("🔍 HISTORIAL", bgcolor="#2563eb", color="white", on_click=abrir_modal_historial)
+            ft.ElevatedButton("🔍 HISTORIAL", bgcolor="#2563eb", color="white", on_click=abrir_modal_historial),
+            ft.ElevatedButton("🧹 LIMPIAR", bgcolor="#64748b", color="white", on_click=limpiar_todo)
         ])
 
         if sesion["rol"] == "ADMIN":
@@ -1103,11 +1139,12 @@ def main(page: ft.Page):
                     ft.Container(content=input_ref, col={"sm": 12, "md": 12, "lg": 12})
                 ]),
                 ft.ResponsiveRow([
-                    ft.Container(content=ft.Text("⚙️ Config. AIU (Global):", weight="bold", color="#fbbf24"), col={"sm": 12, "md": 3, "lg": 3}, alignment=ft.alignment.center_left),
-                    ft.Container(content=input_pct_a, col={"sm": 4, "md": 2, "lg": 2}),
-                    ft.Container(content=input_pct_i, col={"sm": 4, "md": 2, "lg": 2}),
-                    ft.Container(content=input_pct_u, col={"sm": 4, "md": 2, "lg": 2}),
-                    ft.Container(content=input_pct_iva_u, col={"sm": 4, "md": 3, "lg": 3}),
+                    ft.Container(content=dropdown_modo_cot, col={"sm": 6, "md": 2, "lg": 2}),
+                    container_texto_aiu,
+                    cont_a,
+                    cont_i,
+                    cont_u,
+                    cont_iva_u,
                 ], vertical_alignment=ft.CrossAxisAlignment.CENTER)
             ], spacing=10),
             bgcolor="#0f172a", padding=15, border_radius=8, border=ft.border.all(1, "white12")
