@@ -66,7 +66,6 @@ def main(page: ft.Page):
     sesion = {"usuario": None, "rol": None}
     lista_items = []
     estado = {"nro_edicion": None}
-    MI_WHATSAPP = "573175046404"
 
     def cerrar_dialogo(dlg):
         dlg.open = False; page.update()
@@ -214,9 +213,15 @@ def main(page: ft.Page):
         input_nit = ft.TextField(label="NIT / C.C.")
         input_ciudad = ft.TextField(label="Ciudad (Origen Cotización)", value="Yumbo")
         input_atencion = ft.TextField(label="Atención a: (Ej. ING. MICHAEL MESIAS)")
-        input_pago = ft.TextField(label="Forma Pago", value="30 DIAS")
-        input_tiempo = ft.TextField(label="Tiempo Oferta", value="15 DIAS")
         input_ref = ft.TextField(label="REFERENCIA")
+
+        # --- NUEVOS CAMPOS DE CONDICIONES COMERCIALES ---
+        input_tiempo_entrega = ft.TextField(label="Tiempo de entrega", value="4 Días hábiles")
+        input_validez = ft.TextField(label="Validez cotización", value="20 Días")
+        input_pago = ft.TextField(label="Forma de pago", value="30 Días")
+        input_garantia = ft.TextField(label="Garantía", value="6 meses en mano de obra")
+        input_notas = ft.TextField(label="Notas adicionales (Coordina., etc.)", value="Toda la actividad será coordinada por el ingeniero Edward Álvarez y/o John Paniagua", multiline=True)
+        # ------------------------------------------------
         
         input_pct_a = ft.TextField(label="Admin %", value="10")
         input_pct_i = ft.TextField(label="Imprev %", value="2")
@@ -390,7 +395,6 @@ def main(page: ft.Page):
                 ft.Radio(value="S", label="Sub-ítem (1.1, 1.2...)")
             ]), value="P")
 
-            # --- SINCRONIZACIÓN DEL TIPO DE IMPUESTO SEGÚN LA PANTALLA PRINCIPAL ---
             modo_actual_cotizacion = dropdown_modo_cot.value
             opciones_imp_dinamicas = [ft.dropdown.Option(modo_actual_cotizacion), ft.dropdown.Option("EXENTO")]
             pct_defecto = "19" if modo_actual_cotizacion == "IVA" else "10"
@@ -465,7 +469,6 @@ def main(page: ft.Page):
                     })
                     actualizar_tabla_visual()
                     
-                    # Reinicia los valores manteniendo el impuesto correcto sincronizado
                     input_desc.value = ""; input_cant.value = "1"; input_precio.value = "0"; input_und.value = "UNID"; input_und_custom.value = ""; input_und_custom.visible = False
                     input_cant.col = {"sm": 3}; input_und.col = {"sm": 4}; input_precio.col = {"sm": 5}
                     input_imp_tipo.value = modo_actual_cotizacion
@@ -938,10 +941,24 @@ def main(page: ft.Page):
                            (nro_doc, c_nom, fecha_hora_actual, "web.pdf", total_final_cotizacion, "WEB", sesion["usuario"]))
                 db.commit(); db.close()
 
+                # ==========================================
+                # DICCIONARIO INTELIGENTE WHATSAPP POR ASESOR
+                # ==========================================
+                numeros_whatsapp = {
+                    "OSCAR": "573175046404", # <-- Cambia esto por el número real de Oscar
+                    "YEISON": "573002986963", 
+                    "JHON": "573175046404", # <-- Cambia esto por el número real de Jhon
+                    "PAULO": "573175046404"
+                }
+                
+                asesor_actual = sesion["usuario"].upper()
+                numero_asesor = numeros_whatsapp.get(asesor_actual, "573175046404")
+
                 qr = qrcode.QRCode(box_size=10, border=2)
-                qr.add_data(f"https://wa.me/{MI_WHATSAPP}")
+                qr.add_data(f"https://wa.me/{numero_asesor}")
                 qr.make(fit=True)
                 qr.make_image(fill_color="black", back_color="white").save("assets/qr_temp.png")
+                # ==========================================
 
                 p = PDF()
                 p.asesor_nombre = sesion["usuario"]
@@ -1072,10 +1089,18 @@ def main(page: ft.Page):
                 
                 print_total_row("TOTAL", total_final_cotizacion, bold=True)
 
+                # --- NUEVA ESTRUCTURA DE CONDICIONES COMERCIALES ---
                 p.ln(10); p.set_font('helvetica', 'B', 10); p.cell(0, 5, "CONDICIONES COMERCIALES", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                 p.ln(2); p.set_font('helvetica', '', 10)
-                p.cell(45, 5, "FORMA DE PAGO:", border=0); p.cell(0, 5, str(input_pago.value), border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                p.cell(45, 5, "TIEMPO DE OFERTA:", border=0); p.cell(0, 5, str(input_tiempo.value), border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                
+                p.cell(0, 5, f"• Tiempo de entrega: {input_tiempo_entrega.value}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                p.cell(0, 5, f"• Validez de la cotización: {input_validez.value}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                p.cell(0, 5, f"• Forma de pago: {input_pago.value}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                p.cell(0, 5, f"• Garantía: {input_garantia.value}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                
+                if input_notas.value.strip():
+                    p.multi_cell(0, 5, f"• Notas: {input_notas.value.strip()}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                # ---------------------------------------------------
                 
                 p.ln(8); p.set_font("helvetica", 'B', 8); p.cell(0, 5, "Escanee este código para atención personalizada y directa con nuestra Gerencia.", border=0, align='L', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                 
@@ -1135,13 +1160,20 @@ def main(page: ft.Page):
                     ft.Container(content=input_ciudad, col={"sm": 6, "md": 4, "lg": 4})
                 ]),
                 ft.ResponsiveRow([
-                    ft.Container(content=input_atencion, col={"sm": 12, "md": 5, "lg": 5}),
+                    ft.Container(content=input_atencion, col={"sm": 12, "md": 4, "lg": 4}),
+                    ft.Container(content=input_ref, col={"sm": 12, "md": 8, "lg": 8})
+                ]),
+                # --- NUEVA FILA DE CONDICIONES COMERCIALES EN LA INTERFAZ ---
+                ft.ResponsiveRow([
+                    ft.Container(content=input_tiempo_entrega, col={"sm": 6, "md": 3, "lg": 3}),
+                    ft.Container(content=input_validez, col={"sm": 6, "md": 3, "lg": 3}),
                     ft.Container(content=input_pago, col={"sm": 6, "md": 3, "lg": 3}),
-                    ft.Container(content=input_tiempo, col={"sm": 6, "md": 4, "lg": 4})
+                    ft.Container(content=input_garantia, col={"sm": 6, "md": 3, "lg": 3}),
                 ]),
                 ft.ResponsiveRow([
-                    ft.Container(content=input_ref, col={"sm": 12, "md": 12, "lg": 12})
+                    ft.Container(content=input_notas, col={"sm": 12, "md": 12, "lg": 12})
                 ]),
+                # ------------------------------------------------------------
                 ft.ResponsiveRow([
                     ft.Container(content=dropdown_modo_cot, col={"sm": 6, "md": 2, "lg": 2}),
                     container_texto_aiu,
