@@ -104,6 +104,10 @@ def main(page: ft.Page):
         try: db_setup.execute("ALTER TABLE historial ADD COLUMN origen TEXT DEFAULT 'WEB'")
         except: pass
 
+        # Inyector de columna 'tipo' para soportar sub-ítems
+        try: db_setup.execute("ALTER TABLE h_det ADD COLUMN tipo TEXT DEFAULT 'P'")
+        except: pass
+
         db_setup.execute("CREATE TABLE IF NOT EXISTS cli (n TEXT PRIMARY KEY, i TEXT)")
         try: db_setup.execute("ALTER TABLE cli ADD COLUMN dir TEXT")
         except: pass
@@ -250,13 +254,23 @@ def main(page: ft.Page):
         columna_tabla_items = ft.Column()
         def actualizar_tabla_visual():
             columna_tabla_items.controls.clear()
+            n_p, n_s = 0, 0
             for idx, item in enumerate(lista_items):
-                total_seguro = int(float(item['total']))
+                if item.get('tipo', 'P') == 'P':
+                    n_p += 1; n_s = 0; num_str = str(n_p)
+                else:
+                    n_s += 1; num_str = f"{n_p}.{n_s}" if n_p > 0 else f"0.{n_s}"
+
+                tot_seguro = float(item['total'])
+                tot_str = f"${int(tot_seguro):,}" if tot_seguro > 0 else ""
+                c_str = f"{item['cant']:g} {item.get('und', '')}" if float(item['cant']) > 0 else ""
+                imp_label = f" ({item.get('impuesto', '')})" if float(item['precio']) > 0 else ""
+
                 columna_tabla_items.controls.append(
                     ft.ResponsiveRow([
-                        ft.Text(f"{idx+1}. {item['desc']} ({item.get('impuesto', '')})", col={"sm": 6}, color="white", size=12),
-                        ft.Text(f"{item['cant']} {item.get('und', '')}", col={"sm": 3}, text_align="center", color="white"),
-                        ft.Text(f"${total_seguro:,}", col={"sm": 3}, text_align="right", color="#fbbf24"),
+                        ft.Text(f"{num_str}. {item['desc']}{imp_label}", col={"sm": 6}, color="white", size=12),
+                        ft.Text(c_str, col={"sm": 3}, text_align="center", color="white"),
+                        ft.Text(tot_str, col={"sm": 3}, text_align="right", color="#fbbf24"),
                     ])
                 )
             page.update()
@@ -267,13 +281,17 @@ def main(page: ft.Page):
         def abrir_modal_item(e):
             resultados_inv = ft.ListView(expand=True, spacing=10, height=150)
             
-            # --- MAGIA AQUÍ: read_only=False para que puedas agregar detalles ---
-            input_desc = ft.TextField(label="Descripción (Agrega detalles si necesitas)", read_only=False)
-            # -------------------------------------------------------------------
+            tipo_item = ft.RadioGroup(content=ft.Row([
+                ft.Radio(value="P", label="Ítem Principal (1, 2, 3...)"),
+                ft.Radio(value="S", label="Sub-ítem (1.1, 1.2...)")
+            ]), value="P")
+
+            # --- AHORA ES READ_ONLY=FALSE PARA PODER AGREGAR DESCRIPCIONES LIBRES ---
+            input_desc = ft.TextField(label="Descripción (Ej: TORRE, o CABLE No. 10)", read_only=False)
             
-            input_cant = ft.TextField(label="Cantidad", value="1", col={"sm": 3})
+            input_cant = ft.TextField(label="Cant (0 = Título)", value="1", col={"sm": 3})
             input_und_custom = ft.TextField(label="Iniciales (Ej. KGS)", visible=False, col={"sm": 3})
-            input_precio = ft.TextField(label="Precio Unit", col={"sm": 5})
+            input_precio = ft.TextField(label="Precio Unit (0 = Oculto)", value="0", col={"sm": 5})
             
             def cambiar_und(evt):
                 if input_und.value == "✍️ ESCRIBIR...":
@@ -321,19 +339,29 @@ def main(page: ft.Page):
                 page.update()
 
             def guardar_item(evt):
-                if not input_desc.value or not input_precio.value: return
+                if not input_desc.value: return
                 try:
-                    d, c, p = input_desc.value, float(input_cant.value), float(input_precio.value)
+                    c = float(input_cant.value) if input_cant.value.strip() else 0.0
+                    p = float(input_precio.value) if input_precio.value.strip() else 0.0
                     imp = "EXENTO" if input_imp_tipo.value == "EXENTO" else f"{input_imp_tipo.value} {input_imp_pct.value}%"
                     und_final = str(input_und_custom.value).upper().strip() if input_und.value == "✍️ ESCRIBIR..." else input_und.value
                     if not und_final: und_final = "UNID"
                     
-                    lista_items.append({"desc": d, "cant": c, "precio": p, "total": c*p, "impuesto": imp, "und": und_final})
+                    lista_items.append({
+                        "desc": input_desc.value, 
+                        "cant": c, 
+                        "precio": p, 
+                        "total": c*p, 
+                        "impuesto": imp, 
+                        "und": und_final,
+                        "tipo": tipo_item.value
+                    })
                     actualizar_tabla_visual()
                     
-                    input_desc.value = ""; input_cant.value = "1"; input_precio.value = ""; input_und.value = "UNID"; input_und_custom.value = ""; input_und_custom.visible = False
+                    input_desc.value = ""; input_cant.value = "1"; input_precio.value = "0"; input_und.value = "UNID"; input_und_custom.value = ""; input_und_custom.visible = False
                     input_cant.col = {"sm": 3}; input_und.col = {"sm": 4}; input_precio.col = {"sm": 5}
                     input_imp_tipo.value = "AIU"; input_imp_pct.value = "10"
+                    tipo_item.value = "P"
                     
                     buscador_inv.value = ""; buscar_inv_bd(None)
                     page.snack_bar = ft.SnackBar(ft.Text("✅ Ítem agregado"), bgcolor="#10b981"); page.snack_bar.open = True; page.update()
@@ -341,8 +369,14 @@ def main(page: ft.Page):
 
             buscador_inv = ft.TextField(label="Buscar en bodega...", on_change=buscar_inv_bd)
             dlg = ft.AlertDialog(
-                title=ft.Text("➕ Añadir a Propuesta"), 
-                content=ft.Container(width=750, content=ft.Column([buscador_inv, resultados_inv, input_desc, ft.ResponsiveRow([input_cant, input_und, input_und_custom, input_precio]), ft.ResponsiveRow([input_imp_tipo, input_imp_pct])], tight=True)), 
+                title=ft.Text("➕ Añadir a Propuesta (Nivel y Detalles)"), 
+                content=ft.Container(width=750, content=ft.Column([
+                    tipo_item,
+                    buscador_inv, resultados_inv, 
+                    input_desc, 
+                    ft.ResponsiveRow([input_cant, input_und, input_und_custom, input_precio]), 
+                    ft.ResponsiveRow([input_imp_tipo, input_imp_pct])
+                ], tight=True)), 
                 actions=[ft.ElevatedButton("Guardar", bgcolor="#10b981", color="white", on_click=guardar_item), ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))]
             )
             page.dialog = dlg; dlg.open = True; buscar_inv_bd(None)
@@ -591,19 +625,30 @@ def main(page: ft.Page):
                             cab = db_h.execute("SELECT cli, nit FROM h_cab WHERE nro=?", (numero,)).fetchone()
                             if cab: input_cliente.value = cab[0] if cab[0] else ""; input_nit.value = cab[1] if cab[1] else ""
                             lista_items.clear()
-                            for d in db_h.execute("SELECT desc, cant, und, unit, sub, imp FROM h_det WHERE nro=?", (numero,)):
+                            
+                            try:
+                                cursor_det = db_h.execute("SELECT desc, cant, und, unit, sub, imp, tipo FROM h_det WHERE nro=?", (numero,))
+                                filas_det = cursor_det.fetchall()
+                            except:
+                                cursor_det = db_h.execute("SELECT desc, cant, und, unit, sub, imp FROM h_det WHERE nro=?", (numero,))
+                                filas_det = [r + ('P',) for r in cursor_det.fetchall()]
+
+                            for d in filas_det:
                                 desc_str = d[0] if d[0] else ""
                                 try: cant_f = float(d[1])
-                                except: cant_f = 1.0
+                                except: cant_f = 0.0
                                 und_str = str(d[2]) if d[2] else "UNID"
                                 try: unit_f = float(d[3])
-                                except: unit_f = 100.0
+                                except: unit_f = 0.0
                                 try: sub_f = float(d[4])
                                 except: sub_f = cant_f * unit_f
                                 impuesto_str = str(d[5]) if d[5] else "EXENTO"
                                 if "AIU" in und_str or "IVA" in und_str or "EXENTO" in und_str:
                                     temp = impuesto_str; impuesto_str = und_str; und_str = temp if temp not in ["EXENTO", ""] else "UNID"
-                                lista_items.append({"desc": desc_str, "cant": cant_f, "und": und_str, "precio": unit_f, "total": sub_f, "impuesto": impuesto_str})
+                                
+                                tipo_str = str(d[6]) if len(d) > 6 and d[6] else "P"
+
+                                lista_items.append({"desc": desc_str, "cant": cant_f, "und": und_str, "precio": unit_f, "total": sub_f, "impuesto": impuesto_str, "tipo": tipo_str})
                             db_h.close()
                             estado["nro_edicion"] = numero
                             actualizar_tabla_visual(); cerrar_dialogo(dlg)
@@ -632,18 +677,23 @@ def main(page: ft.Page):
                 lista_edicion.controls.clear()
                 for i, item in enumerate(lista_items):
                     def abrir_edicion_individual(evt, index=i):
-                        e_cant = ft.TextField(label="Nueva Cantidad", value=str(lista_items[index]['cant']))
-                        e_precio = ft.TextField(label="Nuevo Precio", value=str(int(float(lista_items[index]['precio']))))
+                        val_c = str(lista_items[index]['cant']) if float(lista_items[index]['cant']) > 0 else "0"
+                        val_p = str(int(float(lista_items[index]['precio']))) if float(lista_items[index]['precio']) > 0 else "0"
+                        
+                        e_cant = ft.TextField(label="Nueva Cantidad", value=val_c)
+                        e_precio = ft.TextField(label="Nuevo Precio", value=val_p)
+                        
                         def guardar_cambio(ev):
                             try:
-                                c, p = float(e_cant.value), float(e_precio.value)
+                                c = float(e_cant.value) if e_cant.value.strip() else 0.0
+                                p = float(e_precio.value) if e_precio.value.strip() else 0.0
                                 lista_items[index]['cant'], lista_items[index]['precio'], lista_items[index]['total'] = c, p, c * p
                                 actualizar_tabla_visual(); cerrar_dialogo(dlg_ind); construir_lista()
                             except: pass
                         dlg_ind = ft.AlertDialog(content=ft.Column([ft.Text(lista_items[index]['desc']), e_cant, e_precio], tight=True), actions=[ft.ElevatedButton("Actualizar", on_click=guardar_cambio)])
                         page.dialog = dlg_ind; dlg_ind.open = True; page.update()
-                    tot_seguro = int(float(item['total']))
-                    lista_edicion.controls.append(ft.ListTile(title=ft.Text(f"{item['desc']}", size=13), subtitle=ft.Text(f"Cant: {item['cant']} | Total: ${tot_seguro:,}"), on_click=abrir_edicion_individual))
+                    tot_seguro = float(item['total'])
+                    lista_edicion.controls.append(ft.ListTile(title=ft.Text(f"{item['desc']}", size=13), subtitle=ft.Text(f"Cant: {item['cant']} | Total: ${int(tot_seguro):,}"), on_click=abrir_edicion_individual))
                 dlg_editar.content = lista_edicion; page.update()
                 
             construir_lista()
@@ -765,8 +815,15 @@ def main(page: ft.Page):
                 for item in lista_items:
                     cant_n = float(item['cant']); unit_n = float(item['precio']); tot_item_n = float(item['total'])
                     imp_str = item.get('impuesto', 'EXENTO'); und_str = item.get('und', 'UNID')
+                    tipo_val = item.get('tipo', 'P')
                     
-                    db.execute("INSERT INTO h_det VALUES (?,?,?,?,?,?,?)", (nro_doc, item['desc'], cant_n, und_str, unit_n, tot_item_n, imp_str))
+                    try:
+                        db.execute("INSERT INTO h_det (nro, desc, cant, und, unit, sub, imp, tipo) VALUES (?,?,?,?,?,?,?,?)", 
+                                   (nro_doc, item['desc'], cant_n, und_str, unit_n, tot_item_n, imp_str, tipo_val))
+                    except:
+                        db.execute("INSERT INTO h_det (nro, desc, cant, und, unit, sub, imp) VALUES (?,?,?,?,?,?,?)", 
+                                   (nro_doc, item['desc'], cant_n, und_str, unit_n, tot_item_n, imp_str))
+
                     subtotal_global += tot_item_n
                     
                     if "IVA" in imp_str.upper():
@@ -861,8 +918,30 @@ def main(page: ft.Page):
                 p.cell(25, 6, "VALOR", 1, fill=True, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
                 p.set_fill_color(255, 255, 255)
+                
+                # --- SISTEMA DE JERARQUIAS EN EL PDF ---
+                num_p = 0
+                num_s = 0
                 for idx, i in enumerate(lista_items):
-                    cant_n = float(i['cant']); unit_n = float(i['precio']); tot_item_n = float(i['total'])
+                    if i.get('tipo', 'P') == 'P':
+                        num_p += 1
+                        num_s = 0
+                        num_str = str(num_p)
+                    else:
+                        num_s += 1
+                        num_str = f"{num_p}.{num_s}" if num_p > 0 else f"0.{num_s}"
+
+                    cant_n = float(i['cant'])
+                    unit_n = float(i['precio'])
+                    tot_item_n = float(i['total'])
+                    
+                    # MAGIA DE OCULTAMIENTO: Si es 0, no se imprime
+                    c_str = f"{cant_n:g}" if cant_n > 0 else ""
+                    u_str = i.get('und', 'UNID') if cant_n > 0 else ""
+                    pu_str = f"${int(unit_n):,}" if unit_n > 0 else ""
+                    imp_str = i.get('impuesto', 'EXENTO') if unit_n > 0 else ""
+                    tot_str = f"${int(tot_item_n):,}" if unit_n > 0 else ""
+
                     desc_lines = textwrap.wrap(i['desc'], width=43) 
                     if not desc_lines: desc_lines = [""]
                     for line_idx, line_text in enumerate(desc_lines):
@@ -872,14 +951,20 @@ def main(page: ft.Page):
                         else: b_style = 'LR'
                             
                         if line_idx == 0:
-                            p.cell(10, 6, f"{idx+1}", border=b_style, align='C'); p.cell(78, 6, f" {line_text}", border=b_style)
-                            p.cell(12, 6, f"{cant_n:g}", border=b_style, align='C'); p.cell(25, 6, i.get('und', 'UNID'), border=b_style, align='C')
-                            p.cell(20, 6, f"${int(unit_n):,}", border=b_style, align='R'); p.cell(20, 6, i.get('impuesto', 'EXENTO'), border=b_style, align='C')
-                            p.cell(25, 6, f"${int(tot_item_n):,}", border=b_style, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                            p.cell(10, 6, num_str, border=b_style, align='C')
+                            p.cell(78, 6, f" {line_text}", border=b_style)
+                            p.cell(12, 6, c_str, border=b_style, align='C')
+                            p.cell(25, 6, u_str, border=b_style, align='C')
+                            p.cell(20, 6, pu_str, border=b_style, align='R')
+                            p.cell(20, 6, imp_str, border=b_style, align='C')
+                            p.cell(25, 6, tot_str, border=b_style, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                         else:
-                            p.cell(10, 6, "", border=b_style, align='C'); p.cell(78, 6, f" {line_text}", border=b_style)
-                            p.cell(12, 6, "", border=b_style, align='C'); p.cell(25, 6, "", border=b_style, align='C')
-                            p.cell(20, 6, "", border=b_style, align='R'); p.cell(20, 6, "", border=b_style, align='C')
+                            p.cell(10, 6, "", border=b_style, align='C')
+                            p.cell(78, 6, f" {line_text}", border=b_style)
+                            p.cell(12, 6, "", border=b_style, align='C')
+                            p.cell(25, 6, "", border=b_style, align='C')
+                            p.cell(20, 6, "", border=b_style, align='R')
+                            p.cell(20, 6, "", border=b_style, align='C')
                             p.cell(25, 6, "", border=b_style, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
                 def print_total_row(label, value, bold=False):
