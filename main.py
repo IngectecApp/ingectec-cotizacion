@@ -390,6 +390,11 @@ def main(page: ft.Page):
                 ft.Radio(value="S", label="Sub-ítem (1.1, 1.2...)")
             ]), value="P")
 
+            # --- SINCRONIZACIÓN DEL TIPO DE IMPUESTO SEGÚN LA PANTALLA PRINCIPAL ---
+            modo_actual_cotizacion = dropdown_modo_cot.value
+            opciones_imp_dinamicas = [ft.dropdown.Option(modo_actual_cotizacion), ft.dropdown.Option("EXENTO")]
+            pct_defecto = "19" if modo_actual_cotizacion == "IVA" else "10"
+
             input_desc = ft.TextField(label="Descripción (Agrega características aquí)", read_only=False)
             input_cant = ft.TextField(label="Cantidad", value="1", col={"sm": 3})
             input_und_custom = ft.TextField(label="Iniciales (Ej. KGS)", visible=False, col={"sm": 3})
@@ -416,12 +421,12 @@ def main(page: ft.Page):
             
             input_imp_tipo = ft.Dropdown(
                 label="Impuesto", 
-                options=[ft.dropdown.Option("AIU"), ft.dropdown.Option("IVA"), ft.dropdown.Option("EXENTO")], 
-                value="AIU", 
+                options=opciones_imp_dinamicas, 
+                value=modo_actual_cotizacion, 
                 col={"sm": 6}, 
                 on_change=cambiar_impuesto
             )
-            input_imp_pct = ft.TextField(label="% Imp", value="10", col={"sm": 6})
+            input_imp_pct = ft.TextField(label="% Imp", value=pct_defecto, col={"sm": 6})
 
             def buscar_inv_bd(evt):
                 resultados_inv.controls.clear()
@@ -460,9 +465,11 @@ def main(page: ft.Page):
                     })
                     actualizar_tabla_visual()
                     
+                    # Reinicia los valores manteniendo el impuesto correcto sincronizado
                     input_desc.value = ""; input_cant.value = "1"; input_precio.value = "0"; input_und.value = "UNID"; input_und_custom.value = ""; input_und_custom.visible = False
                     input_cant.col = {"sm": 3}; input_und.col = {"sm": 4}; input_precio.col = {"sm": 5}
-                    input_imp_tipo.value = "AIU"; input_imp_pct.value = "10"
+                    input_imp_tipo.value = modo_actual_cotizacion
+                    input_imp_pct.value = pct_defecto
                     
                     buscador_inv.value = ""; buscar_inv_bd(None)
                     page.snack_bar = ft.SnackBar(ft.Text("✅ Ítem agregado a la lista"), bgcolor="#10b981"); page.snack_bar.open = True; page.update()
@@ -916,7 +923,6 @@ def main(page: ft.Page):
                 total_aiu_sum = val_a + val_i + val_u
                 val_iva_u_val = val_u * (pct_iva_u / 100)
 
-                # --- LÓGICA DE CÁLCULO SEGÚN EL SELECTOR ---
                 modo_cot = dropdown_modo_cot.value
                 
                 if modo_cot == "AIU":
@@ -1053,7 +1059,6 @@ def main(page: ft.Page):
                 
                 print_total_row("SUBTOTAL", subtotal_global)
                 
-                # --- CONDICIONAL PARA IMPRIMIR AIU SÓLO SI ESTÁ ACTIVO ---
                 if modo_cot == "AIU":
                     print_total_row(f"ADMINISTRACIÓN ({pct_a:g}%)", val_a)
                     print_total_row(f"IMPREVISTOS ({pct_i:g}%)", val_i)
@@ -1097,7 +1102,6 @@ def main(page: ft.Page):
         if sesion["rol"] == "ADMIN":
             botones_lista.append(ft.ElevatedButton("🔐 USUARIOS", bgcolor="#8b5cf6", color="white", on_click=abrir_modal_usuarios))
 
-        # --- SE REINCORPORÓ EL BOTÓN LIMPIAR ---
         botones_lista.extend([
             ft.ElevatedButton("🔍 HISTORIAL", bgcolor="#2563eb", color="white", on_click=abrir_modal_historial),
             ft.ElevatedButton("🧹 LIMPIAR", bgcolor="#64748b", color="white", on_click=limpiar_todo)
