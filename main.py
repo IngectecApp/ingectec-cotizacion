@@ -250,24 +250,54 @@ def main(page: ft.Page):
 
         header = ft.Container(content=ft.Text(f"⚡ INGECTEC SAS", size=22, weight="bold", color="#fbbf24"), alignment=ft.alignment.center, padding=5)
 
+        # --- MOTOR DE SUMATORIA INTELIGENTE ---
+        def obtener_items_procesados(lista):
+            disp = []
+            curr_p = -1
+            np, ns = 0, 0
+            for it in lista:
+                if it.get('tipo', 'P') == 'P':
+                    np += 1; ns = 0
+                    curr_p = len(disp)
+                    disp.append({
+                        "desc": it['desc'], "cant": float(it['cant']), "und": it.get('und', ''),
+                        "precio": float(it['precio']), "total": float(it['total']), 
+                        "impuesto": it.get('impuesto', ''), "tipo": 'P', "num": str(np), "has_subs": False
+                    })
+                else:
+                    ns += 1
+                    num_str = f"{np}.{ns}" if np > 0 else f"0.{ns}"
+                    disp.append({
+                        "desc": it['desc'], "cant": float(it['cant']), "und": it.get('und', ''),
+                        "precio": float(it['precio']), "total": float(it['total']), 
+                        "impuesto": it.get('impuesto', ''), "tipo": 'S', "num": num_str
+                    })
+                    if curr_p != -1:
+                        disp[curr_p]['has_subs'] = True
+                        disp[curr_p]['total'] += float(it['total'])
+                        if disp[curr_p]['cant'] == 0: disp[curr_p]['cant'] = 1
+                        disp[curr_p]['precio'] = disp[curr_p]['total'] / disp[curr_p]['cant']
+            return disp
+
         columna_tabla_items = ft.Column()
         def actualizar_tabla_visual():
             columna_tabla_items.controls.clear()
-            n_p, n_s = 0, 0
-            for idx, item in enumerate(lista_items):
-                if item.get('tipo', 'P') == 'P':
-                    n_p += 1; n_s = 0; num_str = str(n_p)
+            items_calculados = obtener_items_procesados(lista_items)
+            
+            for item in items_calculados:
+                if item['tipo'] == 'P':
+                    tot_str = f"${int(item['total']):,}" if item['total'] > 0 else ""
+                    imp_label = f" ({item['impuesto']})" if item['total'] > 0 else ""
+                    c_str = f"{item['cant']:g} {item['und']}" if item['cant'] > 0 else ""
                 else:
-                    n_s += 1; num_str = f"{n_p}.{n_s}" if n_p > 0 else f"0.{n_s}"
-
-                tot_seguro = float(item['total'])
-                tot_str = f"${int(tot_seguro):,}" if tot_seguro > 0 else ""
-                c_str = f"{item['cant']:g} {item.get('und', '')}" if float(item['cant']) > 0 else ""
-                imp_label = f" ({item.get('impuesto', '')})" if float(item['precio']) > 0 else ""
+                    # En la UI, también ocultamos los precios de los sub-ítems para no confundir
+                    tot_str = ""
+                    imp_label = ""
+                    c_str = f"{item['cant']:g} {item['und']}" if item['cant'] > 0 else ""
 
                 columna_tabla_items.controls.append(
                     ft.ResponsiveRow([
-                        ft.Text(f"{num_str}. {item['desc']}{imp_label}", col={"sm": 6}, color="white", size=12),
+                        ft.Text(f"{item['num']}. {item['desc']}{imp_label}", col={"sm": 6}, color="white", size=12),
                         ft.Text(c_str, col={"sm": 3}, text_align="center", color="white"),
                         ft.Text(tot_str, col={"sm": 3}, text_align="right", color="#fbbf24"),
                     ])
@@ -285,10 +315,10 @@ def main(page: ft.Page):
                 ft.Radio(value="S", label="Sub-ítem (1.1, 1.2...)")
             ]), value="P")
 
-            input_desc = ft.TextField(label="Descripción (Ej: TORRE, o CABLE No. 10)", read_only=False)
-            input_cant = ft.TextField(label="Cant (0 = Título sin cantidad)", value="1", col={"sm": 3})
+            input_desc = ft.TextField(label="Descripción (Agrega características aquí)", read_only=False)
+            input_cant = ft.TextField(label="Cantidad", value="1", col={"sm": 3})
             input_und_custom = ft.TextField(label="Iniciales (Ej. KGS)", visible=False, col={"sm": 3})
-            input_precio = ft.TextField(label="Precio Unit (0 = Oculto)", value="0", col={"sm": 5})
+            input_precio = ft.TextField(label="Precio Unit (0 si es Título que suma sub-ítems)", value="0", col={"sm": 5})
             
             def cambiar_und(evt):
                 if input_und.value == "✍️ ESCRIBIR...":
@@ -355,17 +385,18 @@ def main(page: ft.Page):
                     })
                     actualizar_tabla_visual()
                     
+                    # SE LIMPIA EL FORMULARIO PERO NO SE CAMBIA EL RADIO BUTTON, ASÍ MANTIENE EL FOCO
                     input_desc.value = ""; input_cant.value = "1"; input_precio.value = "0"; input_und.value = "UNID"; input_und_custom.value = ""; input_und_custom.visible = False
                     input_cant.col = {"sm": 3}; input_und.col = {"sm": 4}; input_precio.col = {"sm": 5}
                     input_imp_tipo.value = "AIU"; input_imp_pct.value = "10"
                     
                     buscador_inv.value = ""; buscar_inv_bd(None)
-                    page.snack_bar = ft.SnackBar(ft.Text("✅ Ítem agregado"), bgcolor="#10b981"); page.snack_bar.open = True; page.update()
+                    page.snack_bar = ft.SnackBar(ft.Text("✅ Ítem agregado a la lista"), bgcolor="#10b981"); page.snack_bar.open = True; page.update()
                 except: pass
 
             buscador_inv = ft.TextField(label="Buscar en bodega...", on_change=buscar_inv_bd)
             dlg = ft.AlertDialog(
-                title=ft.Text("➕ Añadir a Propuesta (Nivel y Detalles)"), 
+                title=ft.Text("➕ Añadir a Propuesta (Títulos y Sub-ítems)"), 
                 content=ft.Container(width=750, content=ft.Column([
                     tipo_item,
                     buscador_inv, resultados_inv, 
@@ -689,7 +720,7 @@ def main(page: ft.Page):
                         dlg_ind = ft.AlertDialog(content=ft.Column([ft.Text(lista_items[index]['desc']), e_cant, e_precio], tight=True), actions=[ft.ElevatedButton("Actualizar", on_click=guardar_cambio)])
                         page.dialog = dlg_ind; dlg_ind.open = True; page.update()
                     tot_seguro = float(item['total'])
-                    lista_edicion.controls.append(ft.ListTile(title=ft.Text(f"{item['desc']}", size=13), subtitle=ft.Text(f"Cant: {item['cant']} | Total: ${int(tot_seguro):,}"), on_click=abrir_edicion_individual))
+                    lista_edicion.controls.append(ft.ListTile(title=ft.Text(f"{item['desc']}", size=13), subtitle=ft.Text(f"Cant: {item['cant']} | Precio Base Interno: ${int(float(item['precio'])):,}"), on_click=abrir_edicion_individual))
                 dlg_editar.content = lista_edicion; page.update()
                 
             construir_lista()
@@ -915,27 +946,23 @@ def main(page: ft.Page):
 
                 p.set_fill_color(255, 255, 255)
                 
-                # --- SISTEMA DE JERARQUIAS EN EL PDF ---
-                num_p = 0
-                num_s = 0
-                for idx, i in enumerate(lista_items):
-                    if i.get('tipo', 'P') == 'P':
-                        num_p += 1
-                        num_s = 0
-                        num_str = str(num_p)
+                # --- IMPRESION DEL SISTEMA DE JERARQUIAS EN EL PDF ---
+                items_para_pdf = obtener_items_procesados(lista_items)
+                
+                for idx, i in enumerate(items_para_pdf):
+                    # Determinamos qué variables imprimir según si es P o S
+                    if i['tipo'] == 'P':
+                        c_str = f"{i['cant']:g}" if i['cant'] > 0 else ""
+                        u_str = i['und'] if i['cant'] > 0 else ""
+                        pu_str = f"${int(i['precio']):,}" if i['total'] > 0 else ""
+                        imp_str = i['impuesto'] if i['total'] > 0 else ""
+                        tot_str = f"${int(i['total']):,}" if i['total'] > 0 else ""
                     else:
-                        num_s += 1
-                        num_str = f"{num_p}.{num_s}" if num_p > 0 else f"0.{num_s}"
-
-                    cant_n = float(i['cant'])
-                    unit_n = float(i['precio'])
-                    tot_item_n = float(i['total'])
-                    
-                    c_str = f"{cant_n:g}" if cant_n > 0 else ""
-                    u_str = i.get('und', 'UNID') if cant_n > 0 else ""
-                    pu_str = f"${int(unit_n):,}" if unit_n > 0 else ""
-                    imp_str = i.get('impuesto', 'EXENTO') if unit_n > 0 else ""
-                    tot_str = f"${int(tot_item_n):,}" if unit_n > 0 else ""
+                        c_str = f"{i['cant']:g}" if i['cant'] > 0 else ""
+                        u_str = i['und'] if i['cant'] > 0 else ""
+                        pu_str = ""
+                        imp_str = ""
+                        tot_str = ""
 
                     desc_lines = textwrap.wrap(i['desc'], width=43) 
                     if not desc_lines: desc_lines = [""]
@@ -946,7 +973,7 @@ def main(page: ft.Page):
                         else: b_style = 'LR'
                             
                         if line_idx == 0:
-                            p.cell(10, 6, num_str, border=b_style, align='C')
+                            p.cell(10, 6, i['num'], border=b_style, align='C')
                             p.cell(78, 6, f" {line_text}", border=b_style)
                             p.cell(12, 6, c_str, border=b_style, align='C')
                             p.cell(25, 6, u_str, border=b_style, align='C')
