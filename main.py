@@ -39,7 +39,6 @@ def init_db():
         
         c.execute("CREATE TABLE IF NOT EXISTS cli (n TEXT PRIMARY KEY, i TEXT, dir TEXT, email TEXT, ciu TEXT, tel TEXT)")
         
-        # --- TABLA INVENTARIO BLINDADA CON PROVEEDOR Y FECHA DE ACTUALIZACIÓN ---
         c.execute("CREATE TABLE IF NOT EXISTS inv (d TEXT PRIMARY KEY, p NUMERIC, stock NUMERIC)")
         for col, tipo in [("proveedor", "TEXT"), ("fecha_act", "TEXT")]:
             try: c.execute(f"ALTER TABLE inv ADD COLUMN IF NOT EXISTS {col} {tipo}")
@@ -329,11 +328,20 @@ def main(page: ft.Page):
                         c=db.cursor(); txt=(e_desc.value or "").upper()
                         try: c.execute("SELECT d, p, proveedor, fecha_act FROM inv WHERE UPPER(d) LIKE %s LIMIT 20", ('%'+txt+'%',))
                         except: c.execute("SELECT d, p, '', '' FROM inv WHERE UPPER(d) LIKE %s LIMIT 20", ('%'+txt+'%',))
+                        
+                        hoy_dt = datetime.now()
                         for r in c.fetchall():
-                            d=r[0]; p=r[1]; prov=r[2] if len(r)>2 and r[2] else ""; fa=r[3] if len(r)>3 and r[3] else ""
+                            d=r[0]; p=r[1]; prov=r[2] if len(r)>2 and r[2] else ""
+                            fa_raw = r[3] if len(r)>3 and r[3] else None
+                            fa = "Antigua"
+                            if fa_raw:
+                                try:
+                                    if (hoy_dt - datetime.strptime(fa_raw, "%Y-%m-%d")).days <= 5: fa = fa_raw
+                                except: pass
+                            
                             def sel(ev, desc=d, prec=p): e_desc.value=desc; e_precio.value=str(int(float(prec))); page.update()
                             def rm(ev, desc=d): dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM inv WHERE d=%s", (desc,)); dbd.close(); b_bod(None); load_cat(None)
-                            subt = f"${int(float(p)):,}" + (f" (Prov: {prov})" if prov else "") + (f" - Act: {fa}" if fa else "")
+                            subt = f"${int(float(p)):,}" + (f" (Prov: {prov})" if prov else "") + (f" - Act: {fa}")
                             resultados_bod.controls.append(ft.ListTile(title=ft.Text(d, size=13, color="#fbbf24", weight="bold"), subtitle=ft.Text(subt), on_click=sel, trailing=ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=rm)))
                         db.close(); page.update()
 
@@ -388,7 +396,7 @@ def main(page: ft.Page):
                         fh = datetime.now().strftime("%Y-%m-%d")
                         c=db.cursor(); c.execute("INSERT INTO inv (d, p, stock, proveedor, fecha_act) VALUES (%s, %s, 0, %s, %s) ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p, proveedor=EXCLUDED.proveedor, fecha_act=EXCLUDED.fecha_act", (itm, gpr, gp, fh)); db.close()
                         c_item.value=""; c_p1.value=None; c_pr1.value=""; c_p2.value=None; c_pr2.value=""; c_p3.value=None; c_pr3.value=""; b_bod(None); load_cat(None)
-                        page.snack_bar=ft.SnackBar(ft.Text(f"🏆 GANADOR: {gp} (${int(gpr):,}). Ítem actualizado en base de datos global."), bgcolor="#8b5cf6"); page.snack_bar.open=True; page.update()
+                        page.snack_bar=ft.SnackBar(ft.Text(f"🏆 GANADOR: {gp} (${int(gpr):,}). Ítem actualizado."), bgcolor="#8b5cf6"); page.snack_bar.open=True; page.update()
 
                 def load_cat(evt):
                     lst_cat.controls.clear(); txt = (filtro_cat.value or "").upper().strip(); db = conectar_db()
@@ -397,10 +405,20 @@ def main(page: ft.Page):
                         try:
                             if txt: c.execute("SELECT d, p, proveedor, fecha_act FROM inv WHERE UPPER(d) LIKE %s ORDER BY fecha_act DESC NULLS LAST LIMIT 100", ('%'+txt+'%',))
                             else: c.execute("SELECT d, p, proveedor, fecha_act FROM inv ORDER BY fecha_act DESC NULLS LAST LIMIT 100")
+                            
+                            hoy_dt = datetime.now()
                             for r in c.fetchall():
-                                d=r[0]; p=r[1]; prov=r[2] if len(r)>2 and r[2] else ""; fa=r[3] if len(r)>3 and r[3] else "Antiguo"
+                                d=r[0]; p=r[1]; prov=r[2] if len(r)>2 and r[2] else ""
+                                fa_raw = r[3] if len(r)>3 and r[3] else None
+                                fa = "Antigua"
+                                
+                                if fa_raw:
+                                    try:
+                                        if (hoy_dt - datetime.strptime(fa_raw, "%Y-%m-%d")).days <= 5: fa = fa_raw
+                                    except: pass
+                                
                                 subt = f"Precio: ${int(float(p or 0)):,} | Prov: {prov or 'N/A'} | Act: {fa}"
-                                lst_cat.controls.append(ft.ListTile(title=ft.Text(d, color="#fbbf24", weight="bold"), subtitle=ft.Text(subt, color="#94a3b8")))
+                                lst_cat.controls.append(ft.ListTile(title=ft.Text(d, color="#fbbf24", weight="bold"), subtitle=ft.Text(subt, color="#94a3b8" if fa == "Antigua" else "#10b981")))
                         except Exception as ez: print(ez)
                         db.close(); page.update()
 
@@ -413,8 +431,8 @@ def main(page: ft.Page):
                         selected_index=0, tabs=[
                             ft.Tab(text="🔍 Buscar", content=ft.Column([ft.Container(height=10), e_desc, e_precio, ft.ElevatedButton("Guardar Precio / Actualizar Fecha", bgcolor="#2563eb", on_click=s_bod), resultados_bod], tight=True)),
                             ft.Tab(text="📥 Masivo", content=ft.Column([ft.Container(height=10), e_mas, ft.ElevatedButton("Importar", bgcolor="#10b981", on_click=p_mas)], tight=True)),
-                            ft.Tab(text="⚖️ Comparar", content=ft.Column([ft.Container(height=10), ft.Text("Se elegirá el menor precio y se guardará en la base de datos principal con la Fecha de Hoy.", color="#10b981", size=12), c_item, lst_comp, ft.ResponsiveRow([c_p1, c_pr1]), ft.ResponsiveRow([c_p2, c_pr2]), ft.ResponsiveRow([c_p3, c_pr3]), ft.ElevatedButton("Analizar", bgcolor="#8b5cf6", color="white", on_click=run_comp)], tight=True, scroll=ft.ScrollMode.AUTO)),
-                            ft.Tab(text="📜 Catálogo (Fechas)", content=ft.Column([ft.Container(height=10), ft.Text("Ítems ordenados desde el más recientemente actualizado:", color="#fbbf24", size=12), filtro_cat, lst_cat], tight=True, scroll=ft.ScrollMode.AUTO)),
+                            ft.Tab(text="⚖️ Comparar", content=ft.Column([ft.Container(height=10), ft.Text("Se elegirá el menor precio y se guardará en la BD principal con la Fecha de Hoy.", color="#10b981", size=12), c_item, lst_comp, ft.ResponsiveRow([c_p1, c_pr1]), ft.ResponsiveRow([c_p2, c_pr2]), ft.ResponsiveRow([c_p3, c_pr3]), ft.ElevatedButton("Analizar", bgcolor="#8b5cf6", color="white", on_click=run_comp)], tight=True, scroll=ft.ScrollMode.AUTO)),
+                            ft.Tab(text="📜 Catálogo (Fechas)", content=ft.Column([ft.Container(height=10), ft.Text("Los ítems de más de 6 días se marcan como 'Antigua':", color="#fbbf24", size=12), filtro_cat, lst_cat], tight=True, scroll=ft.ScrollMode.AUTO)),
                             ft.Tab(text="🏢 Provs.", content=ft.Column([ft.Container(height=10), ft.ResponsiveRow([e_pnom, e_ptel]), ft.ElevatedButton("Guardar", bgcolor="#10b981", color="white", on_click=save_prov), lst_provs], tight=True, scroll=ft.ScrollMode.AUTO))
                         ], expand=1
                     )), actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))]
