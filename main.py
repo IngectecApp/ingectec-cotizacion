@@ -886,7 +886,6 @@ def main(page: ft.Page):
             
         botones_lista.append(ft.ElevatedButton("🚪 CERRAR SESIÓN", bgcolor="#ef4444", color="white", on_click=lambda e: mostrar_login()))
 
-        # --- AQUÍ ESTÁ EL CAMBIO PARA CENTRAR PERFECTAMENTE ---
         contenedor_botones = ft.Container(
             content=ft.Row(
                 botones_lista, 
