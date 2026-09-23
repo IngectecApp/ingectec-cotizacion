@@ -30,7 +30,6 @@ def init_db():
         c = conn.cursor()
         c.execute("CREATE TABLE IF NOT EXISTS usuarios (usuario TEXT PRIMARY KEY, password TEXT, rol TEXT, intentos INTEGER DEFAULT 0, bloqueado INTEGER DEFAULT 0)")
         
-        # MANTENEMOS LOS NUEVOS USUARIOS
         c.execute("DELETE FROM usuarios WHERE usuario IN ('OSCAR', 'YEISON', 'PAULO', 'JOHN', 'JHON')")
         c.execute("INSERT INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES ('OMERA', '1234', 'ADMIN', 0, 0) ON CONFLICT DO NOTHING")
         c.execute("INSERT INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES ('YRESTREPO', '1234', 'ADMIN', 0, 0) ON CONFLICT DO NOTHING")
@@ -197,12 +196,10 @@ def main(page: ft.Page):
             db_num.close()
 
         # ==========================================
-        # RESTAURAMOS LA FUNCIÓN MATEMÁTICA FALTANTE
+        # FORMULA MATEMÁTICA Y VISUALIZACIÓN EN UI
         # ==========================================
         def obtener_items_procesados(lista):
-            disp = []
-            curr_p = -1
-            np, ns = 0, 0
+            disp = []; curr_p = -1; np, ns = 0, 0
             for i, it in enumerate(lista):
                 if it.get('tipo', 'P') == 'P':
                     np += 1; ns = 0; curr_p = len(disp)
@@ -213,11 +210,10 @@ def main(page: ft.Page):
                     })
                 else:
                     ns += 1
-                    num_str = f"{np}.{ns}" if np > 0 else f"0.{ns}"
                     disp.append({
                         "raw_idx": i, "desc": it['desc'], "cant": float(it['cant']), "und": it.get('und', ''),
                         "precio": float(it['precio']), "total": float(it['total']), 
-                        "impuesto": it.get('impuesto', ''), "tipo": 'S', "num": num_str
+                        "impuesto": it.get('impuesto', ''), "tipo": 'S', "num": f"{np}.{ns}"
                     })
                     if curr_p != -1:
                         disp[curr_p]['has_subs'] = True
@@ -229,24 +225,32 @@ def main(page: ft.Page):
         columna_tabla_items = ft.Column()
         def actualizar_tabla_visual():
             columna_tabla_items.controls.clear()
+            
             for item in obtener_items_procesados(lista_items):
                 is_p = item['tipo'] == 'P'
                 has_s = item.get('has_subs', False)
+                is_title = is_p and has_s
                 
-                # --- NUEVA LÓGICA DE VISUALIZACIÓN: SUB-ÍTEMS EN CERO ---
-                if is_p:
-                    if has_s:
-                        tot_s = f"${int(item['total']):,}" if item['total'] > 0 else ""
-                        c_s = ""
-                        imp_l = ""
-                    else:
-                        tot_s = f"${int(item['total']):,}" if item['total'] > 0 else ""
-                        c_s = f"{item['cant']:g} {item['und']}" if item['cant'] > 0 else ""
-                        imp_l = f" ({item['impuesto']})" if item['total'] > 0 else ""
+                # REGLA VISUAL PARA LA PANTALLA
+                if is_title:
+                    tot_s = f"${int(item['total']):,}" if item['total'] > 0 else ""
+                    c_s = ""
+                    imp_l = ""
+                    txt_col = "#fbbf24"
+                    txt_wgt = "bold"
+                elif is_p:
+                    tot_s = f"${int(item['total']):,}" if item['total'] > 0 else ""
+                    c_s = f"{item['cant']:g} {item['und']}" if item['cant'] > 0 else ""
+                    imp_l = f" ({item['impuesto']})" if item['total'] > 0 else ""
+                    txt_col = "white"
+                    txt_wgt = "normal"
                 else:
-                    tot_s = "$0"  # Los sub-ítems se muestran en cero
+                    # SUB-ÍTEMS EN CERO VISUALMENTE
+                    tot_s = "$0"
                     c_s = f"{item['cant']:g} {item['und']}" if item['cant'] > 0 else ""
                     imp_l = ""
+                    txt_col = "white"
+                    txt_wgt = "normal"
                 
                 def evt_edit(idx_r):
                     def on_c(e):
@@ -261,13 +265,22 @@ def main(page: ft.Page):
                         page.dialog = dlg; dlg.open=True; page.update()
                     return on_c
 
-                columna_tabla_items.controls.append(ft.Container(content=ft.ResponsiveRow([ft.Text(f"{item['num']}. {item['desc']}{imp_l}", col={"sm": 6}, color="white", size=12), ft.Text(c_s, col={"sm": 3}, text_align="center"), ft.Text(tot_s, col={"sm": 3}, text_align="right", color="#fbbf24")]), on_click=evt_edit(item['raw_idx']), padding=5, border_radius=5, ink=True))
+                columna_tabla_items.controls.append(
+                    ft.Container(
+                        content=ft.ResponsiveRow([
+                            ft.Text(f"{item['num']}. {item['desc']}{imp_l}", col={"sm": 6}, color=txt_col, weight=txt_wgt, size=12), 
+                            ft.Text(c_s, col={"sm": 3}, text_align="center", color=txt_col, weight=txt_wgt), 
+                            ft.Text(tot_s, col={"sm": 3}, text_align="right", color=txt_col, weight=txt_wgt)
+                        ]), 
+                        on_click=evt_edit(item['raw_idx']), padding=5, border_radius=5, ink=True
+                    )
+                )
             page.update()
 
         def abrir_modal_item(e):
             if not verificar_permiso_edicion(): return
             res_inv = ft.ListView(expand=True, spacing=10, height=150)
-            tipo_it = ft.RadioGroup(content=ft.Row([ft.Radio(value="P", label="Ítem Principal"), ft.Radio(value="S", label="Sub-ítem")]), value="P")
+            tipo_it = ft.RadioGroup(content=ft.Row([ft.Radio(value="P", label="Ítem Principal (Título)"), ft.Radio(value="S", label="Sub-ítem (Hijo)")]), value="P")
             m_cot = dropdown_modo_cot.value; pct_def = "19" if m_cot=="IVA" else "10"
 
             i_desc = ft.TextField(label="Descripción"); i_cant = ft.TextField(label="Cantidad", value="1", col={"sm": 3}); i_und_c = ft.TextField(label="Iniciales", visible=False, col={"sm": 3}); i_pre = ft.TextField(label="Precio Unit", value="0", col={"sm": 5})
@@ -739,23 +752,32 @@ def main(page: ft.Page):
 
                 p.set_fill_color(255, 255, 255)
                 
-                # --- NUEVA LÓGICA DE PDF: SUB-ÍTEMS EN CERO ---
+                # ==========================================
+                # LÓGICA DE DIBUJO CON TÍTULOS AMARILLOS
+                # ==========================================
                 for idx, i in enumerate(obtener_items_procesados(lista_items)):
-                    if i['tipo'] == 'P':
-                        if i.get('has_subs', False): 
-                            c_s=""; u_s=""; pu=""; imps=""; tot_s=f"${int(i['total']):,}" if i['total']>0 else ""
-                        else: 
-                            c_s=f"{i['cant']:g}" if i['cant']>0 else ""; u_s=sanitizar_texto(i['und']) if i['cant']>0 else ""; pu=f"${int(i['precio']):,}" if i['total']>0 else ""; imps=sanitizar_texto(i['impuesto']) if i['total']>0 else ""; tot_s=f"${int(i['total']):,}" if i['total']>0 else ""
+                    is_title = bool(i['tipo'] == 'P' and i.get('has_subs', False))
+                    
+                    if is_title: 
+                        c_s=""; u_s=""; pu=""; imps=""; tot_s=f"${int(i['total']):,}" if i['total']>0 else ""
+                        p.set_fill_color(255, 248, 204) # Amarillo tenue pastel
+                        p.set_font('helvetica', 'B', 8)
+                    elif i['tipo'] == 'P': 
+                        c_s=f"{i['cant']:g}" if i['cant']>0 else ""; u_s=sanitizar_texto(i['und']) if i['cant']>0 else ""; pu=f"${int(i['precio']):,}" if i['total']>0 else ""; imps=sanitizar_texto(i['impuesto']) if i['total']>0 else ""; tot_s=f"${int(i['total']):,}" if i['total']>0 else ""
+                        p.set_fill_color(255, 255, 255)
+                        p.set_font('helvetica', '', 8)
                     else: 
                         c_s=f"{i['cant']:g}" if i['cant']>0 else ""; u_s=sanitizar_texto(i['und']) if i['cant']>0 else ""; pu="$0"; imps=""; tot_s="$0"
+                        p.set_fill_color(255, 255, 255)
+                        p.set_font('helvetica', '', 8)
 
                     d_lin = textwrap.wrap(sanitizar_texto(i['desc']), width=43) or [""]
                     for li, l_txt in enumerate(d_lin):
                         bs = 1 if len(d_lin)==1 else ('LTR' if li==0 else ('LBR' if li==len(d_lin)-1 else 'LR'))
                         if li == 0:
-                            p.cell(10, 6, i['num'], border=bs, align='C'); p.cell(78, 6, f" {l_txt}", border=bs); p.cell(12, 6, c_s, border=bs, align='C'); p.cell(25, 6, u_s, border=bs, align='C'); p.cell(20, 6, pu, border=bs, align='R'); p.cell(20, 6, imps, border=bs, align='C'); p.cell(25, 6, tot_s, border=bs, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                            p.cell(10, 6, i['num'], border=bs, align='C', fill=is_title); p.cell(78, 6, f" {l_txt}", border=bs, fill=is_title); p.cell(12, 6, c_s, border=bs, align='C', fill=is_title); p.cell(25, 6, u_s, border=bs, align='C', fill=is_title); p.cell(20, 6, pu, border=bs, align='R', fill=is_title); p.cell(20, 6, imps, border=bs, align='C', fill=is_title); p.cell(25, 6, tot_s, border=bs, align='R', fill=is_title, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                         else:
-                            p.cell(10, 6, "", border=bs, align='C'); p.cell(78, 6, f" {l_txt}", border=bs); p.cell(12, 6, "", border=bs, align='C'); p.cell(25, 6, "", border=bs, align='C'); p.cell(20, 6, "", border=bs, align='R'); p.cell(20, 6, "", border=bs, align='C'); p.cell(25, 6, "", border=bs, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                            p.cell(10, 6, "", border=bs, align='C', fill=is_title); p.cell(78, 6, f" {l_txt}", border=bs, fill=is_title); p.cell(12, 6, "", border=bs, align='C', fill=is_title); p.cell(25, 6, "", border=bs, align='C', fill=is_title); p.cell(20, 6, "", border=bs, align='R', fill=is_title); p.cell(20, 6, "", border=bs, align='C', fill=is_title); p.cell(25, 6, "", border=bs, align='R', fill=is_title, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
                 def p_tot(lbl, val, b=False):
                     if b: p.set_font('helvetica', 'B', 9)
