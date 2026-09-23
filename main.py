@@ -13,13 +13,13 @@ from datetime import datetime
 PORT = int(os.environ.get("PORT", 8080))
 if not os.path.exists("assets"): os.makedirs("assets")
 
-# --- CONEXIÓN SEGURA A POSTGRESQL CON AUTOCOMMIT PARA EVITAR BLOQUEOS ---
+# --- CONEXIÓN SEGURA A POSTGRESQL CON AUTOCOMMIT ---
 DB_URL = os.environ.get("DATABASE_URL", "postgresql://ingectec_bd_user:HY7iwKhvaILCeuUKd7Pgknsh6Nsv4aUE@dpg-dapicrvf3r2c73ep15ag-a.oregon-postgres.render.com/ingectec_bd")
 
 def conectar_db():
     try:
         conn = psycopg2.connect(DB_URL)
-        conn.autocommit = True # Esto evita el error de bloqueo de Bodega
+        conn.autocommit = True 
         return conn
     except: return None
 
@@ -38,9 +38,12 @@ def init_db():
         c.execute("INSERT INTO n_cot (id, num) VALUES (1, 100) ON CONFLICT DO NOTHING")
         
         c.execute("CREATE TABLE IF NOT EXISTS cli (n TEXT PRIMARY KEY, i TEXT, dir TEXT, email TEXT, ciu TEXT, tel TEXT)")
-        c.execute("CREATE TABLE IF NOT EXISTS inv (d TEXT PRIMARY KEY, p NUMERIC, stock NUMERIC, proveedor TEXT)")
-        try: c.execute("ALTER TABLE inv ADD COLUMN IF NOT EXISTS proveedor TEXT")
-        except: pass
+        
+        # --- TABLA INVENTARIO BLINDADA CON PROVEEDOR Y FECHA DE ACTUALIZACIÓN ---
+        c.execute("CREATE TABLE IF NOT EXISTS inv (d TEXT PRIMARY KEY, p NUMERIC, stock NUMERIC)")
+        for col, tipo in [("proveedor", "TEXT"), ("fecha_act", "TEXT")]:
+            try: c.execute(f"ALTER TABLE inv ADD COLUMN IF NOT EXISTS {col} {tipo}")
+            except: pass
 
         c.execute("CREATE TABLE IF NOT EXISTS proveedores (nombre TEXT PRIMARY KEY, telefono TEXT)")
         c.execute("SELECT count(*) FROM proveedores")
@@ -281,116 +284,145 @@ def main(page: ft.Page):
             page.dialog = dlg; dlg.open = True; b_inv(None)
 
         def abrir_modal_bodega(e):
-            res_bod = ft.ListView(height=180)
-            e_desc = ft.TextField(label="Nombre Producto")
-            e_precio = ft.TextField(label="Precio Producto")
-            e_mas = ft.TextField(multiline=True, min_lines=6, max_lines=10, label="Pega desde Excel (Nombre | Precio)")
-            
-            c_item = ft.TextField(label="Buscar Ítem...")
-            lst_comp = ft.ListView(height=100, visible=False, spacing=2)
-            c_p1 = ft.Dropdown(label="Proveedor 1", col={"sm": 6}); c_pr1 = ft.TextField(label="Precio 1", col={"sm": 6})
-            c_p2 = ft.Dropdown(label="Proveedor 2", col={"sm": 6}); c_pr2 = ft.TextField(label="Precio 2", col={"sm": 6})
-            c_p3 = ft.Dropdown(label="Proveedor 3", col={"sm": 6}); c_pr3 = ft.TextField(label="Precio 3", col={"sm": 6})
+            try:
+                res_bod = ft.ListView(height=180)
+                e_desc = ft.TextField(label="Nombre Producto")
+                e_precio = ft.TextField(label="Precio Producto")
+                e_mas = ft.TextField(multiline=True, min_lines=6, max_lines=10, label="Pega desde Excel (Nombre | Precio)")
+                
+                c_item = ft.TextField(label="Buscar Ítem para cotizar...")
+                lst_comp = ft.ListView(height=100, visible=False, spacing=2)
+                c_p1 = ft.Dropdown(label="Proveedor 1", col={"sm": 6}); c_pr1 = ft.TextField(label="Precio 1", col={"sm": 6})
+                c_p2 = ft.Dropdown(label="Proveedor 2", col={"sm": 6}); c_pr2 = ft.TextField(label="Precio 2", col={"sm": 6})
+                c_p3 = ft.Dropdown(label="Proveedor 3", col={"sm": 6}); c_pr3 = ft.TextField(label="Precio 3", col={"sm": 6})
 
-            e_pnom = ft.TextField(label="Nombre Proveedor*", col={"sm": 7}); e_ptel = ft.TextField(label="Teléfono", col={"sm": 5})
-            lst_provs = ft.ListView(height=200)
+                e_pnom = ft.TextField(label="Nombre Proveedor*", col={"sm": 7}); e_ptel = ft.TextField(label="Teléfono", col={"sm": 5})
+                lst_provs = ft.ListView(height=200)
 
-            def load_provs():
-                lst_provs.controls.clear(); ops = []
-                db = conectar_db()
-                if db:
-                    c=db.cursor(); c.execute("SELECT nombre, telefono FROM proveedores ORDER BY nombre ASC")
-                    for n, t in c.fetchall():
-                        ops.append(ft.dropdown.Option(n))
-                        def ed(ev, nom=n, tel=t): e_pnom.value=nom; e_ptel.value=tel; page.update()
-                        def rm(ev, nom=n): dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM proveedores WHERE nombre=%s", (nom,)); dbd.close(); load_provs()
-                        lst_provs.controls.append(ft.ListTile(title=ft.Text(n, color="#fbbf24"), subtitle=ft.Text(f"Tel: {t}"), on_click=ed, trailing=ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=rm)))
-                    db.close()
-                c_p1.options=ops; c_p2.options=ops; c_p3.options=ops; page.update()
+                # --- NUEVA PESTAÑA CATÁLOGO COMPLETO ---
+                filtro_cat = ft.TextField(label="Filtrar catálogo completo...")
+                lst_cat = ft.ListView(expand=True, spacing=5, height=300)
 
-            def save_prov(ev):
-                if not e_pnom.value: return
-                db=conectar_db()
-                if db:
-                    c=db.cursor(); c.execute("INSERT INTO proveedores (nombre, telefono) VALUES (%s,%s) ON CONFLICT(nombre) DO UPDATE SET telefono=EXCLUDED.telefono", (e_pnom.value.upper(), e_ptel.value))
-                    db.close(); e_pnom.value=""; e_ptel.value=""; load_provs(); page.snack_bar=ft.SnackBar(ft.Text("✅ Proveedor guardado"), bgcolor="#10b981"); page.snack_bar.open=True; page.update()
-
-            def b_bod(evt):
-                res_bod.controls.clear(); db = conectar_db()
-                if db:
-                    c=db.cursor(); txt=(e_desc.value or "").upper()
-                    try: c.execute("SELECT d, p, proveedor FROM inv WHERE UPPER(d) LIKE %s LIMIT 20", ('%'+txt+'%',))
-                    except: c.execute("SELECT d, p, '' FROM inv WHERE UPPER(d) LIKE %s LIMIT 20", ('%'+txt+'%',))
-                    for d, p, prov in c.fetchall():
-                        def sel(ev, desc=d, prec=p): e_desc.value=desc; e_precio.value=str(int(float(prec))); page.update()
-                        def rm(ev, desc=d): dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM inv WHERE d=%s", (desc,)); dbd.close(); b_bod(None)
-                        subt = f"${int(float(p)):,}" + (f" (Prov: {prov})" if prov else "")
-                        res_bod.controls.append(ft.ListTile(title=ft.Text(d, color="#fbbf24"), subtitle=ft.Text(subt), on_click=sel, trailing=ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=rm)))
-                    db.close(); page.update()
-
-            def s_bod(evt):
-                if not e_desc.value: return
-                db=conectar_db()
-                if db: c=db.cursor(); c.execute("INSERT INTO inv (d, p, stock, proveedor) VALUES (%s,%s,0,'') ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p", (e_desc.value.upper(), float(e_precio.value or 0))); db.close(); e_desc.value=""; e_precio.value=""; b_bod(None); page.snack_bar=ft.SnackBar(ft.Text("✅ Guardado"), bgcolor="#2563eb"); page.snack_bar.open=True; page.update()
-
-            def p_mas(evt):
-                if not e_mas.value.strip(): return
-                db=conectar_db()
-                if db:
-                    c=db.cursor(); ag=0
-                    for l in e_mas.value.strip().split('\n'):
-                        pts = l.split('\t')
-                        if len(pts)>=1 and pts[0].strip():
-                            pr=0.0
-                            if len(pts)>=2: 
-                                try: pr=float(pts[1].replace("$","").replace(".","").replace(",","").replace(" ","").strip())
-                                except: pass
-                            c.execute("INSERT INTO inv (d, p, stock, proveedor) VALUES (%s,%s,0,'') ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p", (pts[0].strip().upper(), pr)); ag+=1
-                    db.close(); e_mas.value=""; b_bod(None); page.snack_bar=ft.SnackBar(ft.Text(f"✅ {ag} procesados"), bgcolor="#10b981"); page.snack_bar.open=True; page.update()
-
-            def b_comp(evt):
-                txt = (c_item.value or "").upper().strip(); lst_comp.controls.clear()
-                if len(txt) > 0:
+                def load_provs():
+                    lst_provs.controls.clear(); ops = []
                     db = conectar_db()
                     if db:
-                        c=db.cursor(); c.execute("SELECT d FROM inv WHERE UPPER(d) LIKE %s LIMIT 10", ('%'+txt+'%',))
+                        c=db.cursor(); c.execute("SELECT nombre, telefono FROM proveedores ORDER BY nombre ASC")
+                        for n, t in c.fetchall():
+                            ops.append(ft.dropdown.Option(n))
+                            def ed(ev, nom=n, tel=t): e_pnom.value=nom; e_ptel.value=tel; page.update()
+                            def rm(ev, nom=n): 
+                                dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM proveedores WHERE nombre=%s", (nom,)); dbd.close(); load_provs()
+                            lst_provs.controls.append(ft.ListTile(title=ft.Text(n, color="#fbbf24"), subtitle=ft.Text(f"Tel: {t}"), on_click=ed, trailing=ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=rm)))
+                        db.close()
+                    c_p1.options=ops; c_p2.options=ops; c_p3.options=ops; page.update()
+
+                def save_prov(ev):
+                    if not e_pnom.value: return
+                    db=conectar_db()
+                    if db:
+                        c=db.cursor(); c.execute("INSERT INTO proveedores (nombre, telefono) VALUES (%s,%s) ON CONFLICT(nombre) DO UPDATE SET telefono=EXCLUDED.telefono", (e_pnom.value.upper(), e_ptel.value))
+                        db.close(); e_pnom.value=""; e_ptel.value=""; load_provs(); page.snack_bar=ft.SnackBar(ft.Text("✅ Proveedor guardado"), bgcolor="#10b981"); page.snack_bar.open=True; page.update()
+
+                def b_bod(evt):
+                    res_bod.controls.clear(); db = conectar_db()
+                    if db:
+                        c=db.cursor(); txt=(e_desc.value or "").upper()
+                        try: c.execute("SELECT d, p, proveedor, fecha_act FROM inv WHERE UPPER(d) LIKE %s LIMIT 20", ('%'+txt+'%',))
+                        except: c.execute("SELECT d, p, '', '' FROM inv WHERE UPPER(d) LIKE %s LIMIT 20", ('%'+txt+'%',))
                         for r in c.fetchall():
-                            def sel(e, desc=r[0]): c_item.value=desc; lst_comp.visible=False; page.update()
-                            lst_comp.controls.append(ft.ListTile(title=ft.Text(r[0], color="#fbbf24"), on_click=sel))
-                        db.close(); lst_comp.visible = len(lst_comp.controls)>0
-                else: lst_comp.visible = False
-                page.update()
-            c_item.on_change = b_comp
+                            d=r[0]; p=r[1]; prov=r[2] if len(r)>2 and r[2] else ""; fa=r[3] if len(r)>3 and r[3] else ""
+                            def sel(ev, desc=d, prec=p): e_desc.value=desc; e_precio.value=str(int(float(prec))); page.update()
+                            def rm(ev, desc=d): dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM inv WHERE d=%s", (desc,)); dbd.close(); b_bod(None); load_cat(None)
+                            subt = f"${int(float(p)):,}" + (f" (Prov: {prov})" if prov else "") + (f" - Act: {fa}" if fa else "")
+                            res_bod.controls.append(ft.ListTile(title=ft.Text(d, size=13, color="#fbbf24", weight="bold"), subtitle=ft.Text(subt), on_click=sel, trailing=ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=rm)))
+                        db.close(); page.update()
 
-            def run_comp(evt):
-                itm = c_item.value.strip().upper()
-                if not itm: return mostrar_alerta("Aviso", "Ingresa ítem.")
-                ofs = []
-                for pr, pc in [(c_p1.value, c_pr1.value), (c_p2.value, c_pr2.value), (c_p3.value, c_pr3.value)]:
-                    if pr and pc:
-                        try: ofs.append((pr, float(pc)))
-                        except: pass
-                if not ofs: return mostrar_alerta("Aviso", "Ingresa al menos un proveedor con precio válido.")
-                gp, gpr = min(ofs, key=lambda x: x[1])
-                db = conectar_db()
-                if db:
-                    c=db.cursor(); c.execute("INSERT INTO inv (d, p, stock, proveedor) VALUES (%s, %s, 0, %s) ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p, proveedor=EXCLUDED.proveedor", (itm, gpr, gp)); db.close()
-                    c_item.value=""; c_p1.value=None; c_pr1.value=""; c_p2.value=None; c_pr2.value=""; c_p3.value=None; c_pr3.value=""; b_bod(None)
-                    page.snack_bar=ft.SnackBar(ft.Text(f"🏆 GANADOR: {gp} (${int(gpr):,})"), bgcolor="#8b5cf6"); page.snack_bar.open=True; page.update()
+                def s_bod(evt):
+                    if not e_desc.value: return
+                    db=conectar_db()
+                    if db: 
+                        fh = datetime.now().strftime("%Y-%m-%d")
+                        c=db.cursor(); c.execute("INSERT INTO inv (d, p, stock, proveedor, fecha_act) VALUES (%s,%s,0,'',%s) ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p, fecha_act=EXCLUDED.fecha_act", (e_desc.value.upper(), float(e_precio.value or 0), fh)); db.close(); e_desc.value=""; e_precio.value=""; b_bod(None); load_cat(None); page.snack_bar=ft.SnackBar(ft.Text("✅ Guardado y fecha actualizada"), bgcolor="#2563eb"); page.snack_bar.open=True; page.update()
 
-            e_desc.on_change = b_bod
-            dlg = ft.AlertDialog(
-                title=ft.Text("📦 Bodega y Catálogo"), 
-                content=ft.Container(width=750, height=500, content=ft.Tabs(
-                    selected_index=0, tabs=[
-                        ft.Tab(text="Búsqueda", content=ft.Column([ft.Container(height=10), e_desc, e_precio, ft.ElevatedButton("Guardar", bgcolor="#2563eb", on_click=s_bod), resultados_bod], tight=True)),
-                        ft.Tab(text="Carga Masiva", content=ft.Column([ft.Container(height=10), e_mas, ft.ElevatedButton("Importar", bgcolor="#10b981", on_click=p_mas)], tight=True)),
-                        ft.Tab(text="⚖️ Comparador", content=ft.Column([ft.Container(height=10), c_item, lst_comp, ft.ResponsiveRow([c_p1, c_pr1]), ft.ResponsiveRow([c_p2, c_pr2]), ft.ResponsiveRow([c_p3, c_pr3]), ft.ElevatedButton("Analizar", bgcolor="#8b5cf6", color="white", on_click=run_comp)], tight=True, scroll=ft.ScrollMode.AUTO)),
-                        ft.Tab(text="🏢 Proveedores", content=ft.Column([ft.Container(height=10), ft.ResponsiveRow([e_pnom, e_ptel]), ft.ElevatedButton("Guardar", bgcolor="#10b981", color="white", on_click=save_prov), lst_provs], tight=True, scroll=ft.ScrollMode.AUTO))
-                    ], expand=1
-                )), actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))]
-            )
-            page.dialog = dlg; dlg.open = True; b_bod(None); load_provs()
+                def p_mas(evt):
+                    if not e_mas.value.strip(): return
+                    db=conectar_db()
+                    if db:
+                        c=db.cursor(); ag=0; fh = datetime.now().strftime("%Y-%m-%d")
+                        for l in e_mas.value.strip().split('\n'):
+                            pts = l.split('\t')
+                            if len(pts)>=1 and pts[0].strip():
+                                pr=0.0
+                                if len(pts)>=2: 
+                                    try: pr=float(pts[1].replace("$","").replace(".","").replace(",","").replace(" ","").strip())
+                                    except: pass
+                                c.execute("INSERT INTO inv (d, p, stock, proveedor, fecha_act) VALUES (%s,%s,0,'',%s) ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p, fecha_act=EXCLUDED.fecha_act", (pts[0].strip().upper(), pr, fh)); ag+=1
+                        db.close(); e_mas.value=""; b_bod(None); load_cat(None); page.snack_bar=ft.SnackBar(ft.Text(f"✅ {ag} procesados con fecha de hoy"), bgcolor="#10b981"); page.snack_bar.open=True; page.update()
+
+                def b_comp(evt):
+                    txt = (c_item.value or "").upper().strip(); lst_comp.controls.clear()
+                    if len(txt) > 0:
+                        db = conectar_db()
+                        if db:
+                            c=db.cursor(); c.execute("SELECT d FROM inv WHERE UPPER(d) LIKE %s LIMIT 10", ('%'+txt+'%',))
+                            for r in c.fetchall():
+                                def sel(e, desc=r[0]): c_item.value=desc; lst_comp.visible=False; page.update()
+                                lst_comp.controls.append(ft.ListTile(title=ft.Text(r[0], color="#fbbf24"), on_click=sel))
+                            db.close(); lst_comp.visible = len(lst_comp.controls)>0
+                    else: lst_comp.visible = False
+                    page.update()
+                c_item.on_change = b_comp
+
+                def run_comp(evt):
+                    itm = c_item.value.strip().upper()
+                    if not itm: return mostrar_alerta("Aviso", "Ingresa ítem.")
+                    ofs = []
+                    for pr, pc in [(c_p1.value, c_pr1.value), (c_p2.value, c_pr2.value), (c_p3.value, c_pr3.value)]:
+                        if pr and pc:
+                            try: ofs.append((pr, float(pc)))
+                            except: pass
+                    if not ofs: return mostrar_alerta("Aviso", "Ingresa al menos un proveedor con precio válido.")
+                    gp, gpr = min(ofs, key=lambda x: x[1])
+                    db = conectar_db()
+                    if db:
+                        fh = datetime.now().strftime("%Y-%m-%d")
+                        c=db.cursor(); c.execute("INSERT INTO inv (d, p, stock, proveedor, fecha_act) VALUES (%s, %s, 0, %s, %s) ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p, proveedor=EXCLUDED.proveedor, fecha_act=EXCLUDED.fecha_act", (itm, gpr, gp, fh)); db.close()
+                        c_item.value=""; c_p1.value=None; c_pr1.value=""; c_p2.value=None; c_pr2.value=""; c_p3.value=None; c_pr3.value=""; b_bod(None); load_cat(None)
+                        page.snack_bar=ft.SnackBar(ft.Text(f"🏆 GANADOR: {gp} (${int(gpr):,}). Ítem actualizado en base de datos global."), bgcolor="#8b5cf6"); page.snack_bar.open=True; page.update()
+
+                def load_cat(evt):
+                    lst_cat.controls.clear(); txt = (filtro_cat.value or "").upper().strip(); db = conectar_db()
+                    if db:
+                        c = db.cursor()
+                        try:
+                            if txt: c.execute("SELECT d, p, proveedor, fecha_act FROM inv WHERE UPPER(d) LIKE %s ORDER BY fecha_act DESC NULLS LAST LIMIT 100", ('%'+txt+'%',))
+                            else: c.execute("SELECT d, p, proveedor, fecha_act FROM inv ORDER BY fecha_act DESC NULLS LAST LIMIT 100")
+                            for r in c.fetchall():
+                                d=r[0]; p=r[1]; prov=r[2] if len(r)>2 and r[2] else ""; fa=r[3] if len(r)>3 and r[3] else "Antiguo"
+                                subt = f"Precio: ${int(float(p or 0)):,} | Prov: {prov or 'N/A'} | Act: {fa}"
+                                lst_cat.controls.append(ft.ListTile(title=ft.Text(d, color="#fbbf24", weight="bold"), subtitle=ft.Text(subt, color="#94a3b8")))
+                        except Exception as ez: print(ez)
+                        db.close(); page.update()
+
+                filtro_cat.on_change = load_cat
+                e_desc.on_change = b_bod
+                
+                dlg = ft.AlertDialog(
+                    title=ft.Text("📦 Gestión de Bodega / Catálogo"), 
+                    content=ft.Container(width=750, height=550, content=ft.Tabs(
+                        selected_index=0, tabs=[
+                            ft.Tab(text="🔍 Buscar", content=ft.Column([ft.Container(height=10), e_desc, e_precio, ft.ElevatedButton("Guardar Precio / Actualizar Fecha", bgcolor="#2563eb", on_click=s_bod), resultados_bod], tight=True)),
+                            ft.Tab(text="📥 Masivo", content=ft.Column([ft.Container(height=10), e_mas, ft.ElevatedButton("Importar", bgcolor="#10b981", on_click=p_mas)], tight=True)),
+                            ft.Tab(text="⚖️ Comparar", content=ft.Column([ft.Container(height=10), ft.Text("Se elegirá el menor precio y se guardará en la base de datos principal con la Fecha de Hoy.", color="#10b981", size=12), c_item, lst_comp, ft.ResponsiveRow([c_p1, c_pr1]), ft.ResponsiveRow([c_p2, c_pr2]), ft.ResponsiveRow([c_p3, c_pr3]), ft.ElevatedButton("Analizar", bgcolor="#8b5cf6", color="white", on_click=run_comp)], tight=True, scroll=ft.ScrollMode.AUTO)),
+                            ft.Tab(text="📜 Catálogo (Fechas)", content=ft.Column([ft.Container(height=10), ft.Text("Ítems ordenados desde el más recientemente actualizado:", color="#fbbf24", size=12), filtro_cat, lst_cat], tight=True, scroll=ft.ScrollMode.AUTO)),
+                            ft.Tab(text="🏢 Provs.", content=ft.Column([ft.Container(height=10), ft.ResponsiveRow([e_pnom, e_ptel]), ft.ElevatedButton("Guardar", bgcolor="#10b981", color="white", on_click=save_prov), lst_provs], tight=True, scroll=ft.ScrollMode.AUTO))
+                        ], expand=1
+                    )), actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))]
+                )
+                page.dialog = dlg; dlg.open = True; b_bod(None); load_provs(); load_cat(None)
+            except Exception as bug:
+                mostrar_alerta("Error abriendo Bodega", str(bug))
 
         def abrir_modal_clientes(e):
             r_cli = ft.ListView(expand=True, spacing=10, height=200)
@@ -506,9 +538,7 @@ def main(page: ft.Page):
                     c = db.cursor(); b_data = {}; tablas = ["cli", "inv", "proveedores", "historial", "h_cab", "h_det", "n_cot"]
                     for t in tablas:
                         try:
-                            c.execute(f"SELECT * FROM {t}")
-                            cols = [desc[0] for desc in c.description]; rows = c.fetchall()
-                            b_data[t] = {"cols": cols, "rows": rows}
+                            c.execute(f"SELECT * FROM {t}"); cols = [desc[0] for desc in c.description]; rows = c.fetchall(); b_data[t] = {"cols": cols, "rows": rows}
                         except: pass
                     db.close()
                     with open("assets/backup_ingectec.json", "w", encoding="utf-8") as f: json.dump(b_data, f, default=str)
@@ -520,18 +550,15 @@ def main(page: ft.Page):
             def subir_backup_json(evt):
                 if not e_json.value.strip(): return
                 try:
-                    data = json.loads(e_json.value.strip())
-                    db = conectar_db()
+                    data = json.loads(e_json.value.strip()); db = conectar_db()
                     if db:
                         c = db.cursor()
                         for t, tdata in data.items():
-                            c.execute(f"DELETE FROM {t}")
-                            cols = tdata.get("cols", []); rows = tdata.get("rows", [])
+                            c.execute(f"DELETE FROM {t}"); cols = tdata.get("cols", []); rows = tdata.get("rows", [])
                             if cols and rows:
                                 col_names = ", ".join(cols); placeholders = ", ".join(["%s"] * len(cols))
                                 for row in rows: c.execute(f"INSERT INTO {t} ({col_names}) VALUES ({placeholders})", tuple(row))
-                        db.close()
-                        page.snack_bar = ft.SnackBar(ft.Text("✅ Backup restaurado con éxito"), bgcolor="#10b981"); page.snack_bar.open = True; page.update(); e_json.value = ""
+                        db.close(); page.snack_bar = ft.SnackBar(ft.Text("✅ Backup restaurado con éxito"), bgcolor="#10b981"); page.snack_bar.open = True; page.update(); e_json.value = ""
                 except Exception as ex: mostrar_alerta("Error", f"Archivo JSON inválido o corrupto: {str(ex)}")
 
             def confirmar_reseteo(evt):
