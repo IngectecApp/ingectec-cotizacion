@@ -12,6 +12,20 @@ from datetime import datetime
 PORT = int(os.environ.get("PORT", 8080))
 if not os.path.exists("assets"): os.makedirs("assets")
 
+# --- FUNCION SANITIZADORA PARA EVITAR ERRORES DE FUENTE EN FPDF ---
+def sanitizar_texto(texto):
+    if not texto:
+        return ""
+    s = str(texto)
+    reemplazos = {
+        "•": "-", "·": "-", "–": "-", "—": "-",
+        "“": '"', "”": '"', "‘": "'", "’": "'",
+        "…": "...", "€": "EUR"
+    }
+    for orig, nuevo in reemplazos.items():
+        s = s.replace(orig, nuevo)
+    return s.encode("latin-1", "replace").decode("latin-1")
+
 # --- CLASE PDF ORIGINAL DE INGECTEC ---
 class PDF(FPDF):
     def rounded_rect(self, x, y, w, h, r, style='F'):
@@ -66,7 +80,6 @@ def main(page: ft.Page):
     sesion = {"usuario": None, "rol": None}
     lista_items = []
     estado = {"nro_edicion": None}
-    MI_WHATSAPP = "573175046404"
 
     def cerrar_dialogo(dlg):
         dlg.open = False; page.update()
@@ -228,7 +241,6 @@ def main(page: ft.Page):
         input_pct_iva_u = ft.TextField(label="IVA s/U %", value="19")
         lista_busqueda_cli = ft.ListView(height=150, visible=False, spacing=2)
 
-        # --- SELECTOR DE MODO AIU / IVA ---
         dropdown_modo_cot = ft.Dropdown(
             label="Tipo Cotización",
             options=[ft.dropdown.Option("AIU"), ft.dropdown.Option("IVA")],
@@ -847,11 +859,11 @@ def main(page: ft.Page):
                 if not lista_items or not input_cliente.value: 
                     return mostrar_alerta("Aviso", "Faltan ítems o nombre del cliente.")
                 
-                c_nom = str(input_cliente.value or "").upper()
-                c_nit = str(input_nit.value or "")
-                c_ciu_origen = str(input_ciudad.value or "Yumbo")
-                c_atn = str(input_atencion.value or "")
-                c_ref = str(input_ref.value or "")
+                c_nom = sanitizar_texto(input_cliente.value or "").upper()
+                c_nit = sanitizar_texto(input_nit.value or "")
+                c_ciu_origen = sanitizar_texto(input_ciudad.value or "Yumbo")
+                c_atn = sanitizar_texto(input_atencion.value or "")
+                c_ref = sanitizar_texto(input_ref.value or "")
 
                 c_dir = ""
                 c_email = ""
@@ -862,10 +874,10 @@ def main(page: ft.Page):
                 try:
                     cli_data = db.execute("SELECT dir, email, ciu, tel FROM cli WHERE n=?", (c_nom,)).fetchone()
                     if cli_data:
-                        c_dir = cli_data[0] or ""
-                        c_email = cli_data[1] or ""
-                        c_ciu_cli = cli_data[2] or ""
-                        c_tel = cli_data[3] or ""
+                        c_dir = sanitizar_texto(cli_data[0] or "")
+                        c_email = sanitizar_texto(cli_data[1] or "")
+                        c_ciu_cli = sanitizar_texto(cli_data[2] or "")
+                        c_tel = sanitizar_texto(cli_data[3] or "")
                 except: pass
 
                 nro_doc = estado["nro_edicion"]
@@ -946,8 +958,8 @@ def main(page: ft.Page):
                 numeros_whatsapp = {
                     "OSCAR": "573175046404", 
                     "YEISON": "573002986963", 
-                    "JOHN": "57322552559", # Nota: le falta un dígito, verifica si es 322552559X
-                    "JHON": "57322552559", 
+                    "JOHN": "573225532559", 
+                    "JHON": "573225532559", 
                     "PAULO": "573175046404"
                 }
                 
@@ -969,7 +981,7 @@ def main(page: ft.Page):
                 p.set_font('helvetica', 'B', 11)
                 meses = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
                 hoy = datetime.now()
-                p.cell(0, 5, f"{c_ciu_origen}, {hoy.day} de {meses[hoy.month-1]} de {hoy.year}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                p.cell(0, 5, sanitizar_texto(f"{c_ciu_origen}, {hoy.day} de {meses[hoy.month-1]} de {hoy.year}"), border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                 p.ln(4)
 
                 y_start_cli = p.get_y()
@@ -1031,18 +1043,19 @@ def main(page: ft.Page):
                             tot_str = f"${int(i['total']):,}" if i['total'] > 0 else ""
                         else:
                             c_str = f"{i['cant']:g}" if i['cant'] > 0 else ""
-                            u_str = i['und'] if i['cant'] > 0 else ""
+                            u_str = sanitizar_texto(i['und']) if i['cant'] > 0 else ""
                             pu_str = f"${int(i['precio']):,}" if i['total'] > 0 else ""
-                            imp_str = i['impuesto'] if i['total'] > 0 else ""
+                            imp_str = sanitizar_texto(i['impuesto']) if i['total'] > 0 else ""
                             tot_str = f"${int(i['total']):,}" if i['total'] > 0 else ""
                     else:
                         c_str = f"{i['cant']:g}" if i['cant'] > 0 else ""
-                        u_str = i['und'] if i['cant'] > 0 else ""
+                        u_str = sanitizar_texto(i['und']) if i['cant'] > 0 else ""
                         pu_str = ""
                         imp_str = ""
                         tot_str = ""
 
-                    desc_lines = textwrap.wrap(i['desc'], width=43) 
+                    desc_limpia = sanitizar_texto(i['desc'])
+                    desc_lines = textwrap.wrap(desc_limpia, width=43) 
                     if not desc_lines: desc_lines = [""]
                     for line_idx, line_text in enumerate(desc_lines):
                         if len(desc_lines) == 1: b_style = 1
@@ -1069,7 +1082,7 @@ def main(page: ft.Page):
 
                 def print_total_row(label, value, bold=False):
                     if bold: p.set_font('helvetica', 'B', 9)
-                    p.set_x(135); p.cell(40, 5, label, 1, align='C'); p.cell(25, 5, f"$ {int(value):,}", 1, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT) 
+                    p.set_x(135); p.cell(40, 5, sanitizar_texto(label), 1, align='C'); p.cell(25, 5, f"$ {int(value):,}", 1, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT) 
                     if bold: p.set_font('helvetica', '', 9)
 
                 p.set_font('helvetica', '', 9)
@@ -1089,18 +1102,23 @@ def main(page: ft.Page):
                 
                 print_total_row("TOTAL", total_final_cotizacion, bold=True)
 
-                # --- NUEVA ESTRUCTURA DE CONDICIONES COMERCIALES ---
+                # --- CONDICIONES COMERCIALES TOTALMENTE SANITIZADAS ---
                 p.ln(10); p.set_font('helvetica', 'B', 10); p.cell(0, 5, "CONDICIONES COMERCIALES", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                 p.ln(2); p.set_font('helvetica', '', 10)
                 
-                p.cell(0, 5, f"• Tiempo de entrega: {input_tiempo_entrega.value}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                p.cell(0, 5, f"• Validez de la cotización: {input_validez.value}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                p.cell(0, 5, f"• Forma de pago: {input_pago.value}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                p.cell(0, 5, f"• Garantía: {input_garantia.value}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                t_ent = sanitizar_texto(input_tiempo_entrega.value)
+                t_val = sanitizar_texto(input_validez.value)
+                t_pag = sanitizar_texto(input_pago.value)
+                t_gar = sanitizar_texto(input_garantia.value)
+                t_not = sanitizar_texto(input_notas.value.strip())
+
+                p.cell(0, 5, f"- Tiempo de entrega: {t_ent}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                p.cell(0, 5, f"- Validez de la cotizacion: {t_val}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                p.cell(0, 5, f"- Forma de pago: {t_pag}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                p.cell(0, 5, f"- Garantia: {t_gar}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                 
-                if input_notas.value.strip():
-                    p.multi_cell(0, 5, f"• Notas: {input_notas.value.strip()}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                # ---------------------------------------------------
+                if t_not:
+                    p.multi_cell(0, 5, f"- Notas: {t_not}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                 
                 p.ln(8); p.set_font("helvetica", 'B', 8); p.cell(0, 5, "Escanee este código para atención personalizada y directa con nuestra Gerencia.", border=0, align='L', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                 
