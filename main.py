@@ -30,10 +30,8 @@ def init_db():
         c = conn.cursor()
         c.execute("CREATE TABLE IF NOT EXISTS usuarios (usuario TEXT PRIMARY KEY, password TEXT, rol TEXT, intentos INTEGER DEFAULT 0, bloqueado INTEGER DEFAULT 0)")
         
-        # ELIMINAR USUARIOS ANTIGUOS
+        # MANTENEMOS LOS NUEVOS USUARIOS
         c.execute("DELETE FROM usuarios WHERE usuario IN ('OSCAR', 'YEISON', 'PAULO', 'JOHN', 'JHON')")
-        
-        # INSERTAR NUEVOS USUARIOS COMO ADMINISTRADORES
         c.execute("INSERT INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES ('OMERA', '1234', 'ADMIN', 0, 0) ON CONFLICT DO NOTHING")
         c.execute("INSERT INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES ('YRESTREPO', '1234', 'ADMIN', 0, 0) ON CONFLICT DO NOTHING")
         c.execute("INSERT INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES ('JCARDONA', '1234', 'ADMIN', 0, 0) ON CONFLICT DO NOTHING")
@@ -198,31 +196,63 @@ def main(page: ft.Page):
             if res: nro_actual = f"{datetime.now().strftime('%m')}-{res[0]:03d}"
             db_num.close()
 
+        # ==========================================
+        # RESTAURAMOS LA FUNCIÓN MATEMÁTICA FALTANTE
+        # ==========================================
+        def obtener_items_procesados(lista):
+            disp = []
+            curr_p = -1
+            np, ns = 0, 0
+            for i, it in enumerate(lista):
+                if it.get('tipo', 'P') == 'P':
+                    np += 1; ns = 0; curr_p = len(disp)
+                    disp.append({
+                        "raw_idx": i, "desc": it['desc'], "cant": float(it['cant']), "und": it.get('und', ''),
+                        "precio": float(it['precio']), "total": float(it['total']), 
+                        "impuesto": it.get('impuesto', ''), "tipo": 'P', "num": str(np), "has_subs": False
+                    })
+                else:
+                    ns += 1
+                    num_str = f"{np}.{ns}" if np > 0 else f"0.{ns}"
+                    disp.append({
+                        "raw_idx": i, "desc": it['desc'], "cant": float(it['cant']), "und": it.get('und', ''),
+                        "precio": float(it['precio']), "total": float(it['total']), 
+                        "impuesto": it.get('impuesto', ''), "tipo": 'S', "num": num_str
+                    })
+                    if curr_p != -1:
+                        disp[curr_p]['has_subs'] = True
+                        disp[curr_p]['total'] += float(it['total'])
+                        if disp[curr_p]['cant'] == 0: disp[curr_p]['cant'] = 1
+                        disp[curr_p]['precio'] = disp[curr_p]['total'] / disp[curr_p]['cant']
+            return disp
+
         columna_tabla_items = ft.Column()
         def actualizar_tabla_visual():
             columna_tabla_items.controls.clear()
-            disp=[]; curr_p=-1; np=0; ns=0
-            for i, it in enumerate(lista_items):
-                if it.get('tipo', 'P') == 'P':
-                    np+=1; ns=0; curr_p=len(disp)
-                    disp.append({"idx":i, "d":it['desc'], "c":float(it['cant']), "u":it.get('und',''), "p":float(it['precio']), "t":float(it['total']), "i":it.get('impuesto',''), "tp":'P', "num":str(np), "sub":False})
+            for item in obtener_items_procesados(lista_items):
+                is_p = item['tipo'] == 'P'
+                has_s = item.get('has_subs', False)
+                
+                # --- NUEVA LÓGICA DE VISUALIZACIÓN: SUB-ÍTEMS EN CERO ---
+                if is_p:
+                    if has_s:
+                        tot_s = f"${int(item['total']):,}" if item['total'] > 0 else ""
+                        c_s = ""
+                        imp_l = ""
+                    else:
+                        tot_s = f"${int(item['total']):,}" if item['total'] > 0 else ""
+                        c_s = f"{item['cant']:g} {item['und']}" if item['cant'] > 0 else ""
+                        imp_l = f" ({item['impuesto']})" if item['total'] > 0 else ""
                 else:
-                    ns+=1
-                    disp.append({"idx":i, "d":it['desc'], "c":float(it['cant']), "u":it.get('und',''), "p":float(it['precio']), "t":float(it['total']), "i":it.get('impuesto',''), "tp":'S', "num":f"{np}.{ns}"})
-                    if curr_p!=-1:
-                        disp[curr_p]['sub']=True; disp[curr_p]['t']+=float(it['total']); disp[curr_p]['c']=disp[curr_p]['c'] or 1; disp[curr_p]['p']=disp[curr_p]['t']/disp[curr_p]['c']
-            
-            for it in disp:
-                is_p = it['tp']=='P'; has_s = it.get('sub', False)
-                tot_s = f"${int(it['t']):,}" if it['t']>0 else ""
-                c_s = f"{it['c']:g} {it['u']}" if it['c']>0 and not has_s else ""
-                imp_l = f" ({it['i']})" if is_p and it['t']>0 and not has_s else ""
+                    tot_s = "$0"  # Los sub-ítems se muestran en cero
+                    c_s = f"{item['cant']:g} {item['und']}" if item['cant'] > 0 else ""
+                    imp_l = ""
                 
                 def evt_edit(idx_r):
                     def on_c(e):
                         if not verificar_permiso_edicion(): return
                         ec = ft.TextField(label="Cant", value=str(lista_items[idx_r]['cant']))
-                        ep = ft.TextField(label="Precio", value=str(int(lista_items[idx_r]['precio'])))
+                        ep = ft.TextField(label="Precio (Uso Interno)", value=str(int(lista_items[idx_r]['precio'])))
                         def s(ev):
                             try: lista_items[idx_r]['cant']=float(ec.value or 0); lista_items[idx_r]['precio']=float(ep.value or 0); lista_items[idx_r]['total']=lista_items[idx_r]['cant']*lista_items[idx_r]['precio']; actualizar_tabla_visual(); cerrar_dialogo(dlg)
                             except: pass
@@ -231,7 +261,7 @@ def main(page: ft.Page):
                         page.dialog = dlg; dlg.open=True; page.update()
                     return on_c
 
-                columna_tabla_items.controls.append(ft.Container(content=ft.ResponsiveRow([ft.Text(f"{it['num']}. {it['d']}{imp_l}", col={"sm": 6}, color="white", size=12), ft.Text(c_s, col={"sm": 3}, text_align="center"), ft.Text(tot_s, col={"sm": 3}, text_align="right", color="#fbbf24")]), on_click=evt_edit(it['idx']), padding=5, border_radius=5, ink=True))
+                columna_tabla_items.controls.append(ft.Container(content=ft.ResponsiveRow([ft.Text(f"{item['num']}. {item['desc']}{imp_l}", col={"sm": 6}, color="white", size=12), ft.Text(c_s, col={"sm": 3}, text_align="center"), ft.Text(tot_s, col={"sm": 3}, text_align="right", color="#fbbf24")]), on_click=evt_edit(item['raw_idx']), padding=5, border_radius=5, ink=True))
             page.update()
 
         def abrir_modal_item(e):
@@ -672,25 +702,11 @@ def main(page: ft.Page):
                 db.close()
 
                 asesor_act = sesion["usuario"].upper()
-                
-                # ACTUALIZACIÓN DE NOMBRES Y NÚMEROS DE WHATSAPP PARA LOS NUEVOS USUARIOS
-                numeros_whatsapp = {
-                    "OMERA": "573175046404", 
-                    "YRESTREPO": "573002986963", 
-                    "JCARDONA": "573225532559", 
-                    "PLEAL": "573175046404"
-                }
+                numeros_whatsapp = {"OMERA": "573175046404", "YRESTREPO": "573002986963", "JCARDONA": "573225532559", "PLEAL": "573175046404"}
                 numero_asesor = numeros_whatsapp.get(asesor_act, "573175046404")
-
                 qr = qrcode.QRCode(box_size=10, border=2); qr.add_data(f"https://wa.me/{numero_asesor}"); qr.make(fit=True); qr.make_image(fill_color="black", back_color="white").save("assets/qr_temp.png")
 
-                nombres_completos = {
-                    "OMERA": "OSCAR MERA", 
-                    "YRESTREPO": "YEISON FABIAN RESTREPO", 
-                    "JCARDONA": "JOHN JAIRO CARDONA", 
-                    "PLEAL": "PAULO ANDRES LEAL GARCIA"
-                }
-                
+                nombres_completos = {"OMERA": "OSCAR MERA", "YRESTREPO": "YEISON FABIAN RESTREPO", "JCARDONA": "JOHN JAIRO CARDONA", "PLEAL": "PAULO ANDRES LEAL GARCIA"}
                 p = PDF(); p.asesor_nombre = nombres_completos.get(asesor_act, asesor_act) 
                 p.set_margins(10, 10, 10); p.set_auto_page_break(auto=True, margin=30); p.add_page()
                 p.set_font('helvetica', 'B', 11); hy = datetime.now()
@@ -723,11 +739,15 @@ def main(page: ft.Page):
 
                 p.set_fill_color(255, 255, 255)
                 
+                # --- NUEVA LÓGICA DE PDF: SUB-ÍTEMS EN CERO ---
                 for idx, i in enumerate(obtener_items_procesados(lista_items)):
                     if i['tipo'] == 'P':
-                        if i.get('has_subs', False): c_s=""; u_s=""; pu=""; imps=""; tot_s=f"${int(i['total']):,}" if i['total']>0 else ""
-                        else: c_s=f"{i['cant']:g}" if i['cant']>0 else ""; u_s=sanitizar_texto(i['und']) if i['cant']>0 else ""; pu=f"${int(i['precio']):,}" if i['total']>0 else ""; imps=sanitizar_texto(i['impuesto']) if i['total']>0 else ""; tot_s=f"${int(i['total']):,}" if i['total']>0 else ""
-                    else: c_s=f"{i['cant']:g}" if i['cant']>0 else ""; u_s=sanitizar_texto(i['und']) if i['cant']>0 else ""; pu=""; imps=""; tot_s=""
+                        if i.get('has_subs', False): 
+                            c_s=""; u_s=""; pu=""; imps=""; tot_s=f"${int(i['total']):,}" if i['total']>0 else ""
+                        else: 
+                            c_s=f"{i['cant']:g}" if i['cant']>0 else ""; u_s=sanitizar_texto(i['und']) if i['cant']>0 else ""; pu=f"${int(i['precio']):,}" if i['total']>0 else ""; imps=sanitizar_texto(i['impuesto']) if i['total']>0 else ""; tot_s=f"${int(i['total']):,}" if i['total']>0 else ""
+                    else: 
+                        c_s=f"{i['cant']:g}" if i['cant']>0 else ""; u_s=sanitizar_texto(i['und']) if i['cant']>0 else ""; pu="$0"; imps=""; tot_s="$0"
 
                     d_lin = textwrap.wrap(sanitizar_texto(i['desc']), width=43) or [""]
                     for li, l_txt in enumerate(d_lin):
