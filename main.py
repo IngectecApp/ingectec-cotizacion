@@ -598,7 +598,6 @@ def main(page: ft.Page):
 
             tabs_list = [tab_clave]
             
-            # --- VALIDACIÓN DE SUPER ADMINISTRADOR ---
             if sesion["usuario"] in ["OMERA", "PLEAL"]:
                 tabs_list.append(tab_gest)
             
@@ -882,11 +881,22 @@ def main(page: ft.Page):
             ft.ElevatedButton("🧹 LIMPIAR", bgcolor="#64748b", color="white", on_click=limpiar_todo)
         ]
         
-        # --- EL BOTÓN DE SISTEMA SOLO APARECE PARA SUPER ADMINISTRADORES ---
         if sesion["usuario"] in ["OMERA", "PLEAL"]: 
             botones_lista.append(ft.ElevatedButton("⚙️ SISTEMA", bgcolor="#475569", color="white", on_click=abrir_modal_sistema))
             
         botones_lista.append(ft.ElevatedButton("🚪 CERRAR SESIÓN", bgcolor="#ef4444", color="white", on_click=lambda e: mostrar_login()))
+
+        # --- AQUÍ ESTÁ EL CAMBIO PARA CENTRAR PERFECTAMENTE ---
+        contenedor_botones = ft.Container(
+            content=ft.Row(
+                botones_lista, 
+                wrap=True, 
+                alignment=ft.MainAxisAlignment.CENTER, 
+                spacing=10
+            ),
+            alignment=ft.alignment.center,
+            margin=ft.margin.only(bottom=15, top=5)
+        )
 
         tabla = ft.Container(content=ft.Column([ft.Row([ft.Text(f"COTIZACIÓN ING {nro_actual}", weight="bold", color="#fbbf24", size=16)], alignment=ft.MainAxisAlignment.CENTER), ft.Divider(color="white24"), ft.ResponsiveRow([ft.Text("DESCRIPCIÓN (Clic para editar)", weight="bold", color="#fbbf24", col={"sm": 6}, text_align="center"), ft.Text("CANTIDAD", weight="bold", color="#fbbf24", col={"sm": 3}, text_align="center"), ft.Text("TOTAL", weight="bold", color="#fbbf24", col={"sm": 3}, text_align="center")]), columna_tabla_items, ft.Container(height=10)]), bgcolor="#0f172a", padding=15, border_radius=8, border=ft.border.all(1, "white12"))
         
@@ -898,7 +908,14 @@ def main(page: ft.Page):
             ft.ResponsiveRow([ft.Container(content=dropdown_modo_cot, col={"sm": 6, "md": 2, "lg": 2}), container_texto_aiu, cont_a, cont_i, cont_u, cont_iva_u], vertical_alignment=ft.CrossAxisAlignment.CENTER)
         ], spacing=10), bgcolor="#0f172a", padding=15, border_radius=8, border=ft.border.all(1, "white12"))
 
-        page.add(ft.Container(content=ft.Text(f"⚡ INGECTEC SAS", size=22, weight="bold", color="#fbbf24"), alignment=ft.alignment.center, padding=5), ft.Container(content=ft.Text(f"👤 Conectado: {sesion['usuario']} ({sesion['rol']})", size=12, color="#94a3b8"), alignment=ft.alignment.center_right), ft.Row(botones_lista, wrap=True, alignment=ft.MainAxisAlignment.CENTER), tabla, f_cli, ft.Container(content=ft.ElevatedButton("🚀 GENERAR COTIZACIÓN PROFESIONAL", bgcolor="#f59e0b", color="black", height=50, on_click=generar_pdf_web), alignment=ft.alignment.center, padding=ft.padding.only(top=10, bottom=20)))
+        page.add(
+            ft.Container(content=ft.Text(f"⚡ INGECTEC SAS", size=22, weight="bold", color="#fbbf24"), alignment=ft.alignment.center, padding=5), 
+            ft.Container(content=ft.Text(f"👤 Conectado: {sesion['usuario']} ({sesion['rol']})", size=12, color="#94a3b8"), alignment=ft.alignment.center_right), 
+            contenedor_botones, 
+            tabla, 
+            f_cli, 
+            ft.Container(content=ft.ElevatedButton("🚀 GENERAR COTIZACIÓN PROFESIONAL", bgcolor="#f59e0b", color="black", height=50, on_click=generar_pdf_web), alignment=ft.alignment.center, padding=ft.padding.only(top=10, bottom=20))
+        )
         page.update()
 
     mostrar_login()
