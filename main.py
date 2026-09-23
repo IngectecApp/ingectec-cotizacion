@@ -1,5 +1,5 @@
 import flet as ft
-import sqlite3
+import psycopg2
 import os
 import shutil
 import re
@@ -11,6 +11,44 @@ from datetime import datetime
 
 PORT = int(os.environ.get("PORT", 8080))
 if not os.path.exists("assets"): os.makedirs("assets")
+
+# --- BASE DE DATOS BLINDADA EN LA NUBE (POSTGRESQL) ---
+DB_URL = "postgresql://ingectec_bd_user:HY7iwKhvaILCeuUKd7Pgknsh6Nsv4aUE@dpg-dapicrvf3r2c73ep15ag-a.oregon-postgres.render.com/ingectec_bd"
+
+def conectar_db():
+    try:
+        return psycopg2.connect(DB_URL)
+    except Exception as e:
+        print("Error de conexión:", e)
+        return None
+
+# --- INICIALIZADOR AUTOMÁTICO DE TABLAS ---
+def init_db():
+    try:
+        conn = conectar_db()
+        if conn:
+            c = conn.cursor()
+            c.execute("CREATE TABLE IF NOT EXISTS usuarios (usuario TEXT PRIMARY KEY, password TEXT, rol TEXT, intentos INTEGER DEFAULT 0, bloqueado INTEGER DEFAULT 0)")
+            c.execute("INSERT INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES ('OSCAR', '1234', 'ADMIN', 0, 0) ON CONFLICT (usuario) DO NOTHING")
+            c.execute("INSERT INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES ('YEISON', '1234', 'ASESOR', 0, 0) ON CONFLICT (usuario) DO NOTHING")
+            c.execute("INSERT INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES ('PAULO', '1234', 'ADMIN', 0, 0) ON CONFLICT (usuario) DO NOTHING")
+            c.execute("INSERT INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES ('JOHN', '1234', 'ASESOR', 0, 0) ON CONFLICT (usuario) DO NOTHING")
+            
+            c.execute("CREATE TABLE IF NOT EXISTS n_cot (id SERIAL PRIMARY KEY, num INTEGER)")
+            c.execute("INSERT INTO n_cot (id, num) VALUES (1, 100) ON CONFLICT (id) DO NOTHING")
+            
+            c.execute("CREATE TABLE IF NOT EXISTS cli (n TEXT PRIMARY KEY, i TEXT, dir TEXT, email TEXT, ciu TEXT, tel TEXT)")
+            c.execute("CREATE TABLE IF NOT EXISTS inv (d TEXT PRIMARY KEY, p NUMERIC, stock NUMERIC)")
+            c.execute("CREATE TABLE IF NOT EXISTS historial (nro TEXT PRIMARY KEY, cliente TEXT, fecha TEXT, archivo TEXT, total NUMERIC, origen TEXT, creador TEXT)")
+            c.execute("CREATE TABLE IF NOT EXISTS h_cab (nro TEXT PRIMARY KEY, cli TEXT, nit TEXT, dir TEXT, ciu TEXT, tel TEXT, email TEXT)")
+            c.execute('CREATE TABLE IF NOT EXISTS h_det (id SERIAL PRIMARY KEY, nro TEXT, "desc" TEXT, cant NUMERIC, und TEXT, unit NUMERIC, sub NUMERIC, imp TEXT, tipo TEXT)')
+            
+            conn.commit()
+            conn.close()
+    except Exception as e:
+        print("Error inicializando BD:", e)
+
+init_db()
 
 # --- FUNCION SANITIZADORA PARA EVITAR ERRORES DE FUENTE EN FPDF ---
 def sanitizar_texto(texto):
@@ -67,10 +105,6 @@ class PDF(FPDF):
         self.set_y(-10)
         self.cell(0, 4, f'Página {self.page_no()}', border=0, align='R')
 
-def conectar_db():
-    try: return sqlite3.connect('ingectec.db', timeout=10)
-    except: return None
-
 def main(page: ft.Page):
     page.title = "INGECTEC V300 - PREMIUM"
     page.theme_mode = ft.ThemeMode.DARK
@@ -79,7 +113,6 @@ def main(page: ft.Page):
 
     sesion = {"usuario": None, "rol": None}
     lista_items = []
-    # --- AQUI SE CONTROLA EL ESTADO DE LA EDICION Y EL CREADOR ORIGINAL ---
     estado = {"nro_edicion": None, "creador_edicion": None}
 
     def cerrar_dialogo(dlg):
@@ -89,69 +122,20 @@ def main(page: ft.Page):
         dialogo = ft.AlertDialog(title=ft.Text(titulo, weight="bold", color="#fbbf24"), content=ft.Text(str(mensaje)), actions=[ft.TextButton("OK", on_click=lambda e: cerrar_dialogo(dialogo))])
         page.dialog = dialogo; dialogo.open = True; page.update()
 
-    # --- PILOTO AUTOMÁTICO: BD Y TABLAS ---
-    db_setup = conectar_db()
-    if db_setup:
-        db_setup.execute("CREATE TABLE IF NOT EXISTS usuarios (usuario TEXT PRIMARY KEY, password TEXT, rol TEXT)")
-        
-        try: db_setup.execute("ALTER TABLE usuarios ADD COLUMN intentos INTEGER DEFAULT 0")
-        except: pass
-        try: db_setup.execute("ALTER TABLE usuarios ADD COLUMN bloqueado INTEGER DEFAULT 0")
-        except: pass
-
-        db_setup.execute("INSERT OR IGNORE INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES ('OSCAR', '1234', 'ADMIN', 0, 0)")
-        db_setup.execute("INSERT OR IGNORE INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES ('YEISON', '1234', 'ASESOR', 0, 0)")
-        db_setup.execute("INSERT OR IGNORE INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES ('PAULO', '1234', 'ADMIN', 0, 0)")
-        
-        try:
-            c_rol = db_setup.execute("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='fix_rol_yeison'")
-            if c_rol.fetchone()[0] == 0:
-                db_setup.execute("UPDATE usuarios SET rol='ASESOR' WHERE usuario='YEISON'")
-                db_setup.execute("CREATE TABLE fix_rol_yeison (id INTEGER PRIMARY KEY)")
-        except: pass
-
-        db_setup.execute("CREATE TABLE IF NOT EXISTS n_cot (id INTEGER PRIMARY KEY, num INTEGER)")
-        db_setup.execute("INSERT OR IGNORE INTO n_cot (id, num) VALUES (1, 100)")
-        
-        try: db_setup.execute("ALTER TABLE historial ADD COLUMN creador TEXT DEFAULT 'SISTEMA'")
-        except: pass
-        try: db_setup.execute("ALTER TABLE historial ADD COLUMN origen TEXT DEFAULT 'WEB'")
-        except: pass
-
-        try: db_setup.execute("ALTER TABLE h_det ADD COLUMN tipo TEXT DEFAULT 'P'")
-        except: pass
-
-        db_setup.execute("CREATE TABLE IF NOT EXISTS cli (n TEXT PRIMARY KEY, i TEXT)")
-        try: db_setup.execute("ALTER TABLE cli ADD COLUMN dir TEXT")
-        except: pass
-        try: db_setup.execute("ALTER TABLE cli ADD COLUMN email TEXT")
-        except: pass
-        try: db_setup.execute("ALTER TABLE cli ADD COLUMN ciu TEXT")
-        except: pass
-        try: db_setup.execute("ALTER TABLE cli ADD COLUMN tel TEXT")
-        except: pass
-
-        cursor_r = db_setup.cursor()
-        items_perdidos = [("BREAKER 2X40", 101861), ("TUBO EMT DE 1\" (INCLUYE ASCESORIOS DE INSTALACION)", 35547)]
-        for desc, precio in items_perdidos:
-            cursor_r.execute("SELECT count(*) FROM inv WHERE d=?", (desc,))
-            if cursor_r.fetchone()[0] == 0:
-                cursor_r.execute("INSERT INTO inv (d, p, stock) VALUES (?,?,0)", (desc, precio))
-        
-        db_setup.commit(); db_setup.close()
-
     input_usr = ft.TextField(label="Usuario (Ej. OSCAR, PAULO, YEISON)", width=300)
     input_pwd = ft.TextField(label="Contraseña", password=True, can_reveal_password=True, width=300)
 
     # ==========================================
-    # LÓGICA DE INGRESO CON SEGURIDAD
+    # LÓGICA DE INGRESO CON SEGURIDAD (POSTGRESQL)
     # ==========================================
     def procesar_login(e):
         u = input_usr.value.upper().strip()
         p = input_pwd.value.strip()
         db_login = conectar_db()
         if db_login:
-            user_row = db_login.execute("SELECT password, rol, bloqueado, intentos FROM usuarios WHERE usuario=?", (u,)).fetchone()
+            c = db_login.cursor()
+            c.execute("SELECT password, rol, bloqueado, intentos FROM usuarios WHERE usuario=%s", (u,))
+            user_row = c.fetchone()
             
             if user_row:
                 db_pwd, rol, bloqueado, intentos = user_row
@@ -162,7 +146,7 @@ def main(page: ft.Page):
                     return
                 
                 if db_pwd == p:
-                    db_login.execute("UPDATE usuarios SET intentos=0, bloqueado=0 WHERE usuario=?", (u,))
+                    c.execute("UPDATE usuarios SET intentos=0, bloqueado=0 WHERE usuario=%s", (u,))
                     db_login.commit()
                     db_login.close()
                     sesion["usuario"] = u
@@ -171,11 +155,11 @@ def main(page: ft.Page):
                 else:
                     intentos += 1
                     if intentos >= 3:
-                        db_login.execute("UPDATE usuarios SET intentos=?, bloqueado=1 WHERE usuario=?", (intentos, u))
+                        c.execute("UPDATE usuarios SET intentos=%s, bloqueado=1 WHERE usuario=%s", (intentos, u))
                         db_login.commit()
                         mostrar_alerta("Acceso Bloqueado 🚫", "Has superado los 3 intentos de acceso fallidos. Tu usuario ha sido bloqueado por seguridad.")
                     else:
-                        db_login.execute("UPDATE usuarios SET intentos=? WHERE usuario=?", (intentos, u))
+                        c.execute("UPDATE usuarios SET intentos=%s WHERE usuario=%s", (intentos, u))
                         db_login.commit()
                         page.snack_bar = ft.SnackBar(ft.Text(f"❌ Contraseña incorrecta. Intento {intentos} de 3."), bgcolor="#ef4444")
                         page.snack_bar.open = True
@@ -256,7 +240,6 @@ def main(page: ft.Page):
         cont_u = ft.Container(content=input_pct_u, col={"sm": 3, "md": 2, "lg": 2})
         cont_iva_u = ft.Container(content=input_pct_iva_u, col={"sm": 3, "md": 2, "lg": 2})
 
-        # --- MOTOR DE VERIFICACION DE AUTORIA PARA PROTEGER EL TRABAJO ---
         def verificar_permiso_edicion():
             if estado.get("nro_edicion") and estado.get("creador_edicion"):
                 if estado["creador_edicion"] != "SISTEMA" and estado["creador_edicion"] != sesion["usuario"]:
@@ -281,7 +264,9 @@ def main(page: ft.Page):
             if len(texto) > 0:
                 db = conectar_db()
                 if db:
-                    for row in db.execute("SELECT n, i FROM cli WHERE UPPER(n) LIKE ? ORDER BY n ASC LIMIT 10", ('%'+texto+'%',)):
+                    c = db.cursor()
+                    c.execute("SELECT n, i FROM cli WHERE UPPER(n) LIKE %s ORDER BY n ASC LIMIT 10", ('%'+texto+'%',))
+                    for row in c.fetchall():
                         def seleccionar(evt, nombre=row[0], nit=(row[1] if row[1] else "")):
                             input_cliente.value = nombre; input_nit.value = nit; lista_busqueda_cli.visible = False; page.update()
                         lista_busqueda_cli.controls.append(ft.ListTile(title=ft.Text(row[0], color="#fbbf24", size=13, weight="bold"), on_click=seleccionar))
@@ -295,7 +280,9 @@ def main(page: ft.Page):
         nro_actual = "100"
         mes_actual_ui = datetime.now().strftime("%m")
         if db_num:
-            res_num = db_num.execute("SELECT num FROM n_cot WHERE id=1").fetchone()
+            c = db_num.cursor()
+            c.execute("SELECT num FROM n_cot WHERE id=1")
+            res_num = c.fetchone()
             if res_num: nro_actual = f"{mes_actual_ui}-{res_num[0]:03d}"
             db_num.close()
 
@@ -460,8 +447,10 @@ def main(page: ft.Page):
                 resultados_inv.controls.clear()
                 db = conectar_db()
                 if db:
+                    c = db.cursor()
                     txt = (buscador_inv.value or "").upper()
-                    for row in db.execute("SELECT d, p FROM inv WHERE UPPER(d) LIKE ? ORDER BY d ASC LIMIT 30", ('%'+txt+'%',)):
+                    c.execute("SELECT d, p FROM inv WHERE UPPER(d) LIKE %s ORDER BY d ASC LIMIT 30", ('%'+txt+'%',))
+                    for row in c.fetchall():
                         d, p = row[0], (row[1] if row[1] else 0)
                         def sel(evt, desc=d, precio=p): 
                             input_desc.value = desc; input_precio.value = str(int(float(precio)))
@@ -517,22 +506,34 @@ def main(page: ft.Page):
             page.dialog = dlg; dlg.open = True; buscar_inv_bd(None)
 
         def abrir_modal_bodega(e):
-            resultados_bod = ft.ListView(height=200)
+            # --- NUEVA ESTRUCTURA CON PESTAÑAS (MANUAL Y MASIVA) ---
+            resultados_bod = ft.ListView(height=180)
             e_desc = ft.TextField(label="Nombre del Producto")
             e_precio = ft.TextField(label="Precio del Producto")
+            
+            # --- Campo gigante para pegar desde Excel ---
+            e_masivo = ft.TextField(
+                multiline=True, 
+                min_lines=6, 
+                max_lines=10, 
+                label="Pega aquí desde Excel (Columna 1: Nombre | Columna 2: Precio)"
+            )
             
             def buscar_bodega(evt):
                 resultados_bod.controls.clear()
                 db = conectar_db()
                 if db:
+                    c = db.cursor()
                     txt = (e_desc.value or "").upper()
-                    for row in db.execute("SELECT d, p FROM inv WHERE UPPER(d) LIKE ? LIMIT 20", ('%'+txt+'%',)):
+                    c.execute("SELECT d, p FROM inv WHERE UPPER(d) LIKE %s LIMIT 20", ('%'+txt+'%',))
+                    for row in c.fetchall():
                         d, p = row[0], row[1]
                         def sel(evt, desc=d, prec=p): e_desc.value = desc; e_precio.value = str(int(float(prec))); page.update()
                         
                         def eliminar(evt, desc=d):
                             db_d = conectar_db()
-                            db_d.execute("DELETE FROM inv WHERE d=?", (desc,))
+                            c_d = db_d.cursor()
+                            c_d.execute("DELETE FROM inv WHERE d=%s", (desc,))
                             db_d.commit(); db_d.close()
                             buscar_bodega(None)
                             page.snack_bar = ft.SnackBar(ft.Text(f"🗑️ Producto eliminado"), bgcolor="#ef4444"); page.snack_bar.open = True; page.update()
@@ -550,23 +551,79 @@ def main(page: ft.Page):
                 if not e_desc.value: return
                 try:
                     db = conectar_db()
-                    db.execute("INSERT INTO inv (d, p, stock) VALUES (?,?,0) ON CONFLICT(d) DO UPDATE SET p=excluded.p", (e_desc.value.upper(), float(e_precio.value or 0)))
+                    c = db.cursor()
+                    c.execute("INSERT INTO inv (d, p, stock) VALUES (%s,%s,0) ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p", (e_desc.value.upper(), float(e_precio.value or 0)))
                     db.commit(); db.close()
                     e_desc.value = ""; e_precio.value = ""; buscar_bodega(None)
                     page.snack_bar = ft.SnackBar(ft.Text("✅ Precio guardado correctamente"), bgcolor="#2563eb"); page.snack_bar.open = True; page.update()
                 except Exception as ex: mostrar_alerta("Error", str(ex))
 
+            def procesar_masivo(evt):
+                if not e_masivo.value.strip(): return
+                lineas = e_masivo.value.strip().split('\n')
+                
+                db = conectar_db()
+                if not db: return
+                c = db.cursor()
+                
+                agregados = 0
+                for linea in lineas:
+                    partes = linea.split('\t') 
+                    if len(partes) >= 1:
+                        desc = partes[0].strip().upper()
+                        if not desc: continue
+                        
+                        prec_str = "0"
+                        if len(partes) >= 2:
+                            prec_str = partes[1].replace("$", "").replace(".", "").replace(",", "").replace(" ", "").strip()
+                        
+                        try: prec = float(prec_str)
+                        except: prec = 0.0
+                        
+                        c.execute("INSERT INTO inv (d, p, stock) VALUES (%s,%s,0) ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p", (desc, prec))
+                        agregados += 1
+                        
+                db.commit()
+                db.close()
+                e_masivo.value = ""
+                buscar_bodega(None)
+                page.snack_bar = ft.SnackBar(ft.Text(f"✅ ¡Éxito! Se procesaron {agregados} productos."), bgcolor="#10b981")
+                page.snack_bar.open = True
+                page.update()
+
             e_desc.on_change = buscar_bodega
+            
+            pestañas_bodega = ft.Tabs(
+                selected_index=0,
+                animation_duration=300,
+                tabs=[
+                    ft.Tab(
+                        text="Búsqueda y Edición",
+                        content=ft.Column([
+                            ft.Container(height=10),
+                            e_desc, e_precio,
+                            ft.ElevatedButton("Guardar Producto", bgcolor="#2563eb", color="white", on_click=guardar_bodega),
+                            ft.Divider(),
+                            ft.Text("Productos Registrados:", weight="bold"),
+                            resultados_bod
+                        ], tight=True)
+                    ),
+                    ft.Tab(
+                        text="Importación Masiva",
+                        content=ft.Column([
+                            ft.Container(height=10),
+                            ft.Text("Copia las filas desde tu Excel y pégalas en este cuadro. Asegúrate de copiar 2 columnas: Nombre del ítem y Precio.", size=12, color="white54"),
+                            e_masivo,
+                            ft.ElevatedButton("📥 IMPORTAR DESDE EXCEL", bgcolor="#10b981", color="white", on_click=procesar_masivo)
+                        ], tight=True)
+                    )
+                ],
+                expand=1
+            )
+
             dlg = ft.AlertDialog(
                 title=ft.Text("📦 Gestión de Bodega / Catálogo"), 
-                content=ft.Container(width=600, content=ft.Column([
-                    ft.Text("Crear o Actualizar Producto:", size=12, color="white54"),
-                    e_desc, e_precio,
-                    ft.ElevatedButton("Guardar Producto", bgcolor="#2563eb", color="white", on_click=guardar_bodega),
-                    ft.Divider(),
-                    ft.Text("Productos Registrados:", weight="bold"),
-                    resultados_bod
-                ], tight=True)), 
+                content=ft.Container(width=600, height=450, content=pestañas_bodega), 
                 actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))]
             )
             page.dialog = dlg; dlg.open = True; buscar_bodega(None)
@@ -586,12 +643,16 @@ def main(page: ft.Page):
                 db = conectar_db()
                 if db:
                     try:
-                        for row in db.execute("SELECT n, i, ciu, tel FROM cli ORDER BY n ASC"):
+                        c = db.cursor()
+                        c.execute("SELECT n, i, ciu, tel FROM cli ORDER BY n ASC")
+                        for row in c.fetchall():
                             n, i, ciu, tel = row
                             
                             def editar(evt, nombre=n):
                                 db_i = conectar_db()
-                                c_data = db_i.execute("SELECT n, i, dir, email, ciu, tel FROM cli WHERE n=?", (nombre,)).fetchone()
+                                c_i = db_i.cursor()
+                                c_i.execute("SELECT n, i, dir, email, ciu, tel FROM cli WHERE n=%s", (nombre,))
+                                c_data = c_i.fetchone()
                                 db_i.close()
                                 if c_data:
                                     e_cli_nom.value, e_cli_nit.value, e_cli_dir.value, e_cli_email.value, e_cli_ciu.value, e_cli_tel.value = c_data
@@ -599,7 +660,8 @@ def main(page: ft.Page):
 
                             def eliminar(evt, nombre=n):
                                 db_d = conectar_db()
-                                db_d.execute("DELETE FROM cli WHERE n=?", (nombre,))
+                                c_d = db_d.cursor()
+                                c_d.execute("DELETE FROM cli WHERE n=%s", (nombre,))
                                 db_d.commit(); db_d.close()
                                 limpiar_form_cliente(None)
                                 cargar_clientes_lista()
@@ -622,7 +684,8 @@ def main(page: ft.Page):
                 db = conectar_db()
                 if db:
                     try:
-                        db.execute("INSERT OR REPLACE INTO cli (n, i, dir, email, ciu, tel) VALUES (?,?,?,?,?,?)", 
+                        c = db.cursor()
+                        c.execute("INSERT INTO cli (n, i, dir, email, ciu, tel) VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT(n) DO UPDATE SET i=EXCLUDED.i, dir=EXCLUDED.dir, email=EXCLUDED.email, ciu=EXCLUDED.ciu, tel=EXCLUDED.tel", 
                                    (e_cli_nom.value.upper(), e_cli_nit.value, e_cli_dir.value, e_cli_email.value, e_cli_ciu.value, e_cli_tel.value))
                         db.commit()
                     except: pass
@@ -662,7 +725,9 @@ def main(page: ft.Page):
                 resultados_usr.controls.clear()
                 db = conectar_db()
                 if db:
-                    for row in db.execute("SELECT usuario, rol, bloqueado FROM usuarios ORDER BY usuario ASC"):
+                    c = db.cursor()
+                    c.execute("SELECT usuario, rol, bloqueado FROM usuarios ORDER BY usuario ASC")
+                    for row in c.fetchall():
                         u, r, b = row[0], row[1], row[2]
                         
                         estado_txt = " (Bloqueado 🔒)" if b == 1 else ""
@@ -677,14 +742,16 @@ def main(page: ft.Page):
                             if user_name == sesion["usuario"]:
                                 return mostrar_alerta("Aviso", "No puedes eliminar tu propio usuario mientras lo estás usando.")
                             db_d = conectar_db()
-                            db_d.execute("DELETE FROM usuarios WHERE usuario=?", (user_name,))
+                            c_d = db_d.cursor()
+                            c_d.execute("DELETE FROM usuarios WHERE usuario=%s", (user_name,))
                             db_d.commit(); db_d.close()
                             cargar_usuarios()
                             page.snack_bar = ft.SnackBar(ft.Text(f"🗑️ Usuario {user_name} eliminado"), bgcolor="#ef4444"); page.snack_bar.open = True; page.update()
 
                         def desbloquear(evt, user_name=u):
                             db_u = conectar_db()
-                            db_u.execute("UPDATE usuarios SET intentos=0, bloqueado=0 WHERE usuario=?", (user_name,))
+                            c_u = db_u.cursor()
+                            c_u.execute("UPDATE usuarios SET intentos=0, bloqueado=0 WHERE usuario=%s", (user_name,))
                             db_u.commit(); db_u.close()
                             cargar_usuarios()
                             page.snack_bar = ft.SnackBar(ft.Text(f"✅ Usuario {user_name} desbloqueado exitosamente"), bgcolor="#10b981"); page.snack_bar.open = True; page.update()
@@ -709,14 +776,16 @@ def main(page: ft.Page):
                     return mostrar_alerta("Aviso", "Falta el nombre o la contraseña.")
                 db = conectar_db()
                 if db:
+                    c = db.cursor()
                     usr_nom_limpio = e_usr_nom.value.upper().strip()
-                    existe = db.execute("SELECT count(*) FROM usuarios WHERE usuario=?", (usr_nom_limpio,)).fetchone()[0]
+                    c.execute("SELECT count(*) FROM usuarios WHERE usuario=%s", (usr_nom_limpio,))
+                    existe = c.fetchone()[0]
                     
                     if existe > 0:
-                        db.execute("UPDATE usuarios SET password=?, rol=?, intentos=0, bloqueado=0 WHERE usuario=?", 
+                        c.execute("UPDATE usuarios SET password=%s, rol=%s, intentos=0, bloqueado=0 WHERE usuario=%s", 
                                    (e_usr_pwd.value.strip(), e_usr_rol.value, usr_nom_limpio))
                     else:
-                        db.execute("INSERT INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES (?,?,?,0,0)", 
+                        c.execute("INSERT INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES (%s,%s,%s,0,0)", 
                                    (usr_nom_limpio, e_usr_pwd.value.strip(), e_usr_rol.value))
                     
                     db.commit(); db.close()
@@ -747,26 +816,25 @@ def main(page: ft.Page):
                 txt_busqueda = (buscador_hist.value or "").upper().strip()
                 db = conectar_db()
                 if db:
+                    c = db.cursor()
                     if txt_busqueda:
-                        filas = db.execute("SELECT nro, cliente, fecha, total, creador FROM historial WHERE UPPER(cliente) LIKE ? ORDER BY nro DESC LIMIT 50", ('%'+txt_busqueda+'%',)).fetchall()
+                        c.execute("SELECT nro, cliente, fecha, total, creador FROM historial WHERE UPPER(cliente) LIKE %s ORDER BY nro DESC LIMIT 50", ('%'+txt_busqueda+'%',))
                     else:
-                        filas = db.execute("SELECT nro, cliente, fecha, total, creador FROM historial ORDER BY nro DESC LIMIT 30").fetchall()
+                        c.execute("SELECT nro, cliente, fecha, total, creador FROM historial ORDER BY nro DESC LIMIT 30")
 
-                    for row in filas:
+                    for row in c.fetchall():
                         nro, cli, fec, tot, creador = row[0], row[1], row[2], row[3], row[4]
                         
                         def cargar_cotizacion(evt, numero=nro, creador_doc=creador):
                             db_h = conectar_db()
-                            cab = db_h.execute("SELECT cli, nit FROM h_cab WHERE nro=?", (numero,)).fetchone()
+                            c_h = db_h.cursor()
+                            c_h.execute("SELECT cli, nit FROM h_cab WHERE nro=%s", (numero,))
+                            cab = c_h.fetchone()
                             if cab: input_cliente.value = cab[0] if cab[0] else ""; input_nit.value = cab[1] if cab[1] else ""
                             lista_items.clear()
                             
-                            try:
-                                cursor_det = db_h.execute("SELECT desc, cant, und, unit, sub, imp, tipo FROM h_det WHERE nro=?", (numero,))
-                                filas_det = cursor_det.fetchall()
-                            except:
-                                cursor_det = db_h.execute("SELECT desc, cant, und, unit, sub, imp FROM h_det WHERE nro=?", (numero,))
-                                filas_det = [r + ('P',) for r in cursor_det.fetchall()]
+                            c_h.execute('SELECT "desc", cant, und, unit, sub, imp, tipo FROM h_det WHERE nro=%s', (numero,))
+                            filas_det = c_h.fetchall()
 
                             for d in filas_det:
                                 desc_str = d[0] if d[0] else ""
@@ -781,7 +849,7 @@ def main(page: ft.Page):
                                 if "AIU" in und_str or "IVA" in und_str or "EXENTO" in und_str:
                                     temp = impuesto_str; impuesto_str = und_str; und_str = temp if temp not in ["EXENTO", ""] else "UNID"
                                 
-                                tipo_str = str(d[6]) if len(d) > 6 and d[6] else "P"
+                                tipo_str = str(d[6]) if d[6] else "P"
 
                                 lista_items.append({"desc": desc_str, "cant": cant_f, "und": und_str, "precio": unit_f, "total": sub_f, "impuesto": impuesto_str, "tipo": tipo_str})
                             db_h.close()
@@ -816,12 +884,7 @@ def main(page: ft.Page):
                 return mostrar_alerta("Acceso Denegado", "Solo el Administrador tiene acceso a la configuración del sistema.")
 
             def hacer_backup(evt):
-                try:
-                    shutil.copy2('ingectec.db', 'assets/backup_ingectec.db')
-                    page.launch_url('/backup_ingectec.db')
-                    page.snack_bar = ft.SnackBar(ft.Text("✅ Backup descargando..."), bgcolor="#2563eb")
-                    page.snack_bar.open = True; page.update()
-                except Exception as ex: mostrar_alerta("Error", str(ex))
+                mostrar_alerta("Backup en la Nube ☁️", "La plataforma ahora está respaldada de forma automática y blindada en PostgreSQL. Ya no es necesario descargar archivos locales de seguridad.")
 
             def confirmar_reseteo(evt):
                 input_clave_maestra = ft.TextField(label="Contraseña Maestra", password=True, can_reveal_password=True, width=300)
@@ -830,12 +893,13 @@ def main(page: ft.Page):
                     if input_clave_maestra.value.strip() == "7705178":
                         db = conectar_db()
                         if db:
-                            db.execute("DELETE FROM cli")
-                            db.execute("DELETE FROM inv")
-                            db.execute("DELETE FROM historial")
-                            db.execute("DELETE FROM h_cab")
-                            db.execute("DELETE FROM h_det")
-                            db.execute("UPDATE n_cot SET num = 100 WHERE id=1")
+                            c = db.cursor()
+                            c.execute("DELETE FROM cli")
+                            c.execute("DELETE FROM inv")
+                            c.execute("DELETE FROM historial")
+                            c.execute("DELETE FROM h_cab")
+                            c.execute("DELETE FROM h_det")
+                            c.execute("UPDATE n_cot SET num = 100 WHERE id=1")
                             db.commit(); db.close()
                         cerrar_dialogo(dlg_conf)
                         cerrar_dialogo(dlg_sis)
@@ -901,7 +965,9 @@ def main(page: ft.Page):
 
                 db = conectar_db()
                 try:
-                    cli_data = db.execute("SELECT dir, email, ciu, tel FROM cli WHERE n=?", (c_nom,)).fetchone()
+                    c = db.cursor()
+                    c.execute("SELECT dir, email, ciu, tel FROM cli WHERE n=%s", (c_nom,))
+                    cli_data = c.fetchone()
                     if cli_data:
                         c_dir = sanitizar_texto(cli_data[0] or "")
                         c_email = sanitizar_texto(cli_data[1] or "")
@@ -912,22 +978,19 @@ def main(page: ft.Page):
                 nro_doc = estado["nro_edicion"]
                 mes_actual = datetime.now().strftime("%m")
                 
+                c_up = db.cursor()
                 if not nro_doc:
-                    cursor_num = db.cursor()
-                    cursor_num.execute("BEGIN IMMEDIATE")
-                    cursor_num.execute("UPDATE n_cot SET num = num + 1 WHERE id=1")
-                    cursor_num.execute("SELECT num FROM n_cot WHERE id=1")
-                    num_fetch = cursor_num.fetchone()
+                    c_up.execute("UPDATE n_cot SET num = num + 1 WHERE id=1 RETURNING num")
+                    num_fetch = c_up.fetchone()
                     num_puro = num_fetch[0] if num_fetch else 100
                     nro_doc = f"{mes_actual}-{num_puro:03d}"
-                    db.commit()
                 else:
-                    db.execute("DELETE FROM h_cab WHERE nro=?", (nro_doc,))
-                    db.execute("DELETE FROM h_det WHERE nro=?", (nro_doc,))
-                    db.execute("DELETE FROM historial WHERE nro=?", (nro_doc,))
+                    c_up.execute("DELETE FROM h_cab WHERE nro=%s", (nro_doc,))
+                    c_up.execute("DELETE FROM h_det WHERE nro=%s", (nro_doc,))
+                    c_up.execute("DELETE FROM historial WHERE nro=%s", (nro_doc,))
                     
-                db.execute("INSERT OR IGNORE INTO cli (n, i) VALUES (?, ?)", (c_nom, c_nit))
-                db.execute("INSERT INTO h_cab VALUES (?,?,?,?,?,?,?)", (nro_doc, c_nom, c_nit, "", "", "", ""))
+                c_up.execute("INSERT INTO cli (n, i) VALUES (%s, %s) ON CONFLICT(n) DO NOTHING", (c_nom, c_nit))
+                c_up.execute("INSERT INTO h_cab VALUES (%s,%s,%s,%s,%s,%s,%s)", (nro_doc, c_nom, c_nit, "", "", "", ""))
                 
                 subtotal_global = 0
                 iva_bases = {}
@@ -937,12 +1000,8 @@ def main(page: ft.Page):
                     imp_str = item.get('impuesto', 'EXENTO'); und_str = item.get('und', 'UNID')
                     tipo_val = item.get('tipo', 'P')
                     
-                    try:
-                        db.execute("INSERT INTO h_det (nro, desc, cant, und, unit, sub, imp, tipo) VALUES (?,?,?,?,?,?,?,?)", 
-                                   (nro_doc, item['desc'], cant_n, und_str, unit_n, tot_item_n, imp_str, tipo_val))
-                    except:
-                        db.execute("INSERT INTO h_det (nro, desc, cant, und, unit, sub, imp) VALUES (?,?,?,?,?,?,?)", 
-                                   (nro_doc, item['desc'], cant_n, und_str, unit_n, tot_item_n, imp_str))
+                    c_up.execute('INSERT INTO h_det (nro, "desc", cant, und, unit, sub, imp, tipo) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)', 
+                               (nro_doc, item['desc'], cant_n, und_str, unit_n, tot_item_n, imp_str, tipo_val))
 
                     subtotal_global += tot_item_n
                     
@@ -977,12 +1036,10 @@ def main(page: ft.Page):
                     total_final_cotizacion += base_amt * (pct_iva / 100)
 
                 fecha_hora_actual = datetime.now().strftime("%Y-%m-%d %H:%M")
-                db.execute("INSERT INTO historial (nro, cliente, fecha, archivo, total, origen, creador) VALUES (?,?,?,?,?,?,?)", 
+                c_up.execute("INSERT INTO historial (nro, cliente, fecha, archivo, total, origen, creador) VALUES (%s,%s,%s,%s,%s,%s,%s)", 
                            (nro_doc, c_nom, fecha_hora_actual, "web.pdf", total_final_cotizacion, "WEB", sesion["usuario"]))
                 db.commit(); db.close()
 
-                # ==========================================
-                # DICCIONARIO INTELIGENTE NOMBRES COMPLETOS
                 # ==========================================
                 nombres_completos = {
                     "OSCAR": "OSCAR MERA",
@@ -992,9 +1049,6 @@ def main(page: ft.Page):
                     "PAULO": "PAULO ANDRES LEAL GARCIA" 
                 }
                 
-                # ==========================================
-                # DICCIONARIO INTELIGENTE WHATSAPP POR ASESOR
-                # ==========================================
                 numeros_whatsapp = {
                     "OSCAR": "573175046404", 
                     "YEISON": "573002986963", 
@@ -1013,7 +1067,6 @@ def main(page: ft.Page):
                 # ==========================================
 
                 p = PDF()
-                # AQUI LE DECIMOS AL PDF QUE USE EL NOMBRE COMPLETO
                 p.asesor_nombre = nombres_completos.get(asesor_actual, asesor_actual) 
                 
                 p.set_margins(10, 10, 10)
