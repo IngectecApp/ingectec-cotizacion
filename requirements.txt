@@ -1,4 +1,4 @@
-flet==0.21.2
-fpdf2==2.7.7
-qrcode==7.4.2
-Pillow==10.2.0
+flet
+fpdf2
+qrcode
+psycopg2-binary
