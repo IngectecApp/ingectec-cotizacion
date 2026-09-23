@@ -79,7 +79,8 @@ def main(page: ft.Page):
 
     sesion = {"usuario": None, "rol": None}
     lista_items = []
-    estado = {"nro_edicion": None}
+    # --- AQUI SE CONTROLA EL ESTADO DE LA EDICION Y EL CREADOR ORIGINAL ---
+    estado = {"nro_edicion": None, "creador_edicion": None}
 
     def cerrar_dialogo(dlg):
         dlg.open = False; page.update()
@@ -208,6 +209,7 @@ def main(page: ft.Page):
         sesion["rol"] = None
         lista_items.clear()
         estado["nro_edicion"] = None
+        estado["creador_edicion"] = None
         input_usr.value = ""
         input_pwd.value = ""
         
@@ -253,6 +255,14 @@ def main(page: ft.Page):
         cont_i = ft.Container(content=input_pct_i, col={"sm": 3, "md": 2, "lg": 2})
         cont_u = ft.Container(content=input_pct_u, col={"sm": 3, "md": 2, "lg": 2})
         cont_iva_u = ft.Container(content=input_pct_iva_u, col={"sm": 3, "md": 2, "lg": 2})
+
+        # --- MOTOR DE VERIFICACION DE AUTORIA PARA PROTEGER EL TRABAJO ---
+        def verificar_permiso_edicion():
+            if estado.get("nro_edicion") and estado.get("creador_edicion"):
+                if estado["creador_edicion"] != "SISTEMA" and estado["creador_edicion"] != sesion["usuario"]:
+                    mostrar_alerta("Acceso Protegido 🛡️", f"Esta cotización es propiedad exclusiva de {estado['creador_edicion']}. Solo puedes visualizarla, no modificarla.")
+                    return False
+            return True
 
         def cambiar_modo_cot(e):
             es_aiu = dropdown_modo_cot.value == "AIU"
@@ -343,6 +353,7 @@ def main(page: ft.Page):
 
                 def crear_evento_editar(indice_real):
                     def abrir_edicion_directa(e):
+                        if not verificar_permiso_edicion(): return
                         val_c = str(lista_items[indice_real]['cant'])
                         val_p = str(int(float(lista_items[indice_real]['precio'])))
                         
@@ -396,9 +407,11 @@ def main(page: ft.Page):
             page.update()
 
         def quitar_seleccionado(e):
+            if not verificar_permiso_edicion(): return
             if lista_items: lista_items.pop(); actualizar_tabla_visual()
 
         def abrir_modal_item(e):
+            if not verificar_permiso_edicion(): return
             resultados_inv = ft.ListView(expand=True, spacing=10, height=150)
             
             tipo_item = ft.RadioGroup(content=ft.Row([
@@ -743,10 +756,6 @@ def main(page: ft.Page):
                         nro, cli, fec, tot, creador = row[0], row[1], row[2], row[3], row[4]
                         
                         def cargar_cotizacion(evt, numero=nro, creador_doc=creador):
-                            if creador_doc and creador_doc != "SISTEMA" and creador_doc != sesion["usuario"]:
-                                cerrar_dialogo(dlg)
-                                return mostrar_alerta("Acceso Protegido 🛡️", f"Esta cotización es propiedad exclusiva de {creador_doc}. El sistema bloquea su modificación para proteger el trabajo y comisiones del asesor.")
-
                             db_h = conectar_db()
                             cab = db_h.execute("SELECT cli, nit FROM h_cab WHERE nro=?", (numero,)).fetchone()
                             if cab: input_cliente.value = cab[0] if cab[0] else ""; input_nit.value = cab[1] if cab[1] else ""
@@ -776,9 +785,17 @@ def main(page: ft.Page):
 
                                 lista_items.append({"desc": desc_str, "cant": cant_f, "und": und_str, "precio": unit_f, "total": sub_f, "impuesto": impuesto_str, "tipo": tipo_str})
                             db_h.close()
+                            
                             estado["nro_edicion"] = numero
+                            estado["creador_edicion"] = creador_doc
                             actualizar_tabla_visual(); cerrar_dialogo(dlg)
-                            mostrar_alerta("Cargado", f"Cotización N° {numero} cargada correctamente.")
+                            
+                            if creador_doc and creador_doc != "SISTEMA" and creador_doc != sesion["usuario"]:
+                                page.snack_bar = ft.SnackBar(ft.Text(f"👁️ Visualizando cotización de {creador_doc}. Modo Solo Lectura."), bgcolor="#3b82f6")
+                                page.snack_bar.open = True
+                                page.update()
+                            else:
+                                mostrar_alerta("Cargado", f"Cotización N° {numero} cargada correctamente para edición.")
                         
                         etiqueta_creador = f" (Por: {creador})"
                         resultados_hist.controls.append(ft.ListTile(title=ft.Text(f"N° {nro} - {cli}{etiqueta_creador}", color="#fbbf24", weight="bold"), subtitle=ft.Text(f"Fecha/Hora: {fec} | Total: ${int(float(tot)):,}"), on_click=cargar_cotizacion))
@@ -856,9 +873,17 @@ def main(page: ft.Page):
             page.dialog = dlg_sis; dlg_sis.open = True; page.update()
 
         def limpiar_todo(e):
-            lista_items.clear(); estado["nro_edicion"] = None; actualizar_tabla_visual(); input_cliente.value = ""; input_nit.value = ""; lista_busqueda_cli.visible = False; page.update()
+            lista_items.clear()
+            estado["nro_edicion"] = None
+            estado["creador_edicion"] = None
+            actualizar_tabla_visual()
+            input_cliente.value = ""
+            input_nit.value = ""
+            lista_busqueda_cli.visible = False
+            page.update()
 
         def generar_pdf_web(e):
+            if not verificar_permiso_edicion(): return
             try:
                 if not lista_items or not input_cliente.value: 
                     return mostrar_alerta("Aviso", "Faltan ítems o nombre del cliente.")
