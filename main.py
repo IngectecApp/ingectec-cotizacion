@@ -743,11 +743,9 @@ def main(page: ft.Page):
                         nro, cli, fec, tot, creador = row[0], row[1], row[2], row[3], row[4]
                         
                         def cargar_cotizacion(evt, numero=nro, creador_doc=creador):
-                            # --- CANDADO DE SEGURIDAD PARA COMPETENCIA COMERCIAL ---
                             if creador_doc and creador_doc != "SISTEMA" and creador_doc != sesion["usuario"]:
                                 cerrar_dialogo(dlg)
                                 return mostrar_alerta("Acceso Protegido 🛡️", f"Esta cotización es propiedad exclusiva de {creador_doc}. El sistema bloquea su modificación para proteger el trabajo y comisiones del asesor.")
-                            # ---------------------------------------------------------
 
                             db_h = conectar_db()
                             cab = db_h.execute("SELECT cli, nit FROM h_cab WHERE nro=?", (numero,)).fetchone()
@@ -959,6 +957,17 @@ def main(page: ft.Page):
                 db.commit(); db.close()
 
                 # ==========================================
+                # DICCIONARIO INTELIGENTE NOMBRES COMPLETOS
+                # ==========================================
+                nombres_completos = {
+                    "OSCAR": "OSCAR MERA",
+                    "YEISON": "YEISON FABIAN RESTREPO",
+                    "JOHN": "JOHN JAIRO CARDONA",
+                    "JHON": "JOHN JAIRO CARDONA",
+                    "PAULO": "PAULO ANDRES LEAL GARCIA" 
+                }
+                
+                # ==========================================
                 # DICCIONARIO INTELIGENTE WHATSAPP POR ASESOR
                 # ==========================================
                 numeros_whatsapp = {
@@ -979,7 +988,9 @@ def main(page: ft.Page):
                 # ==========================================
 
                 p = PDF()
-                p.asesor_nombre = sesion["usuario"]
+                # AQUI LE DECIMOS AL PDF QUE USE EL NOMBRE COMPLETO
+                p.asesor_nombre = nombres_completos.get(asesor_actual, asesor_actual) 
+                
                 p.set_margins(10, 10, 10)
                 p.set_auto_page_break(auto=True, margin=30)
                 p.add_page()
@@ -1108,7 +1119,6 @@ def main(page: ft.Page):
                 
                 print_total_row("TOTAL", total_final_cotizacion, bold=True)
 
-                # --- CONDICIONES COMERCIALES TOTALMENTE SANITIZADAS ---
                 p.ln(10); p.set_font('helvetica', 'B', 10); p.cell(0, 5, "CONDICIONES COMERCIALES", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                 p.ln(2); p.set_font('helvetica', '', 10)
                 
