@@ -40,7 +40,40 @@ def init_db():
             c.execute("CREATE TABLE IF NOT EXISTS cli (n TEXT PRIMARY KEY, i TEXT, dir TEXT, email TEXT, ciu TEXT, tel TEXT)")
             c.execute("CREATE TABLE IF NOT EXISTS inv (d TEXT PRIMARY KEY, p NUMERIC, stock NUMERIC)")
             c.execute("CREATE TABLE IF NOT EXISTS historial (nro TEXT PRIMARY KEY, cliente TEXT, fecha TEXT, archivo TEXT, total NUMERIC, origen TEXT, creador TEXT)")
-            c.execute("CREATE TABLE IF NOT EXISTS h_cab (nro TEXT PRIMARY KEY, cli TEXT, nit TEXT, dir TEXT, ciu TEXT, tel TEXT, email TEXT)")
+            
+            # Tabla de cabecera con persistencia completa de parámetros
+            c.execute("""CREATE TABLE IF NOT EXISTS h_cab (
+                nro TEXT PRIMARY KEY, 
+                cli TEXT, 
+                nit TEXT, 
+                atn TEXT, 
+                ref TEXT, 
+                ciu_origen TEXT,
+                t_entrega TEXT, 
+                validez TEXT, 
+                pago TEXT, 
+                garantia TEXT, 
+                notas TEXT, 
+                modo TEXT, 
+                pct_a NUMERIC, 
+                pct_i NUMERIC, 
+                pct_u NUMERIC, 
+                pct_iva_u NUMERIC
+            )""")
+            
+            # Migraciones para bases ya inicializadas
+            columnas_extra = [
+                ("atn", "TEXT"), ("ref", "TEXT"), ("ciu_origen", "TEXT"),
+                ("t_entrega", "TEXT"), ("validez", "TEXT"), ("pago", "TEXT"),
+                ("garantia", "TEXT"), ("notas", "TEXT"), ("modo", "TEXT"),
+                ("pct_a", "NUMERIC"), ("pct_i", "NUMERIC"), ("pct_u", "NUMERIC"), ("pct_iva_u", "NUMERIC")
+            ]
+            for col, tipo in columnas_extra:
+                try:
+                    c.execute(f"ALTER TABLE h_cab ADD COLUMN IF NOT EXISTS {col} {tipo}")
+                except Exception:
+                    pass
+
             c.execute('CREATE TABLE IF NOT EXISTS h_det (id SERIAL PRIMARY KEY, nro TEXT, "desc" TEXT, cant NUMERIC, und TEXT, unit NUMERIC, sub NUMERIC, imp TEXT, tipo TEXT)')
             
             conn.commit()
@@ -826,9 +859,37 @@ def main(page: ft.Page):
                         def cargar_cotizacion(evt, numero=nro, creador_doc=creador):
                             db_h = conectar_db()
                             c_h = db_h.cursor()
-                            c_h.execute("SELECT cli, nit FROM h_cab WHERE nro=%s", (numero,))
+                            
+                            # Recuperación integral de todos los campos de cabecera
+                            c_h.execute("""SELECT cli, nit, atn, ref, ciu_origen, t_entrega, validez, pago, garantia, notas, modo, pct_a, pct_i, pct_u, pct_iva_u 
+                                           FROM h_cab WHERE nro=%s""", (numero,))
                             cab = c_h.fetchone()
-                            if cab: input_cliente.value = cab[0] if cab[0] else ""; input_nit.value = cab[1] if cab[1] else ""
+                            
+                            if cab:
+                                input_cliente.value = cab[0] or ""
+                                input_nit.value = cab[1] or ""
+                                input_atencion.value = cab[2] or ""
+                                input_ref.value = cab[3] or ""
+                                input_ciudad.value = cab[4] or "Yumbo"
+                                input_tiempo_entrega.value = cab[5] or "4 Días hábiles"
+                                input_validez.value = cab[6] or "20 Días"
+                                input_pago.value = cab[7] or "30 Días"
+                                input_garantia.value = cab[8] or "6 meses en mano de obra"
+                                input_notas.value = cab[9] or ""
+                                
+                                dropdown_modo_cot.value = cab[10] or "AIU"
+                                input_pct_a.value = str(cab[11]) if cab[11] is not None else "10"
+                                input_pct_i.value = str(cab[12]) if cab[12] is not None else "2"
+                                input_pct_u.value = str(cab[13]) if cab[13] is not None else "8"
+                                input_pct_iva_u.value = str(cab[14]) if cab[14] is not None else "19"
+                                
+                                es_aiu = dropdown_modo_cot.value == "AIU"
+                                container_texto_aiu.visible = es_aiu
+                                cont_a.visible = es_aiu
+                                cont_i.visible = es_aiu
+                                cont_u.visible = es_aiu
+                                cont_iva_u.visible = es_aiu
+
                             lista_items.clear()
                             
                             c_h.execute('SELECT "desc", cant, und, unit, sub, imp, tipo FROM h_det WHERE nro=%s', (numero,))
@@ -861,7 +922,7 @@ def main(page: ft.Page):
                                 page.snack_bar.open = True
                                 page.update()
                             else:
-                                mostrar_alerta("Cargado", f"Cotización N° {numero} cargada correctamente para edición.")
+                                mostrar_alerta("Cargado", f"Cotización N° {numero} cargada exactamente con todos sus parámetros originales.")
                         
                         etiqueta_creador = f" (Por: {creador})"
                         resultados_hist.controls.append(ft.ListTile(title=ft.Text(f"N° {nro} - {cli}{etiqueta_creador}", color="#fbbf24", weight="bold"), subtitle=ft.Text(f"Fecha/Hora: {fec} | Total: ${int(float(tot)):,}"), on_click=cargar_cotizacion))
@@ -941,7 +1002,21 @@ def main(page: ft.Page):
             actualizar_tabla_visual()
             input_cliente.value = ""
             input_nit.value = ""
+            input_atencion.value = ""
+            input_ref.value = ""
+            input_ciudad.value = "Yumbo"
+            input_tiempo_entrega.value = "4 Días hábiles"
+            input_validez.value = "20 Días"
+            input_pago.value = "30 Días"
+            input_garantia.value = "6 meses en mano de obra"
+            input_notas.value = "Toda la actividad será coordinada por el ingeniero Edward Álvarez y/o John Paniagua"
+            dropdown_modo_cot.value = "AIU"
+            input_pct_a.value = "10"
+            input_pct_i.value = "2"
+            input_pct_u.value = "8"
+            input_pct_iva_u.value = "19"
             lista_busqueda_cli.visible = False
+            cambiar_modo_cot(None)
             page.update()
 
         def generar_pdf_web(e):
@@ -950,11 +1025,27 @@ def main(page: ft.Page):
                 if not lista_items or not input_cliente.value: 
                     return mostrar_alerta("Aviso", "Faltan ítems o nombre del cliente.")
                 
-                c_nom = sanitizar_texto(input_cliente.value or "").upper()
-                c_nit = sanitizar_texto(input_nit.value or "")
-                c_ciu_origen = sanitizar_texto(input_ciudad.value or "Yumbo")
-                c_atn = sanitizar_texto(input_atencion.value or "")
-                c_ref = sanitizar_texto(input_ref.value or "")
+                c_nom = sanitizar_texto(input_cliente.value or "").upper().strip()
+                c_nit = sanitizar_texto(input_nit.value or "").strip()
+                c_ciu_origen = sanitizar_texto(input_ciudad.value or "Yumbo").strip()
+                c_atn = sanitizar_texto(input_atencion.value or "").strip()
+                c_ref = sanitizar_texto(input_ref.value or "").strip()
+
+                c_t_entrega = sanitizar_texto(input_tiempo_entrega.value or "").strip()
+                c_validez = sanitizar_texto(input_validez.value or "").strip()
+                c_pago = sanitizar_texto(input_pago.value or "").strip()
+                c_garantia = sanitizar_texto(input_garantia.value or "").strip()
+                c_notas = sanitizar_texto(input_notas.value or "").strip()
+                c_modo = dropdown_modo_cot.value or "AIU"
+
+                try: pct_a = float(input_pct_a.value)
+                except: pct_a = 0.0
+                try: pct_i = float(input_pct_i.value)
+                except: pct_i = 0.0
+                try: pct_u = float(input_pct_u.value)
+                except: pct_u = 0.0
+                try: pct_iva_u = float(input_pct_iva_u.value)
+                except: pct_iva_u = 0.0
 
                 c_dir = ""
                 c_email = ""
@@ -988,7 +1079,11 @@ def main(page: ft.Page):
                     c_up.execute("DELETE FROM historial WHERE nro=%s", (nro_doc,))
                     
                 c_up.execute("INSERT INTO cli (n, i) VALUES (%s, %s) ON CONFLICT(n) DO NOTHING", (c_nom, c_nit))
-                c_up.execute("INSERT INTO h_cab VALUES (%s,%s,%s,%s,%s,%s,%s)", (nro_doc, c_nom, c_nit, "", "", "", ""))
+                
+                # Inserción completa de cabecera para persistencia 100% fiel
+                c_up.execute("""INSERT INTO h_cab (nro, cli, nit, atn, ref, ciu_origen, t_entrega, validez, pago, garantia, notas, modo, pct_a, pct_i, pct_u, pct_iva_u) 
+                                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", 
+                             (nro_doc, c_nom, c_nit, c_atn, c_ref, c_ciu_origen, c_t_entrega, c_validez, c_pago, c_garantia, c_notas, c_modo, pct_a, pct_i, pct_u, pct_iva_u))
                 
                 subtotal_global = 0
                 iva_bases = {}
@@ -1008,24 +1103,13 @@ def main(page: ft.Page):
                         except: pct = 19
                         iva_bases[pct] = iva_bases.get(pct, 0) + tot_item_n
 
-                try: pct_a = float(input_pct_a.value)
-                except: pct_a = 0
-                try: pct_i = float(input_pct_i.value)
-                except: pct_i = 0
-                try: pct_u = float(input_pct_u.value)
-                except: pct_u = 0
-                try: pct_iva_u = float(input_pct_iva_u.value)
-                except: pct_iva_u = 0
-
                 val_a = subtotal_global * (pct_a / 100)
                 val_i = subtotal_global * (pct_i / 100)
                 val_u = subtotal_global * (pct_u / 100)
                 total_aiu_sum = val_a + val_i + val_u
                 val_iva_u_val = val_u * (pct_iva_u / 100)
 
-                modo_cot = dropdown_modo_cot.value
-                
-                if modo_cot == "AIU":
+                if c_modo == "AIU":
                     total_final_cotizacion = subtotal_global + total_aiu_sum + val_iva_u_val
                 else:
                     total_final_cotizacion = subtotal_global
@@ -1033,9 +1117,13 @@ def main(page: ft.Page):
                 for pct_iva, base_amt in iva_bases.items():
                     total_final_cotizacion += base_amt * (pct_iva / 100)
 
+                # Formato solicitado para el nombre del archivo: [CLIENTE]-[MES]-[CONSECUTIVO].pdf
+                nombre_limpio_cli = re.sub(r'[^\w\s-]', '', c_nom).strip()
+                nombre_archivo = f"{nombre_limpio_cli}-{nro_doc}.pdf"
+
                 fecha_hora_actual = datetime.now().strftime("%Y-%m-%d %H:%M")
                 c_up.execute("INSERT INTO historial (nro, cliente, fecha, archivo, total, origen, creador) VALUES (%s,%s,%s,%s,%s,%s,%s)", 
-                           (nro_doc, c_nom, fecha_hora_actual, "web.pdf", total_final_cotizacion, "WEB", sesion["usuario"]))
+                           (nro_doc, c_nom, fecha_hora_actual, nombre_archivo, total_final_cotizacion, "WEB", sesion["usuario"]))
                 db.commit(); db.close()
 
                 # ==========================================
@@ -1182,7 +1270,7 @@ def main(page: ft.Page):
                 
                 print_total_row("SUBTOTAL", subtotal_global)
                 
-                if modo_cot == "AIU":
+                if c_modo == "AIU":
                     print_total_row(f"ADMINISTRACIÓN ({pct_a:g}%)", val_a)
                     print_total_row(f"IMPREVISTOS ({pct_i:g}%)", val_i)
                     print_total_row(f"UTILIDAD ({pct_u:g}%)", val_u)
@@ -1197,32 +1285,32 @@ def main(page: ft.Page):
 
                 p.ln(10); p.set_font('helvetica', 'B', 10); p.cell(0, 5, "CONDICIONES COMERCIALES", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                 p.ln(2); p.set_font('helvetica', '', 10)
-                
-                t_ent = sanitizar_texto(input_tiempo_entrega.value)
-                t_val = sanitizar_texto(input_validez.value)
-                t_pag = sanitizar_texto(input_pago.value)
-                t_gar = sanitizar_texto(input_garantia.value)
-                t_not = sanitizar_texto(input_notas.value.strip())
 
-                p.cell(0, 5, f"- Tiempo de entrega: {t_ent}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                p.cell(0, 5, f"- Validez de la cotizacion: {t_val}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                p.cell(0, 5, f"- Forma de pago: {t_pag}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                p.cell(0, 5, f"- Garantia: {t_gar}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                p.cell(0, 5, f"- Tiempo de entrega: {c_t_entrega}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                p.cell(0, 5, f"- Validez de la cotizacion: {c_validez}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                p.cell(0, 5, f"- Forma de pago: {c_pago}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                p.cell(0, 5, f"- Garantia: {c_garantia}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                 
-                if t_not:
-                    p.multi_cell(0, 5, f"- Notas: {t_not}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                if c_notas:
+                    p.multi_cell(0, 5, f"- Notas: {c_notas}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                 
                 p.ln(8); p.set_font("helvetica", 'B', 8); p.cell(0, 5, "Escanee este código para atención personalizada y directa con nuestra Gerencia.", border=0, align='L', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                 
                 current_y = p.get_y()
                 p.image("assets/qr_temp.png", 10, current_y, 25, 25)
 
-                nombre_archivo = f"Cotizacion_{nro_doc}.pdf"
                 p.output(f"assets/{nombre_archivo}")
                 try: os.remove("assets/qr_temp.png")
                 except: pass
                 
-                dlg_d = ft.AlertDialog(title=ft.Text("✅ Guardado y Generado", color="#10b981"), content=ft.Text("Tu cotización está lista en PDF."), actions=[ft.ElevatedButton("📥 DESCARGAR PDF", bgcolor="#2563eb", color="white", on_click=lambda evt: page.launch_url(f"/{nombre_archivo}")), ft.TextButton("Cerrar", on_click=lambda evt: cerrar_dialogo(dlg_d))])
+                dlg_d = ft.AlertDialog(
+                    title=ft.Text("✅ Guardado y Generado", color="#10b981"), 
+                    content=ft.Text(f"Archivo generado: {nombre_archivo}"), 
+                    actions=[
+                        ft.ElevatedButton("📥 DESCARGAR PDF", bgcolor="#2563eb", color="white", on_click=lambda evt: page.launch_url(f"/{nombre_archivo}")), 
+                        ft.TextButton("Cerrar", on_click=lambda evt: cerrar_dialogo(dlg_d))
+                    ]
+                )
                 page.dialog = dlg_d; dlg_d.open = True; page.update()
             except Exception as errorFallo: mostrar_alerta("Error al generar PDF", f"Hubo un fallo: {str(errorFallo)}")
 
