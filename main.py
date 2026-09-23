@@ -53,6 +53,9 @@ def init_db():
                 c.execute("INSERT INTO proveedores (nombre, telefono) VALUES (%s, %s) ON CONFLICT DO NOTHING", (p_n, p_t))
 
         c.execute("CREATE TABLE IF NOT EXISTS historial (nro TEXT PRIMARY KEY, cliente TEXT, fecha TEXT, archivo TEXT, total NUMERIC, origen TEXT, creador TEXT)")
+        try: c.execute("ALTER TABLE historial ADD COLUMN IF NOT EXISTS permitidos TEXT DEFAULT ''")
+        except: pass
+
         c.execute("""CREATE TABLE IF NOT EXISTS h_cab (
             nro TEXT PRIMARY KEY, cli TEXT, nit TEXT, atn TEXT, ref TEXT, ciu_origen TEXT, t_entrega TEXT, validez TEXT, pago TEXT, garantia TEXT, notas TEXT, modo TEXT, pct_a NUMERIC, pct_i NUMERIC, pct_u NUMERIC, pct_iva_u NUMERIC
         )""")
@@ -107,7 +110,7 @@ def main(page: ft.Page):
 
     sesion = {"usuario": None, "rol": None}
     lista_items = []
-    estado = {"nro_edicion": None, "creador_edicion": None}
+    estado = {"nro_edicion": None, "creador_edicion": None, "permitidos_edicion": []}
 
     def cerrar_dialogo(dlg): dlg.open = False; page.update()
     def mostrar_alerta(titulo, mensaje):
@@ -139,7 +142,9 @@ def main(page: ft.Page):
     pantalla_login = ft.Container(content=ft.Column([ft.Icon(ft.icons.LOCK_PERSON, size=50, color="#fbbf24"), ft.Text("INGECTEC - Acceso Seguro", size=20, weight="bold", color="white"), input_usr, input_pwd, ft.ElevatedButton("INICIAR SESIÓN", bgcolor="#2563eb", color="white", width=300, height=45, on_click=procesar_login)], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15), alignment=ft.alignment.center, expand=True)
 
     def mostrar_login():
-        sesion["usuario"] = None; sesion["rol"] = None; lista_items.clear(); estado["nro_edicion"] = None; estado["creador_edicion"] = None; input_usr.value = ""; input_pwd.value = ""
+        sesion["usuario"] = None; sesion["rol"] = None; lista_items.clear()
+        estado["nro_edicion"] = None; estado["creador_edicion"] = None; estado["permitidos_edicion"] = []
+        input_usr.value = ""; input_pwd.value = ""
         page.scroll = None; page.controls.clear(); page.add(pantalla_login); page.update()
 
     def iniciar_app_principal():
@@ -164,10 +169,14 @@ def main(page: ft.Page):
         cont_a = ft.Container(content=input_pct_a, col={"sm": 3, "md": 2, "lg": 2}); cont_i = ft.Container(content=input_pct_i, col={"sm": 3, "md": 2, "lg": 2})
         cont_u = ft.Container(content=input_pct_u, col={"sm": 3, "md": 2, "lg": 2}); cont_iva_u = ft.Container(content=input_pct_iva_u, col={"sm": 3, "md": 2, "lg": 2})
 
+        # --- LÓGICA DE PERMISOS ACTUALIZADA ---
         def verificar_permiso_edicion():
             if estado.get("nro_edicion") and estado.get("creador_edicion"):
                 if estado["creador_edicion"] not in ["SISTEMA", sesion["usuario"]]:
-                    mostrar_alerta("Protegido 🛡️", f"Cotización exclusiva de {estado['creador_edicion']}. Solo lectura."); return False
+                    permitidos = estado.get("permitidos_edicion", [])
+                    if sesion["usuario"] not in permitidos:
+                        mostrar_alerta("Protegido 🛡️", f"Cotización exclusiva de {estado['creador_edicion']}. No tienes permiso de edición para este documento.")
+                        return False
             return True
 
         def cambiar_modo_cot(e):
@@ -241,7 +250,6 @@ def main(page: ft.Page):
                     txt_col = "white"
                     txt_wgt = "normal"
                 else:
-                    # SUB-ÍTEMS TOTALMENTE EN BLANCO
                     tot_s = ""
                     c_s = f"{item['cant']:g} {item['und']}" if item['cant'] > 0 else ""
                     imp_l = ""
@@ -572,16 +580,38 @@ def main(page: ft.Page):
             dlg = ft.AlertDialog(title=ft.Text("🔐 Usuarios"), content=ft.Container(width=700, content=ft.Column([ft.ResponsiveRow([un, up, ur]), ft.ElevatedButton("Guardar", on_click=sv_u), res_u], tight=True)), actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))])
             page.dialog = dlg; dlg.open = True; load_u()
 
+        # --- NUEVA FUNCIÓN: CAMBIO DE CONTRASEÑA PERSONAL ---
+        def abrir_modal_cambiar_clave(e):
+            pass_act = ft.TextField(label="Contraseña Actual", password=True, can_reveal_password=True)
+            pass_new = ft.TextField(label="Nueva Contraseña", password=True, can_reveal_password=True)
+            pass_conf = ft.TextField(label="Confirmar Nueva Contraseña", password=True, can_reveal_password=True)
+            
+            def guardar_clave(evt):
+                if pass_new.value != pass_conf.value: return mostrar_alerta("Error", "Las contraseñas nuevas no coinciden.")
+                db = conectar_db()
+                if db:
+                    c = db.cursor(); c.execute("SELECT password FROM usuarios WHERE usuario=%s", (sesion["usuario"],)); curr_pw = c.fetchone()[0]
+                    if curr_pw != pass_act.value: db.close(); return mostrar_alerta("Error", "La contraseña actual es incorrecta.")
+                    c.execute("UPDATE usuarios SET password=%s WHERE usuario=%s", (pass_new.value, sesion["usuario"])); db.close()
+                    cerrar_dialogo(dlg)
+                    page.snack_bar = ft.SnackBar(ft.Text("✅ Contraseña actualizada correctamente"), bgcolor="#10b981"); page.snack_bar.open = True; page.update()
+
+            dlg = ft.AlertDialog(title=ft.Text("🔑 Cambiar Mi Contraseña"), content=ft.Column([pass_act, pass_new, pass_conf], tight=True), actions=[ft.ElevatedButton("Guardar Cambios", bgcolor="#10b981", color="white", on_click=guardar_clave), ft.TextButton("Cancelar", on_click=lambda ev: cerrar_dialogo(dlg))])
+            page.dialog = dlg; dlg.open = True; page.update()
+
+        # --- HISTORIAL ACTUALIZADO CON FUNCIÓN COMPARTIR ---
         def abrir_modal_historial(e):
             res_h = ft.ListView(expand=True, spacing=10, height=300); bus_h = ft.TextField(label="Buscar cliente...", width=400)
             def load_h(evt=None):
                 res_h.controls.clear(); txt=(bus_h.value or "").upper().strip(); db=conectar_db()
                 if db:
                     c=db.cursor()
-                    if txt: c.execute("SELECT nro, cliente, fecha, total, creador FROM historial WHERE UPPER(cliente) LIKE %s ORDER BY nro DESC LIMIT 50", ('%'+txt+'%',))
-                    else: c.execute("SELECT nro, cliente, fecha, total, creador FROM historial ORDER BY nro DESC LIMIT 30")
-                    for nr, cl, fc, tt, cr in c.fetchall():
-                        def c_cot(ev, nro=nr, creador=cr):
+                    if txt: c.execute("SELECT nro, cliente, fecha, total, creador, permitidos FROM historial WHERE UPPER(cliente) LIKE %s ORDER BY nro DESC LIMIT 50", ('%'+txt+'%',))
+                    else: c.execute("SELECT nro, cliente, fecha, total, creador, permitidos FROM historial ORDER BY nro DESC LIMIT 30")
+                    for nr, cl, fc, tt, cr, perm in c.fetchall():
+                        permitidos_list = [p.strip() for p in (perm or "").split(",") if p.strip()]
+                        
+                        def c_cot(ev, nro=nr, creador=cr, perm_list=permitidos_list):
                             dbh=conectar_db(); ch=dbh.cursor()
                             ch.execute("SELECT cli, nit, atn, ref, ciu_origen, t_entrega, validez, pago, garantia, notas, modo, pct_a, pct_i, pct_u, pct_iva_u FROM h_cab WHERE nro=%s", (nro,))
                             cab = ch.fetchone()
@@ -595,9 +625,42 @@ def main(page: ft.Page):
                                 ds=d[0] or ""; ct=float(d[1] or 0); ud=str(d[2] or "UNID"); ut=float(d[3] or 0); sb=float(d[4] or (ct*ut)); im=str(d[5] or "EXENTO"); tp=str(d[6] or "P")
                                 if "AIU" in ud or "IVA" in ud or "EXENTO" in ud: t=im; im=ud; ud=t if t not in ["EXENTO", ""] else "UNID"
                                 lista_items.append({"desc": ds, "cant": ct, "und": ud, "precio": ut, "total": sb, "impuesto": im, "tipo": tp})
-                            dbh.close(); estado["nro_edicion"]=nro; estado["creador_edicion"]=creador; actualizar_tabla_visual(); cerrar_dialogo(dlg)
-                            if creador and creador not in ["SISTEMA", sesion["usuario"]]: page.snack_bar=ft.SnackBar(ft.Text(f"👁️ Solo lectura (creado por {creador})"), bgcolor="#3b82f6"); page.snack_bar.open=True; page.update()
-                        res_h.controls.append(ft.ListTile(title=ft.Text(f"N° {nr} - {cl} (Por: {cr})", color="#fbbf24"), subtitle=ft.Text(f"{fc} | ${int(float(tt)):,}"), on_click=c_cot))
+                            dbh.close()
+                            estado["nro_edicion"]=nro; estado["creador_edicion"]=creador; estado["permitidos_edicion"] = perm_list
+                            actualizar_tabla_visual(); cerrar_dialogo(dlg)
+                            
+                            if creador and creador not in ["SISTEMA", sesion["usuario"]] and sesion["usuario"] not in perm_list:
+                                page.snack_bar=ft.SnackBar(ft.Text(f"👁️ Solo lectura (creado por {creador})"), bgcolor="#3b82f6"); page.snack_bar.open=True; page.update()
+                        
+                        # --- BOTÓN DE COMPARTIR SI ES EL DUEÑO ---
+                        trail_btns = []
+                        if cr == sesion["usuario"]:
+                            def share_cot(ev, nro_val=nr, actual_perms=permitidos_list):
+                                db_s = conectar_db(); ops = []
+                                if db_s:
+                                    c_s = db_s.cursor(); c_s.execute("SELECT usuario FROM usuarios WHERE usuario != %s", (sesion["usuario"],))
+                                    for ur in c_s.fetchall(): ops.append(ft.dropdown.Option(ur[0]))
+                                    db_s.close()
+                                
+                                usr_drop = ft.Dropdown(label="Seleccionar Usuario a dar permiso", options=ops)
+                                def grant_perm(ev2):
+                                    if usr_drop.value:
+                                        if usr_drop.value not in actual_perms:
+                                            new_perms_list = actual_perms + [usr_drop.value]
+                                            new_perms_str = ",".join(new_perms_list)
+                                            db2 = conectar_db()
+                                            if db2:
+                                                c2 = db2.cursor(); c2.execute("UPDATE historial SET permitidos=%s WHERE nro=%s", (new_perms_str, nro_val)); db2.close()
+                                                cerrar_dialogo(dlg_share); load_h()
+                                                page.snack_bar = ft.SnackBar(ft.Text(f"✅ Permiso concedido a {usr_drop.value}"), bgcolor="#10b981"); page.snack_bar.open=True; page.update()
+                                        else: mostrar_alerta("Aviso", "El usuario ya tiene permisos.")
+                                
+                                dlg_share = ft.AlertDialog(title=ft.Text(f"🤝 Compartir Cotización {nro_val}"), content=ft.Column([ft.Text("Otorga permiso de edición a un compañero:"), usr_drop], tight=True), actions=[ft.ElevatedButton("Dar Permiso", bgcolor="#10b981", color="white", on_click=grant_perm), ft.TextButton("Cancelar", on_click=lambda ev: cerrar_dialogo(dlg_share))])
+                                page.dialog = dlg_share; dlg_share.open = True; page.update()
+                            
+                            trail_btns.append(ft.IconButton(ft.icons.SHARE, icon_color="#3b82f6", tooltip="Compartir Permisos", on_click=share_cot))
+
+                        res_h.controls.append(ft.ListTile(title=ft.Text(f"N° {nr} - {cl} (Por: {cr})", color="#fbbf24"), subtitle=ft.Text(f"{fc} | ${int(float(tt)):,}"), on_click=c_cot, trailing=ft.Row(trail_btns, tight=True) if trail_btns else None))
                 db.close(); page.update()
             bus_h.on_change = load_h
             dlg = ft.AlertDialog(title=ft.Text("🔍 Historial"), content=ft.Container(width=700, content=ft.Column([bus_h, res_h], tight=True)), actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))])
@@ -658,7 +721,7 @@ def main(page: ft.Page):
             page.dialog = dlg_sis; dlg_sis.open = True; page.update()
 
         def limpiar_todo(e):
-            lista_items.clear(); estado["nro_edicion"] = None; estado["creador_edicion"] = None; actualizar_tabla_visual()
+            lista_items.clear(); estado["nro_edicion"] = None; estado["creador_edicion"] = None; estado["permitidos_edicion"] = []; actualizar_tabla_visual()
             input_cliente.value = ""; input_nit.value = ""; input_atencion.value = ""; input_ref.value = ""; input_ciudad.value = "Yumbo"; input_tiempo_entrega.value = "4 Días hábiles"; input_validez.value = "20 Días"; input_pago.value = "30 Días"; input_garantia.value = "6 meses en mano de obra"; input_notas.value = "Toda la actividad será coordinada por el ingeniero Edward Álvarez y/o John Paniagua"; dropdown_modo_cot.value = "AIU"; input_pct_a.value = "10"; input_pct_i.value = "2"; input_pct_u.value = "8"; input_pct_iva_u.value = "19"; lista_busqueda_cli.visible = False; cambiar_modo_cot(None); page.update()
 
         def generar_pdf_web(e):
@@ -707,7 +770,13 @@ def main(page: ft.Page):
                 for p_iva, b_amt in iva_bases.items(): tot_fin += b_amt * (p_iva / 100)
 
                 nom_limp = re.sub(r'[^\w\s-]', '', c_nom).strip(); nom_arc = f"{nom_limp}-{nro_doc}.pdf"
-                c_up.execute("INSERT INTO historial (nro, cliente, fecha, archivo, total, origen, creador) VALUES (%s,%s,%s,%s,%s,%s,%s)", (nro_doc, c_nom, datetime.now().strftime("%Y-%m-%d %H:%M"), nom_arc, tot_fin, "WEB", sesion["usuario"]))
+                
+                c_up.execute("SELECT permitidos FROM historial WHERE nro=%s", (nro_doc,))
+                row_perm = c_up.fetchone()
+                perm_string = row_perm[0] if row_perm else ""
+                
+                creador_final = estado.get("creador_edicion") or sesion["usuario"]
+                c_up.execute("INSERT INTO historial (nro, cliente, fecha, archivo, total, origen, creador, permitidos) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)", (nro_doc, c_nom, datetime.now().strftime("%Y-%m-%d %H:%M"), nom_arc, tot_fin, "WEB", creador_final, perm_string))
                 db.close()
 
                 asesor_act = sesion["usuario"].upper()
@@ -760,7 +829,6 @@ def main(page: ft.Page):
                         p.set_fill_color(255, 255, 255)
                         p.set_font('helvetica', '', 8)
                     else: 
-                        # --- SUB-ÍTEMS EN BLANCO ---
                         c_s=f"{i['cant']:g}" if i['cant']>0 else ""; u_s=sanitizar_texto(i['und']) if i['cant']>0 else ""; pu=""; imps=""; tot_s=""
                         p.set_fill_color(255, 255, 255)
                         p.set_font('helvetica', '', 8)
@@ -804,6 +872,10 @@ def main(page: ft.Page):
         ]
         if sesion["rol"] == "ADMIN": botones_lista.append(ft.ElevatedButton("🔐 USUARIOS", bgcolor="#8b5cf6", color="white", on_click=abrir_modal_usuarios))
         botones_lista.extend([ft.ElevatedButton("🔍 HISTORIAL", bgcolor="#2563eb", color="white", on_click=abrir_modal_historial), ft.ElevatedButton("🧹 LIMPIAR", bgcolor="#64748b", color="white", on_click=limpiar_todo)])
+        
+        # --- NUEVO BOTÓN: MI CLAVE ---
+        botones_lista.append(ft.ElevatedButton("🔑 MI CLAVE", bgcolor="#f59e0b", color="black", on_click=abrir_modal_cambiar_clave))
+        
         if sesion["rol"] == "ADMIN": botones_lista.append(ft.ElevatedButton("⚙️ SISTEMA", bgcolor="#475569", color="white", on_click=abrir_modal_sistema))
         botones_lista.append(ft.ElevatedButton("🚪 CERRAR SESIÓN", bgcolor="#ef4444", color="white", on_click=lambda e: mostrar_login()))
 
