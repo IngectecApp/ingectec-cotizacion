@@ -41,7 +41,6 @@ def init_db():
             c.execute("CREATE TABLE IF NOT EXISTS inv (d TEXT PRIMARY KEY, p NUMERIC, stock NUMERIC)")
             c.execute("CREATE TABLE IF NOT EXISTS historial (nro TEXT PRIMARY KEY, cliente TEXT, fecha TEXT, archivo TEXT, total NUMERIC, origen TEXT, creador TEXT)")
             
-            # Tabla de cabecera con persistencia completa de parámetros
             c.execute("""CREATE TABLE IF NOT EXISTS h_cab (
                 nro TEXT PRIMARY KEY, 
                 cli TEXT, 
@@ -61,7 +60,6 @@ def init_db():
                 pct_iva_u NUMERIC
             )""")
             
-            # Migraciones para bases ya inicializadas
             columnas_extra = [
                 ("atn", "TEXT"), ("ref", "TEXT"), ("ciu_origen", "TEXT"),
                 ("t_entrega", "TEXT"), ("validez", "TEXT"), ("pago", "TEXT"),
@@ -298,10 +296,13 @@ def main(page: ft.Page):
                 db = conectar_db()
                 if db:
                     c = db.cursor()
-                    c.execute("SELECT n, i FROM cli WHERE UPPER(n) LIKE %s ORDER BY n ASC LIMIT 10", ('%'+texto+'%',))
+                    c.execute("SELECT n, i, tel, dir, ciu, email FROM cli WHERE UPPER(n) LIKE %s ORDER BY n ASC LIMIT 10", ('%'+texto+'%',))
                     for row in c.fetchall():
-                        def seleccionar(evt, nombre=row[0], nit=(row[1] if row[1] else "")):
-                            input_cliente.value = nombre; input_nit.value = nit; lista_busqueda_cli.visible = False; page.update()
+                        def seleccionar(evt, data=row):
+                            input_cliente.value = data[0] or ""
+                            input_nit.value = data[1] or ""
+                            lista_busqueda_cli.visible = False
+                            page.update()
                         lista_busqueda_cli.controls.append(ft.ListTile(title=ft.Text(row[0], color="#fbbf24", size=13, weight="bold"), on_click=seleccionar))
                     db.close(); lista_busqueda_cli.visible = len(lista_busqueda_cli.controls) > 0
             else: lista_busqueda_cli.visible = False
@@ -669,6 +670,13 @@ def main(page: ft.Page):
             e_cli_ciu = ft.TextField(label="Ciudad (Ej. Yumbo)", col={"sm": 6})
             e_cli_email = ft.TextField(label="Email", col={"sm": 12})
 
+            e_masivo_cli = ft.TextField(
+                multiline=True, 
+                min_lines=8, 
+                max_lines=12, 
+                label="Pega aquí desde Excel (Orden: 1.Nombre | 2.NIT | 3.Teléfono | 4.Dirección | 5.Ciudad | 6.Email)"
+            )
+
             def cargar_clientes_lista():
                 resultados_cli.controls.clear()
                 db = conectar_db()
@@ -729,16 +737,75 @@ def main(page: ft.Page):
                 e_cli_nom.value = ""; e_cli_nit.value = ""; e_cli_dir.value = ""; e_cli_email.value = ""; e_cli_ciu.value = ""; e_cli_tel.value = ""
                 page.update()
 
+            def procesar_masivo_cli(evt):
+                if not e_masivo_cli.value.strip(): return
+                lineas = e_masivo_cli.value.strip().split('\n')
+                
+                db = conectar_db()
+                if not db: return
+                c = db.cursor()
+                
+                agregados = 0
+                for linea in lineas:
+                    partes = linea.split('\t') 
+                    if len(partes) >= 1:
+                        nom = sanitizar_texto(partes[0].strip().upper())
+                        if not nom: continue
+                        
+                        nit = sanitizar_texto(partes[1].strip()) if len(partes) > 1 else ""
+                        tel = sanitizar_texto(partes[2].strip()) if len(partes) > 2 else ""
+                        dir_c = sanitizar_texto(partes[3].strip()) if len(partes) > 3 else ""
+                        ciu = sanitizar_texto(partes[4].strip()) if len(partes) > 4 else ""
+                        email = sanitizar_texto(partes[5].strip()) if len(partes) > 5 else ""
+                        
+                        c.execute("""INSERT INTO cli (n, i, tel, dir, ciu, email) 
+                                     VALUES (%s,%s,%s,%s,%s,%s) 
+                                     ON CONFLICT(n) DO UPDATE 
+                                     SET i=EXCLUDED.i, tel=EXCLUDED.tel, dir=EXCLUDED.dir, ciu=EXCLUDED.ciu, email=EXCLUDED.email""", 
+                                  (nom, nit, tel, dir_c, ciu, email))
+                        agregados += 1
+                        
+                db.commit()
+                db.close()
+                e_masivo_cli.value = ""
+                cargar_clientes_lista()
+                page.snack_bar = ft.SnackBar(ft.Text(f"✅ ¡Éxito! Se procesaron {agregados} clientes."), bgcolor="#10b981")
+                page.snack_bar.open = True
+                page.update()
+
+            pestañas_clientes = ft.Tabs(
+                selected_index=0,
+                animation_duration=300,
+                tabs=[
+                    ft.Tab(
+                        text="Búsqueda y Edición",
+                        content=ft.Column([
+                            ft.Container(height=10),
+                            ft.Text("Para crear o modificar, llena los datos y presiona Guardar:", size=12, color="white54"),
+                            ft.ResponsiveRow([e_cli_nom, e_cli_nit, e_cli_tel, e_cli_dir, e_cli_ciu, e_cli_email]),
+                            ft.Row([ft.ElevatedButton("Guardar Cliente", bgcolor="#10b981", color="white", on_click=guardar_cliente_crud), ft.TextButton("Limpiar Campos", on_click=limpiar_form_cliente)]),
+                            ft.Divider(color="white24"),
+                            ft.Text("Listado de Clientes Registrados:", weight="bold"),
+                            resultados_cli
+                        ], tight=True, scroll=ft.ScrollMode.AUTO)
+                    ),
+                    ft.Tab(
+                        text="Importación Masiva",
+                        content=ft.Column([
+                            ft.Container(height=10),
+                            ft.Text("Copia las filas de tus clientes desde Excel y pégalas abajo.", size=12, color="white54"),
+                            ft.Text("Orden de columnas: 1.Nombre | 2.NIT | 3.Teléfono | 4.Dirección | 5.Ciudad | 6.Email (Los datos faltantes quedarán vacíos).", size=11, color="#fbbf24", weight="bold"),
+                            e_masivo_cli,
+                            ft.ElevatedButton("📥 IMPORTAR CLIENTES DESDE EXCEL", bgcolor="#10b981", color="white", on_click=procesar_masivo_cli)
+                        ], tight=True)
+                    )
+                ],
+                expand=1
+            )
+
             dlg = ft.AlertDialog(
                 title=ft.Text("👥 Gestión de Clientes"), 
-                content=ft.Container(width=750, content=ft.Column([
-                    ft.Text("Para crear o modificar, llena los datos y presiona Guardar:", size=12, color="white54"),
-                    ft.ResponsiveRow([e_cli_nom, e_cli_nit, e_cli_tel, e_cli_dir, e_cli_ciu, e_cli_email]),
-                    ft.Row([ft.ElevatedButton("Guardar Cliente", bgcolor="#10b981", color="white", on_click=guardar_cliente_crud), ft.TextButton("Limpiar Campos", on_click=limpiar_form_cliente)]),
-                    ft.Divider(color="white24"),
-                    ft.Text("Listado de Clientes Registrados:", weight="bold"),
-                    resultados_cli
-                ], tight=True, scroll=ft.ScrollMode.AUTO)), 
+                content=ft.Container(width=750, height=500, content=pestañas_clientes), 
                 actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))]
             )
             page.dialog = dlg; dlg.open = True; cargar_clientes_lista()
@@ -860,7 +927,6 @@ def main(page: ft.Page):
                             db_h = conectar_db()
                             c_h = db_h.cursor()
                             
-                            # Recuperación integral de todos los campos de cabecera
                             c_h.execute("""SELECT cli, nit, atn, ref, ciu_origen, t_entrega, validez, pago, garantia, notas, modo, pct_a, pct_i, pct_u, pct_iva_u 
                                            FROM h_cab WHERE nro=%s""", (numero,))
                             cab = c_h.fetchone()
@@ -1080,7 +1146,6 @@ def main(page: ft.Page):
                     
                 c_up.execute("INSERT INTO cli (n, i) VALUES (%s, %s) ON CONFLICT(n) DO NOTHING", (c_nom, c_nit))
                 
-                # Inserción completa de cabecera para persistencia 100% fiel
                 c_up.execute("""INSERT INTO h_cab (nro, cli, nit, atn, ref, ciu_origen, t_entrega, validez, pago, garantia, notas, modo, pct_a, pct_i, pct_u, pct_iva_u) 
                                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", 
                              (nro_doc, c_nom, c_nit, c_atn, c_ref, c_ciu_origen, c_t_entrega, c_validez, c_pago, c_garantia, c_notas, c_modo, pct_a, pct_i, pct_u, pct_iva_u))
@@ -1117,7 +1182,6 @@ def main(page: ft.Page):
                 for pct_iva, base_amt in iva_bases.items():
                     total_final_cotizacion += base_amt * (pct_iva / 100)
 
-                # Formato solicitado para el nombre del archivo: [CLIENTE]-[MES]-[CONSECUTIVO].pdf
                 nombre_limpio_cli = re.sub(r'[^\w\s-]', '', c_nom).strip()
                 nombre_archivo = f"{nombre_limpio_cli}-{nro_doc}.pdf"
 
