@@ -228,6 +228,7 @@ def main(page: ft.Page):
         input_pct_iva_u = ft.TextField(label="IVA s/U %", value="19")
         lista_busqueda_cli = ft.ListView(height=150, visible=False, spacing=2)
 
+        # --- SELECTOR DE MODO AIU / IVA ---
         dropdown_modo_cot = ft.Dropdown(
             label="Tipo Cotización",
             options=[ft.dropdown.Option("AIU"), ft.dropdown.Option("IVA")],
@@ -945,7 +946,7 @@ def main(page: ft.Page):
                 numeros_whatsapp = {
                     "OSCAR": "573175046404", 
                     "YEISON": "573002986963", 
-                    "JOHN": "57322552559", 
+                    "JOHN": "57322552559", # Nota: le falta un dígito, verifica si es 322552559X
                     "JHON": "57322552559", 
                     "PAULO": "573175046404"
                 }
@@ -1088,18 +1089,18 @@ def main(page: ft.Page):
                 
                 print_total_row("TOTAL", total_final_cotizacion, bold=True)
 
-                # --- NUEVA ESTRUCTURA DE CONDICIONES COMERCIALES (CORREGIDA SIN VIÑETAS ESPECIALES) ---
+                # --- NUEVA ESTRUCTURA DE CONDICIONES COMERCIALES ---
                 p.ln(10); p.set_font('helvetica', 'B', 10); p.cell(0, 5, "CONDICIONES COMERCIALES", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                 p.ln(2); p.set_font('helvetica', '', 10)
                 
-                p.cell(0, 5, f"- Tiempo de entrega: {input_tiempo_entrega.value}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                p.cell(0, 5, f"- Validez de la cotización: {input_validez.value}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                p.cell(0, 5, f"- Forma de pago: {input_pago.value}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                p.cell(0, 5, f"- Garantía: {input_garantia.value}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                p.cell(0, 5, f"• Tiempo de entrega: {input_tiempo_entrega.value}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                p.cell(0, 5, f"• Validez de la cotización: {input_validez.value}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                p.cell(0, 5, f"• Forma de pago: {input_pago.value}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                p.cell(0, 5, f"• Garantía: {input_garantia.value}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                 
                 if input_notas.value.strip():
-                    p.multi_cell(0, 5, f"- Notas: {input_notas.value.strip()}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                # --------------------------------------------------------------------------------------
+                    p.multi_cell(0, 5, f"• Notas: {input_notas.value.strip()}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                # ---------------------------------------------------
                 
                 p.ln(8); p.set_font("helvetica", 'B', 8); p.cell(0, 5, "Escanee este código para atención personalizada y directa con nuestra Gerencia.", border=0, align='L', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                 
