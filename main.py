@@ -195,9 +195,6 @@ def main(page: ft.Page):
             if res: nro_actual = f"{datetime.now().strftime('%m')}-{res[0]:03d}"
             db_num.close()
 
-        # ==========================================
-        # FORMULA MATEMÁTICA Y VISUALIZACIÓN EN UI
-        # ==========================================
         def obtener_items_procesados(lista):
             disp = []; curr_p = -1; np, ns = 0, 0
             for i, it in enumerate(lista):
@@ -231,7 +228,6 @@ def main(page: ft.Page):
                 has_s = item.get('has_subs', False)
                 is_title = is_p and has_s
                 
-                # REGLA VISUAL PARA LA PANTALLA
                 if is_title:
                     tot_s = f"${int(item['total']):,}" if item['total'] > 0 else ""
                     c_s = ""
@@ -245,8 +241,8 @@ def main(page: ft.Page):
                     txt_col = "white"
                     txt_wgt = "normal"
                 else:
-                    # SUB-ÍTEMS EN CERO VISUALMENTE
-                    tot_s = "$0"
+                    # SUB-ÍTEMS TOTALMENTE EN BLANCO
+                    tot_s = ""
                     c_s = f"{item['cant']:g} {item['und']}" if item['cant'] > 0 else ""
                     imp_l = ""
                     txt_col = "white"
@@ -752,22 +748,20 @@ def main(page: ft.Page):
 
                 p.set_fill_color(255, 255, 255)
                 
-                # ==========================================
-                # LÓGICA DE DIBUJO CON TÍTULOS AMARILLOS
-                # ==========================================
                 for idx, i in enumerate(obtener_items_procesados(lista_items)):
                     is_title = bool(i['tipo'] == 'P' and i.get('has_subs', False))
                     
                     if is_title: 
                         c_s=""; u_s=""; pu=""; imps=""; tot_s=f"${int(i['total']):,}" if i['total']>0 else ""
-                        p.set_fill_color(255, 248, 204) # Amarillo tenue pastel
+                        p.set_fill_color(255, 248, 204) 
                         p.set_font('helvetica', 'B', 8)
                     elif i['tipo'] == 'P': 
                         c_s=f"{i['cant']:g}" if i['cant']>0 else ""; u_s=sanitizar_texto(i['und']) if i['cant']>0 else ""; pu=f"${int(i['precio']):,}" if i['total']>0 else ""; imps=sanitizar_texto(i['impuesto']) if i['total']>0 else ""; tot_s=f"${int(i['total']):,}" if i['total']>0 else ""
                         p.set_fill_color(255, 255, 255)
                         p.set_font('helvetica', '', 8)
                     else: 
-                        c_s=f"{i['cant']:g}" if i['cant']>0 else ""; u_s=sanitizar_texto(i['und']) if i['cant']>0 else ""; pu="$0"; imps=""; tot_s="$0"
+                        # --- SUB-ÍTEMS EN BLANCO ---
+                        c_s=f"{i['cant']:g}" if i['cant']>0 else ""; u_s=sanitizar_texto(i['und']) if i['cant']>0 else ""; pu=""; imps=""; tot_s=""
                         p.set_fill_color(255, 255, 255)
                         p.set_font('helvetica', '', 8)
 
