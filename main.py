@@ -287,7 +287,7 @@ def main(page: ft.Page):
                 resultados_bod = ft.ListView(height=180)
                 e_desc = ft.TextField(label="Nombre Producto")
                 e_precio = ft.TextField(label="Precio Producto")
-                e_mas = ft.TextField(multiline=True, min_lines=6, max_lines=10, label="Pega desde Excel (Nombre | Precio)")
+                e_mas = ft.TextField(multiline=True, min_lines=6, max_lines=10, label="Pega Excel (Col 1: Ítem | Col 2: Proveedor | Col 3: Precio)")
                 
                 c_item = ft.TextField(label="Buscar Ítem para cotizar...")
                 lst_comp = ft.ListView(height=100, visible=False, spacing=2)
@@ -357,15 +357,31 @@ def main(page: ft.Page):
                     db=conectar_db()
                     if db:
                         c=db.cursor(); ag=0; fh = datetime.now().strftime("%Y-%m-%d")
+                        evaluados = {}
+                        
                         for l in e_mas.value.strip().split('\n'):
                             pts = l.split('\t')
                             if len(pts)>=1 and pts[0].strip():
-                                pr=0.0
-                                if len(pts)>=2: 
-                                    try: pr=float(pts[1].replace("$","").replace(".","").replace(",","").replace(" ","").strip())
-                                    except: pass
-                                c.execute("INSERT INTO inv (d, p, stock, proveedor, fecha_act) VALUES (%s,%s,0,'',%s) ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p, fecha_act=EXCLUDED.fecha_act", (pts[0].strip().upper(), pr, fh)); ag+=1
-                        db.close(); e_mas.value=""; b_bod(None); load_cat(None); page.snack_bar=ft.SnackBar(ft.Text(f"✅ {ag} procesados con fecha de hoy"), bgcolor="#10b981"); page.snack_bar.open=True; page.update()
+                                item = pts[0].strip().upper()
+                                prov = sanitizar_texto(pts[1].strip().upper()) if len(pts)>=3 else ""
+                                
+                                pr_str = "0"
+                                if len(pts) >= 3: pr_str = pts[2]
+                                elif len(pts) == 2: pr_str = pts[1]; prov = ""
+                                
+                                try: pr = float(pr_str.replace("$","").replace(".","").replace(",","").replace(" ","").strip())
+                                except: pr = 0.0
+                                
+                                if item not in evaluados: evaluados[item] = {"prov": prov, "prec": pr}
+                                else:
+                                    if pr < evaluados[item]["prec"]: evaluados[item] = {"prov": prov, "prec": pr}
+                        
+                        for itm, data in evaluados.items():
+                            c.execute("INSERT INTO inv (d, p, stock, proveedor, fecha_act) VALUES (%s,%s,0,%s,%s) ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p, proveedor=EXCLUDED.proveedor, fecha_act=EXCLUDED.fecha_act", (itm, data["prec"], data["prov"], fh))
+                            ag+=1
+                        
+                        db.commit(); db.close(); e_mas.value=""; b_bod(None); load_cat(None)
+                        page.snack_bar=ft.SnackBar(ft.Text(f"✅ {ag} ítems evaluados y actualizados con éxito."), bgcolor="#10b981"); page.snack_bar.open=True; page.update()
 
                 def b_comp(evt):
                     txt = (c_item.value or "").upper().strip(); lst_comp.controls.clear()
@@ -430,8 +446,8 @@ def main(page: ft.Page):
                     content=ft.Container(width=750, height=550, content=ft.Tabs(
                         selected_index=0, tabs=[
                             ft.Tab(text="🔍 Buscar", content=ft.Column([ft.Container(height=10), e_desc, e_precio, ft.ElevatedButton("Guardar Precio / Actualizar Fecha", bgcolor="#2563eb", on_click=s_bod), resultados_bod], tight=True)),
-                            ft.Tab(text="📥 Masivo", content=ft.Column([ft.Container(height=10), e_mas, ft.ElevatedButton("Importar", bgcolor="#10b981", on_click=p_mas)], tight=True)),
-                            ft.Tab(text="⚖️ Comparar", content=ft.Column([ft.Container(height=10), ft.Text("Se elegirá el menor precio y se guardará en la BD principal con la Fecha de Hoy.", color="#10b981", size=12), c_item, lst_comp, ft.ResponsiveRow([c_p1, c_pr1]), ft.ResponsiveRow([c_p2, c_pr2]), ft.ResponsiveRow([c_p3, c_pr3]), ft.ElevatedButton("Analizar", bgcolor="#8b5cf6", color="white", on_click=run_comp)], tight=True, scroll=ft.ScrollMode.AUTO)),
+                            ft.Tab(text="📥 Masivo / Comparar", content=ft.Column([ft.Container(height=10), ft.Text("Si un ítem se repite con diferentes proveedores, el sistema elegirá el precio más bajo automáticamente.", color="#fbbf24", size=12), e_mas, ft.ElevatedButton("Importar y Analizar Ganadores", bgcolor="#10b981", on_click=p_mas)], tight=True)),
+                            ft.Tab(text="⚖️ Comparador", content=ft.Column([ft.Container(height=10), ft.Text("Se elegirá el menor precio y se guardará en la BD principal con la Fecha de Hoy.", color="#10b981", size=12), c_item, lst_comp, ft.ResponsiveRow([c_p1, c_pr1]), ft.ResponsiveRow([c_p2, c_pr2]), ft.ResponsiveRow([c_p3, c_pr3]), ft.ElevatedButton("Analizar", bgcolor="#8b5cf6", color="white", on_click=run_comp)], tight=True, scroll=ft.ScrollMode.AUTO)),
                             ft.Tab(text="📜 Catálogo (Fechas)", content=ft.Column([ft.Container(height=10), ft.Text("Los ítems de más de 6 días se marcan como 'Antigua':", color="#fbbf24", size=12), filtro_cat, lst_cat], tight=True, scroll=ft.ScrollMode.AUTO)),
                             ft.Tab(text="🏢 Provs.", content=ft.Column([ft.Container(height=10), ft.ResponsiveRow([e_pnom, e_ptel]), ft.ElevatedButton("Guardar", bgcolor="#10b981", color="white", on_click=save_prov), lst_provs], tight=True, scroll=ft.ScrollMode.AUTO))
                         ], expand=1
