@@ -38,39 +38,26 @@ def init_db():
             c.execute("INSERT INTO n_cot (id, num) VALUES (1, 100) ON CONFLICT (id) DO NOTHING")
             
             c.execute("CREATE TABLE IF NOT EXISTS cli (n TEXT PRIMARY KEY, i TEXT, dir TEXT, email TEXT, ciu TEXT, tel TEXT)")
-            
-            # Nueva estructura de bodega con columna proveedor
             c.execute("CREATE TABLE IF NOT EXISTS inv (d TEXT PRIMARY KEY, p NUMERIC, stock NUMERIC, proveedor TEXT)")
-            try:
-                c.execute("ALTER TABLE inv ADD COLUMN IF NOT EXISTS proveedor TEXT")
+            try: c.execute("ALTER TABLE inv ADD COLUMN IF NOT EXISTS proveedor TEXT")
             except: pass
 
+            # --- NUEVA TABLA PARA PROVEEDORES ---
+            c.execute("CREATE TABLE IF NOT EXISTS proveedores (nombre TEXT PRIMARY KEY, telefono TEXT)")
+            c.execute("SELECT count(*) FROM proveedores")
+            if c.fetchone()[0] == 0:
+                provs_defecto = [("MECATRONIC", ""), ("RG REDES", ""), ("SMT INTERNACIONAL", ""), ("DON ELECTRICO", "")]
+                for p_n, p_t in provs_defecto:
+                    c.execute("INSERT INTO proveedores (nombre, telefono) VALUES (%s, %s) ON CONFLICT DO NOTHING", (p_n, p_t))
+
             c.execute("CREATE TABLE IF NOT EXISTS historial (nro TEXT PRIMARY KEY, cliente TEXT, fecha TEXT, archivo TEXT, total NUMERIC, origen TEXT, creador TEXT)")
-            
             c.execute("""CREATE TABLE IF NOT EXISTS h_cab (
-                nro TEXT PRIMARY KEY, 
-                cli TEXT, 
-                nit TEXT, 
-                atn TEXT, 
-                ref TEXT, 
-                ciu_origen TEXT,
-                t_entrega TEXT, 
-                validez TEXT, 
-                pago TEXT, 
-                garantia TEXT, 
-                notas TEXT, 
-                modo TEXT, 
-                pct_a NUMERIC, 
-                pct_i NUMERIC, 
-                pct_u NUMERIC, 
-                pct_iva_u NUMERIC
+                nro TEXT PRIMARY KEY, cli TEXT, nit TEXT, atn TEXT, ref TEXT, ciu_origen TEXT, t_entrega TEXT, validez TEXT, pago TEXT, garantia TEXT, notas TEXT, modo TEXT, pct_a NUMERIC, pct_i NUMERIC, pct_u NUMERIC, pct_iva_u NUMERIC
             )""")
             
             columnas_extra = [
-                ("atn", "TEXT"), ("ref", "TEXT"), ("ciu_origen", "TEXT"),
-                ("t_entrega", "TEXT"), ("validez", "TEXT"), ("pago", "TEXT"),
-                ("garantia", "TEXT"), ("notas", "TEXT"), ("modo", "TEXT"),
-                ("pct_a", "NUMERIC"), ("pct_i", "NUMERIC"), ("pct_u", "NUMERIC"), ("pct_iva_u", "NUMERIC")
+                ("atn", "TEXT"), ("ref", "TEXT"), ("ciu_origen", "TEXT"), ("t_entrega", "TEXT"), ("validez", "TEXT"), ("pago", "TEXT"),
+                ("garantia", "TEXT"), ("notas", "TEXT"), ("modo", "TEXT"), ("pct_a", "NUMERIC"), ("pct_i", "NUMERIC"), ("pct_u", "NUMERIC"), ("pct_iva_u", "NUMERIC")
             ]
             for col, tipo in columnas_extra:
                 try: c.execute(f"ALTER TABLE h_cab ADD COLUMN IF NOT EXISTS {col} {tipo}")
@@ -220,6 +207,7 @@ def main(page: ft.Page):
         estado["creador_edicion"] = None
         input_usr.value = ""
         input_pwd.value = ""
+        
         page.scroll = None  
         page.controls.clear()
         page.add(pantalla_login)
@@ -247,12 +235,7 @@ def main(page: ft.Page):
         input_pct_iva_u = ft.TextField(label="IVA s/U %", value="19")
         lista_busqueda_cli = ft.ListView(height=150, visible=False, spacing=2)
 
-        dropdown_modo_cot = ft.Dropdown(
-            label="Tipo Cotización",
-            options=[ft.dropdown.Option("AIU"), ft.dropdown.Option("IVA")],
-            value="AIU"
-        )
-        
+        dropdown_modo_cot = ft.Dropdown(label="Tipo Cotización", options=[ft.dropdown.Option("AIU"), ft.dropdown.Option("IVA")], value="AIU")
         texto_config_aiu = ft.Text("⚙️ Config. AIU:", weight="bold", color="#fbbf24")
         container_texto_aiu = ft.Container(content=texto_config_aiu, col={"sm": 12, "md": 2, "lg": 2}, alignment=ft.alignment.center_left)
         cont_a = ft.Container(content=input_pct_a, col={"sm": 3, "md": 2, "lg": 2})
@@ -320,8 +303,7 @@ def main(page: ft.Page):
                     np += 1; ns = 0
                     curr_p = len(disp)
                     disp.append({
-                        "raw_idx": i,
-                        "desc": it['desc'], "cant": float(it['cant']), "und": it.get('und', ''),
+                        "raw_idx": i, "desc": it['desc'], "cant": float(it['cant']), "und": it.get('und', ''),
                         "precio": float(it['precio']), "total": float(it['total']), 
                         "impuesto": it.get('impuesto', ''), "tipo": 'P', "num": str(np), "has_subs": False
                     })
@@ -329,8 +311,7 @@ def main(page: ft.Page):
                     ns += 1
                     num_str = f"{np}.{ns}" if np > 0 else f"0.{ns}"
                     disp.append({
-                        "raw_idx": i,
-                        "desc": it['desc'], "cant": float(it['cant']), "und": it.get('und', ''),
+                        "raw_idx": i, "desc": it['desc'], "cant": float(it['cant']), "und": it.get('und', ''),
                         "precio": float(it['precio']), "total": float(it['total']), 
                         "impuesto": it.get('impuesto', ''), "tipo": 'S', "num": num_str
                     })
@@ -345,7 +326,6 @@ def main(page: ft.Page):
         def actualizar_tabla_visual():
             columna_tabla_items.controls.clear()
             items_calculados = obtener_items_procesados(lista_items)
-            
             for item in items_calculados:
                 if item['tipo'] == 'P':
                     if item.get('has_subs', False):
@@ -366,7 +346,6 @@ def main(page: ft.Page):
                         if not verificar_permiso_edicion(): return
                         val_c = str(lista_items[indice_real]['cant'])
                         val_p = str(int(float(lista_items[indice_real]['precio'])))
-                        
                         e_cant = ft.TextField(label="Nueva Cantidad", value=val_c)
                         e_precio = ft.TextField(label="Nuevo Precio", value=val_p)
                         
@@ -395,9 +374,7 @@ def main(page: ft.Page):
                                 ft.TextButton("Cancelar", on_click=lambda ev: cerrar_dialogo(dlg_ind))
                             ]
                         )
-                        page.dialog = dlg_ind
-                        dlg_ind.open = True
-                        page.update()
+                        page.dialog = dlg_ind; dlg_ind.open = True; page.update()
                     return abrir_edicion_directa
 
                 fila_visual = ft.Container(
@@ -408,11 +385,8 @@ def main(page: ft.Page):
                     ]),
                     on_click=crear_evento_editar(item['raw_idx']),
                     padding=ft.padding.symmetric(vertical=5, horizontal=5),
-                    border_radius=5,
-                    ink=True,
-                    tooltip="Clic para Editar Cantidad, Precio o Eliminar"
+                    border_radius=5, ink=True, tooltip="Clic para Editar"
                 )
-                
                 columna_tabla_items.controls.append(fila_visual)
             page.update()
 
@@ -423,20 +397,15 @@ def main(page: ft.Page):
         def abrir_modal_item(e):
             if not verificar_permiso_edicion(): return
             resultados_inv = ft.ListView(expand=True, spacing=10, height=150)
-            
-            tipo_item = ft.RadioGroup(content=ft.Row([
-                ft.Radio(value="P", label="Ítem Principal (1, 2, 3...)"),
-                ft.Radio(value="S", label="Sub-ítem (1.1, 1.2...)")
-            ]), value="P")
-
+            tipo_item = ft.RadioGroup(content=ft.Row([ft.Radio(value="P", label="Ítem Principal"), ft.Radio(value="S", label="Sub-ítem")]), value="P")
             modo_actual_cotizacion = dropdown_modo_cot.value
             opciones_imp_dinamicas = [ft.dropdown.Option(modo_actual_cotizacion), ft.dropdown.Option("EXENTO")]
             pct_defecto = "19" if modo_actual_cotizacion == "IVA" else "10"
 
-            input_desc = ft.TextField(label="Descripción (Agrega características aquí)", read_only=False)
+            input_desc = ft.TextField(label="Descripción", read_only=False)
             input_cant = ft.TextField(label="Cantidad", value="1", col={"sm": 3})
             input_und_custom = ft.TextField(label="Iniciales (Ej. KGS)", visible=False, col={"sm": 3})
-            input_precio = ft.TextField(label="Precio Unit (0 si es Título que suma sub-ítems)", value="0", col={"sm": 5})
+            input_precio = ft.TextField(label="Precio Unit", value="0", col={"sm": 5})
             
             def cambiar_und(evt):
                 if input_und.value == "✍️ ESCRIBIR...":
@@ -446,24 +415,14 @@ def main(page: ft.Page):
                 page.update()
 
             def cambiar_impuesto(evt):
-                if input_imp_tipo.value == "IVA":
-                    input_imp_pct.value = "19"
-                elif input_imp_tipo.value == "AIU":
-                    input_imp_pct.value = "10"
-                elif input_imp_tipo.value == "EXENTO":
-                    input_imp_pct.value = "0"
+                if input_imp_tipo.value == "IVA": input_imp_pct.value = "19"
+                elif input_imp_tipo.value == "AIU": input_imp_pct.value = "10"
+                elif input_imp_tipo.value == "EXENTO": input_imp_pct.value = "0"
                 page.update()
 
             lista_unidades = ["ML", "UNID", "MTS", "GLB", "ROLLO", "DIA", "PAQ", "✍️ ESCRIBIR..."]
             input_und = ft.Dropdown(label="Und", options=[ft.dropdown.Option(u) for u in lista_unidades], value="UNID", col={"sm": 4}, on_change=cambiar_und)
-            
-            input_imp_tipo = ft.Dropdown(
-                label="Impuesto", 
-                options=opciones_imp_dinamicas, 
-                value=modo_actual_cotizacion, 
-                col={"sm": 6}, 
-                on_change=cambiar_impuesto
-            )
+            input_imp_tipo = ft.Dropdown(label="Impuesto", options=opciones_imp_dinamicas, value=modo_actual_cotizacion, col={"sm": 6}, on_change=cambiar_impuesto)
             input_imp_pct = ft.TextField(label="% Imp", value=pct_defecto, col={"sm": 6})
 
             def buscar_inv_bd(evt):
@@ -472,11 +431,8 @@ def main(page: ft.Page):
                 if db:
                     c = db.cursor()
                     txt = (buscador_inv.value or "").upper()
-                    
-                    try:
-                        c.execute("SELECT d, p, proveedor FROM inv WHERE UPPER(d) LIKE %s ORDER BY d ASC LIMIT 30", ('%'+txt+'%',))
-                    except:
-                        c.execute("SELECT d, p, '' FROM inv WHERE UPPER(d) LIKE %s ORDER BY d ASC LIMIT 30", ('%'+txt+'%',))
+                    try: c.execute("SELECT d, p, proveedor FROM inv WHERE UPPER(d) LIKE %s ORDER BY d ASC LIMIT 30", ('%'+txt+'%',))
+                    except: c.execute("SELECT d, p, '' FROM inv WHERE UPPER(d) LIKE %s ORDER BY d ASC LIMIT 30", ('%'+txt+'%',))
 
                     for row in c.fetchall():
                         d = row[0]
@@ -492,7 +448,6 @@ def main(page: ft.Page):
                         
                         subtit = f"${int(float(p)):,}"
                         if prov: subtit += f"  (Proveedor: {prov})"
-                            
                         resultados_inv.controls.append(ft.ListTile(title=ft.Text(d, color="#fbbf24", size=14), subtitle=ft.Text(subtit, color="#94a3b8"), on_click=sel))
                     db.close()
                 page.update()
@@ -506,60 +461,98 @@ def main(page: ft.Page):
                     und_final = str(input_und_custom.value).upper().strip() if input_und.value == "✍️ ESCRIBIR..." else input_und.value
                     if not und_final: und_final = "UNID"
                     
-                    lista_items.append({
-                        "desc": input_desc.value, 
-                        "cant": c, 
-                        "precio": p, 
-                        "total": c*p, 
-                        "impuesto": imp, 
-                        "und": und_final,
-                        "tipo": tipo_item.value
-                    })
+                    lista_items.append({"desc": input_desc.value, "cant": c, "precio": p, "total": c*p, "impuesto": imp, "und": und_final, "tipo": tipo_item.value})
                     actualizar_tabla_visual()
                     
                     input_desc.value = ""; input_cant.value = "1"; input_precio.value = "0"; input_und.value = "UNID"; input_und_custom.value = ""; input_und_custom.visible = False
                     input_cant.col = {"sm": 3}; input_und.col = {"sm": 4}; input_precio.col = {"sm": 5}
                     input_imp_tipo.value = modo_actual_cotizacion
                     input_imp_pct.value = pct_defecto
-                    
                     buscador_inv.value = ""; buscar_inv_bd(None)
                     page.snack_bar = ft.SnackBar(ft.Text("✅ Ítem agregado a la lista"), bgcolor="#10b981"); page.snack_bar.open = True; page.update()
                 except: pass
 
             buscador_inv = ft.TextField(label="Buscar en bodega...", on_change=buscar_inv_bd)
             dlg = ft.AlertDialog(
-                title=ft.Text("➕ Añadir a Propuesta (Títulos y Sub-ítems)"), 
-                content=ft.Container(width=750, content=ft.Column([
-                    tipo_item,
-                    buscador_inv, resultados_inv, 
-                    input_desc, 
-                    ft.ResponsiveRow([input_cant, input_und, input_und_custom, input_precio]), 
-                    ft.ResponsiveRow([input_imp_tipo, input_imp_pct])
-                ], tight=True)), 
+                title=ft.Text("➕ Añadir a Propuesta"), 
+                content=ft.Container(width=750, content=ft.Column([tipo_item, buscador_inv, resultados_inv, input_desc, ft.ResponsiveRow([input_cant, input_und, input_und_custom, input_precio]), ft.ResponsiveRow([input_imp_tipo, input_imp_pct])], tight=True)), 
                 actions=[ft.ElevatedButton("Guardar", bgcolor="#10b981", color="white", on_click=guardar_item), ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))]
             )
             page.dialog = dlg; dlg.open = True; buscar_inv_bd(None)
 
         def abrir_modal_bodega(e):
+            # --- PESTAÑA 1: BÚSQUEDA ---
             resultados_bod = ft.ListView(height=180)
             e_desc = ft.TextField(label="Nombre del Producto")
             e_precio = ft.TextField(label="Precio del Producto")
             
-            e_masivo = ft.TextField(
-                multiline=True, 
-                min_lines=6, 
-                max_lines=10, 
-                label="Pega aquí desde Excel (Columna 1: Nombre | Columna 2: Precio)"
-            )
+            # --- PESTAÑA 2: MASIVA ---
+            e_masivo = ft.TextField(multiline=True, min_lines=6, max_lines=10, label="Pega aquí desde Excel (Columna 1: Nombre | Columna 2: Precio)")
             
-            # --- CAMPOS PARA EL COMPARADOR DE COMPRAS ---
-            comp_item = ft.TextField(label="Nombre del Ítem a cotizar")
-            comp_prov1 = ft.TextField(label="Proveedor 1 (Ej. Mecatronic)", col={"sm": 6})
+            # --- PESTAÑA 3: COMPARADOR CON AUTOCOMPLETADO Y PROVEEDORES DE BD ---
+            comp_item = ft.TextField(label="Buscar o escribir Ítem a cotizar...")
+            lista_busqueda_comp = ft.ListView(height=100, visible=False, spacing=2)
+            
+            comp_prov1 = ft.Dropdown(label="Proveedor 1", col={"sm": 6})
             comp_pre1 = ft.TextField(label="Precio Prov 1", col={"sm": 6})
-            comp_prov2 = ft.TextField(label="Proveedor 2 (Ej. RG Redes)", col={"sm": 6})
+            comp_prov2 = ft.Dropdown(label="Proveedor 2", col={"sm": 6})
             comp_pre2 = ft.TextField(label="Precio Prov 2", col={"sm": 6})
-            comp_prov3 = ft.TextField(label="Proveedor 3 (Ej. SMT)", col={"sm": 6})
+            comp_prov3 = ft.Dropdown(label="Proveedor 3", col={"sm": 6})
             comp_pre3 = ft.TextField(label="Precio Prov 3", col={"sm": 6})
+
+            # --- PESTAÑA 4: MIS PROVEEDORES ---
+            e_prov_nom = ft.TextField(label="Nombre del Proveedor*", col={"sm": 7})
+            e_prov_tel = ft.TextField(label="Teléfono", col={"sm": 5})
+            lista_provs = ft.ListView(height=200)
+
+            def cargar_proveedores():
+                lista_provs.controls.clear()
+                opciones_dropdown = []
+                db = conectar_db()
+                if db:
+                    c = db.cursor()
+                    c.execute("SELECT nombre, telefono FROM proveedores ORDER BY nombre ASC")
+                    for row in c.fetchall():
+                        n, t = row
+                        opciones_dropdown.append(ft.dropdown.Option(n))
+                        
+                        def editar_p(evt, nombre=n, tel=t):
+                            e_prov_nom.value = nombre
+                            e_prov_tel.value = tel
+                            page.update()
+                            
+                        def eliminar_p(evt, nombre=n):
+                            db_d = conectar_db()
+                            c_d = db_d.cursor()
+                            c_d.execute("DELETE FROM proveedores WHERE nombre=%s", (nombre,))
+                            db_d.commit(); db_d.close()
+                            cargar_proveedores()
+                            page.snack_bar = ft.SnackBar(ft.Text(f"🗑️ Proveedor {nombre} eliminado"), bgcolor="#ef4444"); page.snack_bar.open = True; page.update()
+
+                        lista_provs.controls.append(ft.ListTile(
+                            title=ft.Text(n, color="#fbbf24", weight="bold"),
+                            subtitle=ft.Text(f"Teléfono: {t}" if t else "Sin teléfono"),
+                            on_click=editar_p,
+                            trailing=ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=eliminar_p)
+                        ))
+                    db.close()
+                
+                comp_prov1.options = opciones_dropdown
+                comp_prov2.options = opciones_dropdown
+                comp_prov3.options = opciones_dropdown
+                page.update()
+
+            def guardar_nuevo_proveedor(evt):
+                if not e_prov_nom.value: return
+                db = conectar_db()
+                if db:
+                    c = db.cursor()
+                    c.execute("INSERT INTO proveedores (nombre, telefono) VALUES (%s,%s) ON CONFLICT(nombre) DO UPDATE SET telefono=EXCLUDED.telefono", 
+                             (e_prov_nom.value.upper().strip(), e_prov_tel.value.strip()))
+                    db.commit(); db.close()
+                    e_prov_nom.value = ""; e_prov_tel.value = ""
+                    cargar_proveedores()
+                    page.snack_bar = ft.SnackBar(ft.Text("✅ Proveedor guardado"), bgcolor="#10b981"); page.snack_bar.open = True; page.update()
 
             def buscar_bodega(evt):
                 resultados_bod.controls.clear()
@@ -567,34 +560,17 @@ def main(page: ft.Page):
                 if db:
                     c = db.cursor()
                     txt = (e_desc.value or "").upper()
-                    try:
-                        c.execute("SELECT d, p, proveedor FROM inv WHERE UPPER(d) LIKE %s LIMIT 20", ('%'+txt+'%',))
-                    except:
-                        c.execute("SELECT d, p, '' FROM inv WHERE UPPER(d) LIKE %s LIMIT 20", ('%'+txt+'%',))
-
+                    c.execute("SELECT d, p FROM inv WHERE UPPER(d) LIKE %s LIMIT 20", ('%'+txt+'%',))
                     for row in c.fetchall():
                         d, p = row[0], row[1]
-                        prov = row[2] if len(row)>2 and row[2] else ""
-
                         def sel(evt, desc=d, prec=p): e_desc.value = desc; e_precio.value = str(int(float(prec))); page.update()
-                        
                         def eliminar(evt, desc=d):
                             db_d = conectar_db()
                             c_d = db_d.cursor()
                             c_d.execute("DELETE FROM inv WHERE d=%s", (desc,))
-                            db_d.commit(); db_d.close()
-                            buscar_bodega(None)
+                            db_d.commit(); db_d.close(); buscar_bodega(None)
                             page.snack_bar = ft.SnackBar(ft.Text(f"🗑️ Producto eliminado"), bgcolor="#ef4444"); page.snack_bar.open = True; page.update()
-
-                        subtit = f"${int(float(p)):,}"
-                        if prov: subtit += f"  (Proveedor: {prov})"
-
-                        resultados_bod.controls.append(ft.ListTile(
-                            title=ft.Text(d, size=13, color="#fbbf24", weight="bold"), 
-                            subtitle=ft.Text(subtit, color="#94a3b8"), 
-                            on_click=sel,
-                            trailing=ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=eliminar)
-                        ))
+                        resultados_bod.controls.append(ft.ListTile(title=ft.Text(d, size=13, color="#fbbf24", weight="bold"), subtitle=ft.Text(f"${int(float(p)):,}"), on_click=sel, trailing=ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=eliminar)))
                     db.close()
                 page.update()
 
@@ -612,52 +588,62 @@ def main(page: ft.Page):
             def procesar_masivo(evt):
                 if not e_masivo.value.strip(): return
                 lineas = e_masivo.value.strip().split('\n')
-                
                 db = conectar_db()
                 if not db: return
                 c = db.cursor()
-                
                 agregados = 0
                 for linea in lineas:
                     partes = linea.split('\t') 
                     if len(partes) >= 1:
                         desc = partes[0].strip().upper()
                         if not desc: continue
-                        
                         prec_str = "0"
-                        if len(partes) >= 2:
-                            prec_str = partes[1].replace("$", "").replace(".", "").replace(",", "").replace(" ", "").strip()
-                        
+                        if len(partes) >= 2: prec_str = partes[1].replace("$", "").replace(".", "").replace(",", "").replace(" ", "").strip()
                         try: prec = float(prec_str)
                         except: prec = 0.0
-                        
                         c.execute("INSERT INTO inv (d, p, stock, proveedor) VALUES (%s,%s,0,'') ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p", (desc, prec))
                         agregados += 1
-                        
-                db.commit()
-                db.close()
-                e_masivo.value = ""
-                buscar_bodega(None)
-                page.snack_bar = ft.SnackBar(ft.Text(f"✅ ¡Éxito! Se procesaron {agregados} productos."), bgcolor="#10b981")
-                page.snack_bar.open = True
+                db.commit(); db.close()
+                e_masivo.value = ""; buscar_bodega(None)
+                page.snack_bar = ft.SnackBar(ft.Text(f"✅ ¡Éxito! Se procesaron {agregados} productos."), bgcolor="#10b981"); page.snack_bar.open = True; page.update()
+
+            # --- FUNCION AUTOCOMPLETAR EN EL COMPARADOR ---
+            def buscar_item_comp(evt):
+                txt = (comp_item.value or "").upper().strip()
+                lista_busqueda_comp.controls.clear()
+                if len(txt) > 0:
+                    db = conectar_db()
+                    if db:
+                        c = db.cursor()
+                        c.execute("SELECT d FROM inv WHERE UPPER(d) LIKE %s LIMIT 10", ('%'+txt+'%',))
+                        for row in c.fetchall():
+                            def seleccionar(e, desc=row[0]):
+                                comp_item.value = desc
+                                lista_busqueda_comp.visible = False
+                                page.update()
+                            lista_busqueda_comp.controls.append(ft.ListTile(title=ft.Text(row[0], size=13, color="#fbbf24"), on_click=seleccionar))
+                        db.close()
+                        lista_busqueda_comp.visible = len(lista_busqueda_comp.controls) > 0
+                else:
+                    lista_busqueda_comp.visible = False
                 page.update()
 
-            # --- LÓGICA DEL COMPARADOR DE COMPRAS ---
+            comp_item.on_change = buscar_item_comp
+
             def ejecutar_comparador(evt):
                 item_desc = comp_item.value.strip().upper()
                 if not item_desc:
                     return mostrar_alerta("Aviso", "Debes ingresar el nombre del ítem a cotizar.")
                 
                 ofertas = []
-                
                 if comp_prov1.value and comp_pre1.value:
-                    try: ofertas.append((comp_prov1.value.upper(), float(comp_pre1.value)))
+                    try: ofertas.append((comp_prov1.value, float(comp_pre1.value)))
                     except: pass
                 if comp_prov2.value and comp_pre2.value:
-                    try: ofertas.append((comp_prov2.value.upper(), float(comp_pre2.value)))
+                    try: ofertas.append((comp_prov2.value, float(comp_pre2.value)))
                     except: pass
                 if comp_prov3.value and comp_pre3.value:
-                    try: ofertas.append((comp_prov3.value.upper(), float(comp_pre3.value)))
+                    try: ofertas.append((comp_prov3.value, float(comp_pre3.value)))
                     except: pass
                 
                 if not ofertas:
@@ -669,15 +655,12 @@ def main(page: ft.Page):
                 try:
                     db = conectar_db()
                     c = db.cursor()
-                    c.execute("""INSERT INTO inv (d, p, stock, proveedor) 
-                                 VALUES (%s, %s, 0, %s) 
-                                 ON CONFLICT(d) DO UPDATE 
-                                 SET p=EXCLUDED.p, proveedor=EXCLUDED.proveedor""", 
+                    c.execute("""INSERT INTO inv (d, p, stock, proveedor) VALUES (%s, %s, 0, %s) 
+                                 ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p, proveedor=EXCLUDED.proveedor""", 
                               (item_desc, precio_ganador, prov_ganador))
-                    db.commit()
-                    db.close()
+                    db.commit(); db.close()
                     
-                    comp_item.value = ""; comp_prov1.value = ""; comp_pre1.value = ""; comp_prov2.value = ""; comp_pre2.value = ""; comp_prov3.value = ""; comp_pre3.value = ""
+                    comp_item.value = ""; comp_prov1.value = None; comp_pre1.value = ""; comp_prov2.value = None; comp_pre2.value = ""; comp_prov3.value = None; comp_pre3.value = ""
                     buscar_bodega(None)
                     
                     page.snack_bar = ft.SnackBar(ft.Text(f"🏆 GANADOR: {prov_ganador} con ${int(precio_ganador):,}. Bodega actualizada."), bgcolor="#8b5cf6")
@@ -693,35 +676,37 @@ def main(page: ft.Page):
                 animation_duration=300,
                 tabs=[
                     ft.Tab(
-                        text="Búsqueda y Edición",
+                        text="Búsqueda",
                         content=ft.Column([
-                            ft.Container(height=10),
-                            e_desc, e_precio,
-                            ft.ElevatedButton("Guardar Producto", bgcolor="#2563eb", color="white", on_click=guardar_bodega),
-                            ft.Divider(),
-                            ft.Text("Productos Registrados:", weight="bold"),
-                            resultados_bod
+                            ft.Container(height=10), e_desc, e_precio, ft.ElevatedButton("Guardar Producto", bgcolor="#2563eb", color="white", on_click=guardar_bodega),
+                            ft.Divider(), ft.Text("Productos Registrados:", weight="bold"), resultados_bod
                         ], tight=True)
                     ),
                     ft.Tab(
-                        text="Importación Masiva",
+                        text="Carga Masiva",
                         content=ft.Column([
-                            ft.Container(height=10),
-                            ft.Text("Copia las filas desde tu Excel y pégalas en este cuadro. Asegúrate de copiar 2 columnas: Nombre del ítem y Precio.", size=12, color="white54"),
-                            e_masivo,
-                            ft.ElevatedButton("📥 IMPORTAR DESDE EXCEL", bgcolor="#10b981", color="white", on_click=procesar_masivo)
+                            ft.Container(height=10), ft.Text("Pega desde Excel (Nombre y Precio)", size=12, color="white54"),
+                            e_masivo, ft.ElevatedButton("📥 IMPORTAR DESDE EXCEL", bgcolor="#10b981", color="white", on_click=procesar_masivo)
                         ], tight=True)
                     ),
                     ft.Tab(
-                        text="⚖️ Comparador Proveedores",
+                        text="⚖️ Comparador",
                         content=ft.Column([
-                            ft.Container(height=10),
-                            ft.Text("Ingresa los precios de cotización. El sistema guardará el más económico en bodega.", size=12, color="white54"),
-                            comp_item,
+                            ft.Container(height=10), ft.Text("Busca el ítem, selecciona tus proveedores y anota el precio.", size=12, color="white54"),
+                            comp_item, lista_busqueda_comp,
                             ft.ResponsiveRow([comp_prov1, comp_pre1]),
                             ft.ResponsiveRow([comp_prov2, comp_pre2]),
                             ft.ResponsiveRow([comp_prov3, comp_pre3]),
                             ft.ElevatedButton("⚖️ ANALIZAR Y ELEGIR GANADOR", bgcolor="#8b5cf6", color="white", on_click=ejecutar_comparador)
+                        ], tight=True, scroll=ft.ScrollMode.AUTO)
+                    ),
+                    ft.Tab(
+                        text="🏢 Proveedores",
+                        content=ft.Column([
+                            ft.Container(height=10), ft.Text("Registra tus proveedores (El nombre aparecerá en el comparador).", size=12, color="white54"),
+                            ft.ResponsiveRow([e_prov_nom, e_prov_tel]),
+                            ft.ElevatedButton("Guardar Proveedor", bgcolor="#10b981", color="white", on_click=guardar_nuevo_proveedor),
+                            ft.Divider(), ft.Text("Lista de Proveedores:", weight="bold"), lista_provs
                         ], tight=True, scroll=ft.ScrollMode.AUTO)
                     )
                 ],
@@ -730,10 +715,12 @@ def main(page: ft.Page):
 
             dlg = ft.AlertDialog(
                 title=ft.Text("📦 Gestión de Bodega / Catálogo"), 
-                content=ft.Container(width=600, height=450, content=pestañas_bodega), 
+                content=ft.Container(width=750, height=500, content=pestañas_bodega), 
                 actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))]
             )
-            page.dialog = dlg; dlg.open = True; buscar_bodega(None)
+            page.dialog = dlg; dlg.open = True
+            buscar_bodega(None)
+            cargar_proveedores()
 
         def abrir_modal_clientes(e):
             resultados_cli = ft.ListView(expand=True, spacing=10, height=200)
@@ -902,82 +889,35 @@ def main(page: ft.Page):
                     c.execute("SELECT usuario, rol, bloqueado FROM usuarios ORDER BY usuario ASC")
                     for row in c.fetchall():
                         u, r, b = row[0], row[1], row[2]
-                        
                         estado_txt = " (Bloqueado 🔒)" if b == 1 else ""
-                        
                         def editar(evt, user_name=u, user_role=r):
-                            e_usr_nom.value = user_name
-                            e_usr_rol.value = user_role
-                            e_usr_pwd.value = "" 
-                            page.update()
-
+                            e_usr_nom.value = user_name; e_usr_rol.value = user_role; e_usr_pwd.value = ""; page.update()
                         def eliminar(evt, user_name=u):
-                            if user_name == sesion["usuario"]:
-                                return mostrar_alerta("Aviso", "No puedes eliminar tu propio usuario mientras lo estás usando.")
-                            db_d = conectar_db()
-                            c_d = db_d.cursor()
-                            c_d.execute("DELETE FROM usuarios WHERE usuario=%s", (user_name,))
-                            db_d.commit(); db_d.close()
-                            cargar_usuarios()
-                            page.snack_bar = ft.SnackBar(ft.Text(f"🗑️ Usuario {user_name} eliminado"), bgcolor="#ef4444"); page.snack_bar.open = True; page.update()
-
+                            if user_name == sesion["usuario"]: return mostrar_alerta("Aviso", "No puedes eliminar tu propio usuario.")
+                            db_d = conectar_db(); c_d = db_d.cursor(); c_d.execute("DELETE FROM usuarios WHERE usuario=%s", (user_name,)); db_d.commit(); db_d.close(); cargar_usuarios(); page.snack_bar = ft.SnackBar(ft.Text(f"🗑️ Usuario eliminado"), bgcolor="#ef4444"); page.snack_bar.open = True; page.update()
                         def desbloquear(evt, user_name=u):
-                            db_u = conectar_db()
-                            c_u = db_u.cursor()
-                            c_u.execute("UPDATE usuarios SET intentos=0, bloqueado=0 WHERE usuario=%s", (user_name,))
-                            db_u.commit(); db_u.close()
-                            cargar_usuarios()
-                            page.snack_bar = ft.SnackBar(ft.Text(f"✅ Usuario {user_name} desbloqueado exitosamente"), bgcolor="#10b981"); page.snack_bar.open = True; page.update()
+                            db_u = conectar_db(); c_u = db_u.cursor(); c_u.execute("UPDATE usuarios SET intentos=0, bloqueado=0 WHERE usuario=%s", (user_name,)); db_u.commit(); db_u.close(); cargar_usuarios(); page.snack_bar = ft.SnackBar(ft.Text(f"✅ Usuario desbloqueado"), bgcolor="#10b981"); page.snack_bar.open = True; page.update()
 
                         botones_accion = [ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", tooltip="Eliminar Usuario", on_click=eliminar)]
-                        if b == 1:
-                            botones_accion.insert(0, ft.IconButton(ft.icons.LOCK_OPEN, icon_color="#10b981", tooltip="Desbloquear Usuario", on_click=desbloquear))
-
-                        resultados_usr.controls.append(
-                            ft.ListTile(
-                                title=ft.Text(f"{u}{estado_txt}", color="#ef4444" if b==1 else "#fbbf24", weight="bold"),
-                                subtitle=ft.Text(f"Rol asignado: {r}"),
-                                trailing=ft.Row(botones_accion, tight=True),
-                                on_click=editar
-                            )
-                        )
+                        if b == 1: botones_accion.insert(0, ft.IconButton(ft.icons.LOCK_OPEN, icon_color="#10b981", tooltip="Desbloquear Usuario", on_click=desbloquear))
+                        resultados_usr.controls.append(ft.ListTile(title=ft.Text(f"{u}{estado_txt}", color="#ef4444" if b==1 else "#fbbf24", weight="bold"), subtitle=ft.Text(f"Rol asignado: {r}"), trailing=ft.Row(botones_accion, tight=True), on_click=editar))
                     db.close()
                 page.update()
 
             def guardar_usuario(evt):
-                if not e_usr_nom.value or not e_usr_pwd.value: 
-                    return mostrar_alerta("Aviso", "Falta el nombre o la contraseña.")
+                if not e_usr_nom.value or not e_usr_pwd.value: return mostrar_alerta("Aviso", "Falta el nombre o la contraseña.")
                 db = conectar_db()
                 if db:
                     c = db.cursor()
                     usr_nom_limpio = e_usr_nom.value.upper().strip()
                     c.execute("SELECT count(*) FROM usuarios WHERE usuario=%s", (usr_nom_limpio,))
-                    existe = c.fetchone()[0]
-                    
-                    if existe > 0:
-                        c.execute("UPDATE usuarios SET password=%s, rol=%s, intentos=0, bloqueado=0 WHERE usuario=%s", 
-                                   (e_usr_pwd.value.strip(), e_usr_rol.value, usr_nom_limpio))
-                    else:
-                        c.execute("INSERT INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES (%s,%s,%s,0,0)", 
-                                   (usr_nom_limpio, e_usr_pwd.value.strip(), e_usr_rol.value))
-                    
+                    if c.fetchone()[0] > 0: c.execute("UPDATE usuarios SET password=%s, rol=%s, intentos=0, bloqueado=0 WHERE usuario=%s", (e_usr_pwd.value.strip(), e_usr_rol.value, usr_nom_limpio))
+                    else: c.execute("INSERT INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES (%s,%s,%s,0,0)", (usr_nom_limpio, e_usr_pwd.value.strip(), e_usr_rol.value))
                     db.commit(); db.close()
-                    e_usr_nom.value = ""; e_usr_pwd.value = ""; e_usr_rol.value = "ASESOR"
-                    cargar_usuarios()
-                    page.snack_bar = ft.SnackBar(ft.Text("✅ Usuario guardado y habilitado con éxito"), bgcolor="#8b5cf6"); page.snack_bar.open = True; page.update()
+                    e_usr_nom.value = ""; e_usr_pwd.value = ""; e_usr_rol.value = "ASESOR"; cargar_usuarios()
+                    page.snack_bar = ft.SnackBar(ft.Text("✅ Usuario guardado"), bgcolor="#8b5cf6"); page.snack_bar.open = True; page.update()
 
-            dlg = ft.AlertDialog(
-                title=ft.Text("🔐 Gestión de Usuarios"), 
-                content=ft.Container(width=700, content=ft.Column([
-                    ft.Text("Crear o Modificar Usuario (Para modificar, escribe el nombre existente y la nueva clave):", size=12, color="white54"),
-                    ft.ResponsiveRow([e_usr_nom, e_usr_pwd, e_usr_rol]),
-                    ft.ElevatedButton("Guardar Usuario", bgcolor="#8b5cf6", color="white", on_click=guardar_usuario),
-                    ft.Divider(color="white24"),
-                    ft.Text("Usuarios Registrados en el Sistema:", weight="bold"),
-                    resultados_usr
-                ], tight=True)), 
-                actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))]
-            )
+            dlg = ft.AlertDialog(title=ft.Text("🔐 Gestión de Usuarios"), content=ft.Container(width=700, content=ft.Column([ft.Text("Crear o Modificar Usuario:", size=12, color="white54"), ft.ResponsiveRow([e_usr_nom, e_usr_pwd, e_usr_rol]), ft.ElevatedButton("Guardar Usuario", bgcolor="#8b5cf6", color="white", on_click=guardar_usuario), ft.Divider(color="white24"), ft.Text("Usuarios Registrados:", weight="bold"), resultados_usr], tight=True)), actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))])
             page.dialog = dlg; dlg.open = True; cargar_usuarios()
 
         def abrir_modal_historial(e):
@@ -990,10 +930,8 @@ def main(page: ft.Page):
                 db = conectar_db()
                 if db:
                     c = db.cursor()
-                    if txt_busqueda:
-                        c.execute("SELECT nro, cliente, fecha, total, creador FROM historial WHERE UPPER(cliente) LIKE %s ORDER BY nro DESC LIMIT 50", ('%'+txt_busqueda+'%',))
-                    else:
-                        c.execute("SELECT nro, cliente, fecha, total, creador FROM historial ORDER BY nro DESC LIMIT 30")
+                    if txt_busqueda: c.execute("SELECT nro, cliente, fecha, total, creador FROM historial WHERE UPPER(cliente) LIKE %s ORDER BY nro DESC LIMIT 50", ('%'+txt_busqueda+'%',))
+                    else: c.execute("SELECT nro, cliente, fecha, total, creador FROM historial ORDER BY nro DESC LIMIT 30")
 
                     for row in c.fetchall():
                         nro, cli, fec, tot, creador = row[0], row[1], row[2], row[3], row[4]
@@ -1001,42 +939,17 @@ def main(page: ft.Page):
                         def cargar_cotizacion(evt, numero=nro, creador_doc=creador):
                             db_h = conectar_db()
                             c_h = db_h.cursor()
-                            
-                            c_h.execute("""SELECT cli, nit, atn, ref, ciu_origen, t_entrega, validez, pago, garantia, notas, modo, pct_a, pct_i, pct_u, pct_iva_u 
-                                           FROM h_cab WHERE nro=%s""", (numero,))
+                            c_h.execute("""SELECT cli, nit, atn, ref, ciu_origen, t_entrega, validez, pago, garantia, notas, modo, pct_a, pct_i, pct_u, pct_iva_u FROM h_cab WHERE nro=%s""", (numero,))
                             cab = c_h.fetchone()
                             
                             if cab:
-                                input_cliente.value = cab[0] or ""
-                                input_nit.value = cab[1] or ""
-                                input_atencion.value = cab[2] or ""
-                                input_ref.value = cab[3] or ""
-                                input_ciudad.value = cab[4] or "Yumbo"
-                                input_tiempo_entrega.value = cab[5] or "4 Días hábiles"
-                                input_validez.value = cab[6] or "20 Días"
-                                input_pago.value = cab[7] or "30 Días"
-                                input_garantia.value = cab[8] or "6 meses en mano de obra"
-                                input_notas.value = cab[9] or ""
-                                
-                                dropdown_modo_cot.value = cab[10] or "AIU"
-                                input_pct_a.value = str(cab[11]) if cab[11] is not None else "10"
-                                input_pct_i.value = str(cab[12]) if cab[12] is not None else "2"
-                                input_pct_u.value = str(cab[13]) if cab[13] is not None else "8"
-                                input_pct_iva_u.value = str(cab[14]) if cab[14] is not None else "19"
-                                
-                                es_aiu = dropdown_modo_cot.value == "AIU"
-                                container_texto_aiu.visible = es_aiu
-                                cont_a.visible = es_aiu
-                                cont_i.visible = es_aiu
-                                cont_u.visible = es_aiu
-                                cont_iva_u.visible = es_aiu
+                                input_cliente.value = cab[0] or ""; input_nit.value = cab[1] or ""; input_atencion.value = cab[2] or ""; input_ref.value = cab[3] or ""; input_ciudad.value = cab[4] or "Yumbo"; input_tiempo_entrega.value = cab[5] or "4 Días hábiles"; input_validez.value = cab[6] or "20 Días"; input_pago.value = cab[7] or "30 Días"; input_garantia.value = cab[8] or "6 meses en mano de obra"; input_notas.value = cab[9] or ""
+                                dropdown_modo_cot.value = cab[10] or "AIU"; input_pct_a.value = str(cab[11]) if cab[11] is not None else "10"; input_pct_i.value = str(cab[12]) if cab[12] is not None else "2"; input_pct_u.value = str(cab[13]) if cab[13] is not None else "8"; input_pct_iva_u.value = str(cab[14]) if cab[14] is not None else "19"
+                                es_aiu = dropdown_modo_cot.value == "AIU"; container_texto_aiu.visible = es_aiu; cont_a.visible = es_aiu; cont_i.visible = es_aiu; cont_u.visible = es_aiu; cont_iva_u.visible = es_aiu
 
                             lista_items.clear()
-                            
                             c_h.execute('SELECT "desc", cant, und, unit, sub, imp, tipo FROM h_det WHERE nro=%s', (numero,))
-                            filas_det = c_h.fetchall()
-
-                            for d in filas_det:
+                            for d in c_h.fetchall():
                                 desc_str = d[0] if d[0] else ""
                                 try: cant_f = float(d[1])
                                 except: cant_f = 0.0
@@ -1046,119 +959,47 @@ def main(page: ft.Page):
                                 try: sub_f = float(d[4])
                                 except: sub_f = cant_f * unit_f
                                 impuesto_str = str(d[5]) if d[5] else "EXENTO"
-                                if "AIU" in und_str or "IVA" in und_str or "EXENTO" in und_str:
-                                    temp = impuesto_str; impuesto_str = und_str; und_str = temp if temp not in ["EXENTO", ""] else "UNID"
-                                
+                                if "AIU" in und_str or "IVA" in und_str or "EXENTO" in und_str: temp = impuesto_str; impuesto_str = und_str; und_str = temp if temp not in ["EXENTO", ""] else "UNID"
                                 tipo_str = str(d[6]) if d[6] else "P"
-
                                 lista_items.append({"desc": desc_str, "cant": cant_f, "und": und_str, "precio": unit_f, "total": sub_f, "impuesto": impuesto_str, "tipo": tipo_str})
                             db_h.close()
                             
-                            estado["nro_edicion"] = numero
-                            estado["creador_edicion"] = creador_doc
+                            estado["nro_edicion"] = numero; estado["creador_edicion"] = creador_doc
                             actualizar_tabla_visual(); cerrar_dialogo(dlg)
                             
                             if creador_doc and creador_doc != "SISTEMA" and creador_doc != sesion["usuario"]:
-                                page.snack_bar = ft.SnackBar(ft.Text(f"👁️ Visualizando cotización de {creador_doc}. Modo Solo Lectura."), bgcolor="#3b82f6")
-                                page.snack_bar.open = True
-                                page.update()
-                            else:
-                                mostrar_alerta("Cargado", f"Cotización N° {numero} cargada exactamente con todos sus parámetros originales.")
+                                page.snack_bar = ft.SnackBar(ft.Text(f"👁️ Visualizando cotización de {creador_doc}. Modo Solo Lectura."), bgcolor="#3b82f6"); page.snack_bar.open = True; page.update()
+                            else: mostrar_alerta("Cargado", f"Cotización N° {numero} cargada exactamente con todos sus parámetros originales.")
                         
-                        etiqueta_creador = f" (Por: {creador})"
-                        resultados_hist.controls.append(ft.ListTile(title=ft.Text(f"N° {nro} - {cli}{etiqueta_creador}", color="#fbbf24", weight="bold"), subtitle=ft.Text(f"Fecha/Hora: {fec} | Total: ${int(float(tot)):,}"), on_click=cargar_cotizacion))
-                db.close()
-                page.update()
+                        resultados_hist.controls.append(ft.ListTile(title=ft.Text(f"N° {nro} - {cli} (Por: {creador})", color="#fbbf24", weight="bold"), subtitle=ft.Text(f"Fecha/Hora: {fec} | Total: ${int(float(tot)):,}"), on_click=cargar_cotizacion))
+                db.close(); page.update()
 
             buscador_hist.on_change = cargar_historial_lista
-
-            dlg = ft.AlertDialog(
-                title=ft.Text("🔍 Historial de Cotizaciones"), 
-                content=ft.Container(width=700, content=ft.Column([buscador_hist, resultados_hist], tight=True)), 
-                actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))]
-            )
+            dlg = ft.AlertDialog(title=ft.Text("🔍 Historial de Cotizaciones"), content=ft.Container(width=700, content=ft.Column([buscador_hist, resultados_hist], tight=True)), actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))])
             page.dialog = dlg; dlg.open = True; cargar_historial_lista()
 
         def abrir_modal_sistema(e):
-            if sesion["rol"] != "ADMIN":
-                return mostrar_alerta("Acceso Denegado", "Solo el Administrador tiene acceso a la configuración del sistema.")
-
-            def hacer_backup(evt):
-                mostrar_alerta("Backup en la Nube ☁️", "La plataforma ahora está respaldada de forma automática y blindada en PostgreSQL. Ya no es necesario descargar archivos locales de seguridad.")
-
+            if sesion["rol"] != "ADMIN": return mostrar_alerta("Acceso Denegado", "Solo el Administrador tiene acceso a la configuración del sistema.")
+            def hacer_backup(evt): mostrar_alerta("Backup en la Nube ☁️", "La plataforma ahora está respaldada de forma automática y blindada en PostgreSQL. Ya no es necesario descargar archivos locales de seguridad.")
             def confirmar_reseteo(evt):
                 input_clave_maestra = ft.TextField(label="Contraseña Maestra", password=True, can_reveal_password=True, width=300)
-
                 def ejecutar_reseteo(ev):
                     if input_clave_maestra.value.strip() == "7705178":
                         db = conectar_db()
                         if db:
-                            c = db.cursor()
-                            c.execute("DELETE FROM cli")
-                            c.execute("DELETE FROM inv")
-                            c.execute("DELETE FROM historial")
-                            c.execute("DELETE FROM h_cab")
-                            c.execute("DELETE FROM h_det")
-                            c.execute("UPDATE n_cot SET num = 100 WHERE id=1")
-                            db.commit(); db.close()
-                        cerrar_dialogo(dlg_conf)
-                        cerrar_dialogo(dlg_sis)
-                        page.snack_bar = ft.SnackBar(ft.Text("✅ SISTEMA RESTAURADO DE FÁBRICA CORRECTAMENTE"), bgcolor="#10b981")
-                        page.snack_bar.open = True; page.update()
+                            c = db.cursor(); c.execute("DELETE FROM cli"); c.execute("DELETE FROM inv"); c.execute("DELETE FROM historial"); c.execute("DELETE FROM h_cab"); c.execute("DELETE FROM h_det"); c.execute("UPDATE n_cot SET num = 100 WHERE id=1"); db.commit(); db.close()
+                        cerrar_dialogo(dlg_conf); cerrar_dialogo(dlg_sis)
+                        page.snack_bar = ft.SnackBar(ft.Text("✅ SISTEMA RESTAURADO DE FÁBRICA CORRECTAMENTE"), bgcolor="#10b981"); page.snack_bar.open = True; page.update()
                     else:
-                        page.snack_bar = ft.SnackBar(ft.Text("❌ Contraseña Maestra Incorrecta"), bgcolor="#ef4444")
-                        page.snack_bar.open = True; page.update()
-
-                dlg_conf = ft.AlertDialog(
-                    title=ft.Text("⚠️ ADVERTENCIA EXTREMA", color="#ef4444", weight="bold"),
-                    content=ft.Column([
-                        ft.Text("¿Estás 100% seguro? Esto borrará TODOS los clientes, TODOS los productos de la bodega y TODO el historial de cotizaciones. Solo quedarán los usuarios vivos. Esta acción NO se puede deshacer."),
-                        ft.Text("Digita la Contraseña Maestra de Seguridad para confirmar:", weight="bold", color="#fbbf24"),
-                        input_clave_maestra
-                    ], tight=True),
-                    actions=[
-                        ft.ElevatedButton("SÍ, BORRAR TODO", bgcolor="#ef4444", color="white", on_click=ejecutar_reseteo),
-                        ft.TextButton("CANCELAR", on_click=lambda e: cerrar_dialogo(dlg_conf))
-                    ]
-                )
+                        page.snack_bar = ft.SnackBar(ft.Text("❌ Contraseña Maestra Incorrecta"), bgcolor="#ef4444"); page.snack_bar.open = True; page.update()
+                dlg_conf = ft.AlertDialog(title=ft.Text("⚠️ ADVERTENCIA EXTREMA", color="#ef4444", weight="bold"), content=ft.Column([ft.Text("¿Estás 100% seguro? Esto borrará TODOS los clientes, TODOS los productos y TODO el historial."), ft.Text("Digita la Contraseña Maestra para confirmar:", weight="bold", color="#fbbf24"), input_clave_maestra], tight=True), actions=[ft.ElevatedButton("SÍ, BORRAR TODO", bgcolor="#ef4444", color="white", on_click=ejecutar_reseteo), ft.TextButton("CANCELAR", on_click=lambda e: cerrar_dialogo(dlg_conf))])
                 page.dialog = dlg_conf; dlg_conf.open = True; page.update()
-
-            dlg_sis = ft.AlertDialog(
-                title=ft.Text("⚙️ Configuración del Sistema (ADMIN)"),
-                content=ft.Container(width=400, content=ft.Column([
-                    ft.Text("Opciones avanzadas de la base de datos:"),
-                    ft.ElevatedButton("📥 1. DESCARGAR BACKUP", bgcolor="#2563eb", color="white", width=350, on_click=hacer_backup),
-                    ft.Container(height=20),
-                    ft.Text("ZONA DE PELIGRO:", color="#ef4444", weight="bold"),
-                    ft.ElevatedButton("⚠️ 2. RESTAURAR DE FÁBRICA (Limpiar todo menos usuarios)", bgcolor="#ef4444", color="white", width=350, on_click=confirmar_reseteo)
-                ], tight=True)),
-                actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg_sis))]
-            )
+            dlg_sis = ft.AlertDialog(title=ft.Text("⚙️ Configuración del Sistema (ADMIN)"), content=ft.Container(width=400, content=ft.Column([ft.Text("Opciones avanzadas de la base de datos:"), ft.ElevatedButton("📥 1. DESCARGAR BACKUP", bgcolor="#2563eb", color="white", width=350, on_click=hacer_backup), ft.Container(height=20), ft.Text("ZONA DE PELIGRO:", color="#ef4444", weight="bold"), ft.ElevatedButton("⚠️ 2. RESTAURAR DE FÁBRICA", bgcolor="#ef4444", color="white", width=350, on_click=confirmar_reseteo)], tight=True)), actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg_sis))])
             page.dialog = dlg_sis; dlg_sis.open = True; page.update()
 
         def limpiar_todo(e):
-            lista_items.clear()
-            estado["nro_edicion"] = None
-            estado["creador_edicion"] = None
-            actualizar_tabla_visual()
-            input_cliente.value = ""
-            input_nit.value = ""
-            input_atencion.value = ""
-            input_ref.value = ""
-            input_ciudad.value = "Yumbo"
-            input_tiempo_entrega.value = "4 Días hábiles"
-            input_validez.value = "20 Días"
-            input_pago.value = "30 Días"
-            input_garantia.value = "6 meses en mano de obra"
-            input_notas.value = "Toda la actividad será coordinada por el ingeniero Edward Álvarez y/o John Paniagua"
-            dropdown_modo_cot.value = "AIU"
-            input_pct_a.value = "10"
-            input_pct_i.value = "2"
-            input_pct_u.value = "8"
-            input_pct_iva_u.value = "19"
-            lista_busqueda_cli.visible = False
-            cambiar_modo_cot(None)
-            page.update()
+            lista_items.clear(); estado["nro_edicion"] = None; estado["creador_edicion"] = None; actualizar_tabla_visual()
+            input_cliente.value = ""; input_nit.value = ""; input_atencion.value = ""; input_ref.value = ""; input_ciudad.value = "Yumbo"; input_tiempo_entrega.value = "4 Días hábiles"; input_validez.value = "20 Días"; input_pago.value = "30 Días"; input_garantia.value = "6 meses en mano de obra"; input_notas.value = "Toda la actividad será coordinada por el ingeniero Edward Álvarez y/o John Paniagua"; dropdown_modo_cot.value = "AIU"; input_pct_a.value = "10"; input_pct_i.value = "2"; input_pct_u.value = "8"; input_pct_iva_u.value = "19"; lista_busqueda_cli.visible = False; cambiar_modo_cot(None); page.update()
 
         def generar_pdf_web(e):
             if not verificar_permiso_edicion(): return
@@ -1171,7 +1012,6 @@ def main(page: ft.Page):
                 c_ciu_origen = sanitizar_texto(input_ciudad.value or "Yumbo").strip()
                 c_atn = sanitizar_texto(input_atencion.value or "").strip()
                 c_ref = sanitizar_texto(input_ref.value or "").strip()
-
                 c_t_entrega = sanitizar_texto(input_tiempo_entrega.value or "").strip()
                 c_validez = sanitizar_texto(input_validez.value or "").strip()
                 c_pago = sanitizar_texto(input_pago.value or "").strip()
@@ -1188,21 +1028,14 @@ def main(page: ft.Page):
                 try: pct_iva_u = float(input_pct_iva_u.value)
                 except: pct_iva_u = 0.0
 
-                c_dir = ""
-                c_email = ""
-                c_ciu_cli = ""
-                c_tel = ""
+                c_dir = ""; c_email = ""; c_ciu_cli = ""; c_tel = ""
 
                 db = conectar_db()
                 try:
                     c = db.cursor()
                     c.execute("SELECT dir, email, ciu, tel FROM cli WHERE n=%s", (c_nom,))
                     cli_data = c.fetchone()
-                    if cli_data:
-                        c_dir = sanitizar_texto(cli_data[0] or "")
-                        c_email = sanitizar_texto(cli_data[1] or "")
-                        c_ciu_cli = sanitizar_texto(cli_data[2] or "")
-                        c_tel = sanitizar_texto(cli_data[3] or "")
+                    if cli_data: c_dir = sanitizar_texto(cli_data[0] or ""); c_email = sanitizar_texto(cli_data[1] or ""); c_ciu_cli = sanitizar_texto(cli_data[2] or ""); c_tel = sanitizar_texto(cli_data[3] or "")
                 except: pass
 
                 nro_doc = estado["nro_edicion"]
@@ -1235,7 +1068,6 @@ def main(page: ft.Page):
                     
                     c_up.execute('INSERT INTO h_det (nro, "desc", cant, und, unit, sub, imp, tipo) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)', 
                                (nro_doc, item['desc'], cant_n, und_str, unit_n, tot_item_n, imp_str, tipo_val))
-
                     subtotal_global += tot_item_n
                     
                     if "IVA" in imp_str.upper():
@@ -1249,13 +1081,10 @@ def main(page: ft.Page):
                 total_aiu_sum = val_a + val_i + val_u
                 val_iva_u_val = val_u * (pct_iva_u / 100)
 
-                if c_modo == "AIU":
-                    total_final_cotizacion = subtotal_global + total_aiu_sum + val_iva_u_val
-                else:
-                    total_final_cotizacion = subtotal_global
+                if c_modo == "AIU": total_final_cotizacion = subtotal_global + total_aiu_sum + val_iva_u_val
+                else: total_final_cotizacion = subtotal_global
                 
-                for pct_iva, base_amt in iva_bases.items():
-                    total_final_cotizacion += base_amt * (pct_iva / 100)
+                for pct_iva, base_amt in iva_bases.items(): total_final_cotizacion += base_amt * (pct_iva / 100)
 
                 nombre_limpio_cli = re.sub(r'[^\w\s-]', '', c_nom).strip()
                 nombre_archivo = f"{nombre_limpio_cli}-{nro_doc}.pdf"
@@ -1265,39 +1094,19 @@ def main(page: ft.Page):
                            (nro_doc, c_nom, fecha_hora_actual, nombre_archivo, total_final_cotizacion, "WEB", sesion["usuario"]))
                 db.commit(); db.close()
 
-                # ==========================================
-                nombres_completos = {
-                    "OSCAR": "OSCAR MERA",
-                    "YEISON": "YEISON FABIAN RESTREPO",
-                    "JOHN": "JOHN JAIRO CARDONA",
-                    "JHON": "JOHN JAIRO CARDONA",
-                    "PAULO": "PAULO ANDRES LEAL GARCIA" 
-                }
-                
-                numeros_whatsapp = {
-                    "OSCAR": "573175046404", 
-                    "YEISON": "573002986963", 
-                    "JOHN": "573225532559", 
-                    "JHON": "573225532559", 
-                    "PAULO": "573175046404"
-                }
+                nombres_completos = {"OSCAR": "OSCAR MERA", "YEISON": "YEISON FABIAN RESTREPO", "JOHN": "JOHN JAIRO CARDONA", "JHON": "JOHN JAIRO CARDONA", "PAULO": "PAULO ANDRES LEAL GARCIA"}
+                numeros_whatsapp = {"OSCAR": "573175046404", "YEISON": "573002986963", "JOHN": "573225532559", "JHON": "573225532559", "PAULO": "573175046404"}
                 
                 asesor_actual = sesion["usuario"].upper()
                 numero_asesor = numeros_whatsapp.get(asesor_actual, "573175046404")
 
                 qr = qrcode.QRCode(box_size=10, border=2)
-                qr.add_data(f"https://wa.me/{numero_asesor}")
-                qr.make(fit=True)
+                qr.add_data(f"https://wa.me/{numero_asesor}"); qr.make(fit=True)
                 qr.make_image(fill_color="black", back_color="white").save("assets/qr_temp.png")
-                # ==========================================
 
                 p = PDF()
                 p.asesor_nombre = nombres_completos.get(asesor_actual, asesor_actual) 
-                
-                p.set_margins(10, 10, 10)
-                p.set_auto_page_break(auto=True, margin=30)
-                p.add_page()
-                
+                p.set_margins(10, 10, 10); p.set_auto_page_break(auto=True, margin=30); p.add_page()
                 p.set_font('helvetica', 'B', 11)
                 meses = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
                 hoy = datetime.now()
@@ -1305,10 +1114,8 @@ def main(page: ft.Page):
                 p.ln(4)
 
                 y_start_cli = p.get_y()
-                
                 linea_direccion = c_dir
                 if c_ciu_cli: linea_direccion = f"{c_dir} - {c_ciu_cli}".strip(" -")
-                
                 lines_client = 1 
                 if c_atn: lines_client += 1
                 if c_nom: lines_client += 1
@@ -1323,7 +1130,6 @@ def main(page: ft.Page):
                 
                 p.set_xy(10, y_start_cli)
                 p.cell(0, 5, "Señores:", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                
                 if c_atn: p.set_font('helvetica', 'B', 11); p.set_text_color(31, 73, 125); p.cell(110, 5, c_atn, border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                 p.set_text_color(0, 0, 0); p.set_font('helvetica', 'B', 11); p.cell(110, 5, c_nom, border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                 p.set_font('helvetica', '', 11)
@@ -1340,193 +1146,13 @@ def main(page: ft.Page):
                     y_start_ref = p.get_y()
                     num_lines = (len("REFERENCIA: " + c_ref) // 85) + 1  
                     p.set_fill_color(240, 240, 240); p.rounded_rect(8, y_start_ref - 2, 194, (num_lines * 5) + 4, r=3, style='F')
-                    p.set_font('helvetica', 'B', 11); p.set_text_color(31, 73, 125); p.write(5, "REFERENCIA: ")
-                    p.set_font('helvetica', '', 11); p.set_text_color(0, 0, 0); p.write(5, f"{c_ref}\n"); p.ln(5)
+                    p.set_font('helvetica', 'B', 11); p.set_text_color(31, 73, 125); p.write(5, "REFERENCIA: "); p.set_font('helvetica', '', 11); p.set_text_color(0, 0, 0); p.write(5, f"{c_ref}\n"); p.ln(5)
 
                 p.set_fill_color(194, 229, 194); p.set_text_color(0, 0, 0); p.set_font("helvetica", '', 8) 
-                p.cell(10, 6, "ITEM", 1, fill=True, align='C'); p.cell(78, 6, "DESCRIPCION", 1, fill=True, align='C')
-                p.cell(12, 6, "CANT", 1, fill=True, align='C'); p.cell(25, 6, "UND", 1, fill=True, align='C')
-                p.cell(20, 6, "V. UNIT", 1, fill=True, align='C'); p.cell(20, 6, "IMPUESTO", 1, fill=True, align='C')
-                p.cell(25, 6, "VALOR", 1, fill=True, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                p.cell(10, 6, "ITEM", 1, fill=True, align='C'); p.cell(78, 6, "DESCRIPCION", 1, fill=True, align='C'); p.cell(12, 6, "CANT", 1, fill=True, align='C'); p.cell(25, 6, "UND", 1, fill=True, align='C'); p.cell(20, 6, "V. UNIT", 1, fill=True, align='C'); p.cell(20, 6, "IMPUESTO", 1, fill=True, align='C'); p.cellPara implementar la función de autocompletado en el campo "Nombre del ítem a cotizar" en el modal de "Gestión de Bodega / Catálogo"[cite: 1], se debe reemplazar el campo de texto estándar por un componente de búsqueda dinámica (tipo *autocomplete* o *searchable dropdown*). Esto permitirá que el sistema filtre en tiempo real los ítems existentes en la base de datos a medida que se escribe "cinta", desplegando una lista para seleccionar el ítem exacto sin tener que digitar el nombre completo[cite: 1].
 
-                p.set_fill_color(255, 255, 255)
-                
-                items_para_pdf = obtener_items_procesados(lista_items)
-                
-                for idx, i in enumerate(items_para_pdf):
-                    if i['tipo'] == 'P':
-                        if i.get('has_subs', False):
-                            c_str = ""
-                            u_str = ""
-                            pu_str = ""
-                            imp_str = ""
-                            tot_str = f"${int(i['total']):,}" if i['total'] > 0 else ""
-                        else:
-                            c_str = f"{i['cant']:g}" if i['cant'] > 0 else ""
-                            u_str = sanitizar_texto(i['und']) if i['cant'] > 0 else ""
-                            pu_str = f"${int(i['precio']):,}" if i['total'] > 0 else ""
-                            imp_str = sanitizar_texto(i['impuesto']) if i['total'] > 0 else ""
-                            tot_str = f"${int(i['total']):,}" if i['total'] > 0 else ""
-                    else:
-                        c_str = f"{i['cant']:g}" if i['cant'] > 0 else ""
-                        u_str = sanitizar_texto(i['und']) if i['cant'] > 0 else ""
-                        pu_str = ""
-                        imp_str = ""
-                        tot_str = ""
+Para resolver la limitación en la gestión de proveedores, dado que la pestaña "Comparador Proveedores" actualmente solo muestra espacios fijos ("Proveedor 1", "Proveedor 2", "Proveedor 3")[cite: 1], se requieren las siguientes modificaciones estructurales en la aplicación:
 
-                    desc_limpia = sanitizar_texto(i['desc'])
-                    desc_lines = textwrap.wrap(desc_limpia, width=43) 
-                    if not desc_lines: desc_lines = [""]
-                    for line_idx, line_text in enumerate(desc_lines):
-                        if len(desc_lines) == 1: b_style = 1
-                        elif line_idx == 0: b_style = 'LTR'
-                        elif line_idx == len(desc_lines) - 1: b_style = 'LBR'
-                        else: b_style = 'LR'
-                            
-                        if line_idx == 0:
-                            p.cell(10, 6, i['num'], border=b_style, align='C')
-                            p.cell(78, 6, f" {line_text}", border=b_style)
-                            p.cell(12, 6, c_str, border=b_style, align='C')
-                            p.cell(25, 6, u_str, border=b_style, align='C')
-                            p.cell(20, 6, pu_str, border=b_style, align='R')
-                            p.cell(20, 6, imp_str, border=b_style, align='C')
-                            p.cell(25, 6, tot_str, border=b_style, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                        else:
-                            p.cell(10, 6, "", border=b_style, align='C')
-                            p.cell(78, 6, f" {line_text}", border=b_style)
-                            p.cell(12, 6, "", border=b_style, align='C')
-                            p.cell(25, 6, "", border=b_style, align='C')
-                            p.cell(20, 6, "", border=b_style, align='R')
-                            p.cell(20, 6, "", border=b_style, align='C')
-                            p.cell(25, 6, "", border=b_style, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-
-                def print_total_row(label, value, bold=False):
-                    if bold: p.set_font('helvetica', 'B', 9)
-                    p.set_x(135); p.cell(40, 5, sanitizar_texto(label), 1, align='C'); p.cell(25, 5, f"$ {int(value):,}", 1, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT) 
-                    if bold: p.set_font('helvetica', '', 9)
-
-                p.set_font('helvetica', '', 9)
-                
-                print_total_row("SUBTOTAL", subtotal_global)
-                
-                if c_modo == "AIU":
-                    print_total_row(f"ADMINISTRACIÓN ({pct_a:g}%)", val_a)
-                    print_total_row(f"IMPREVISTOS ({pct_i:g}%)", val_i)
-                    print_total_row(f"UTILIDAD ({pct_u:g}%)", val_u)
-                    print_total_row("TOTAL AIU", total_aiu_sum, bold=True)
-                    print_total_row(f"IVA S/UTILIDAD ({pct_iva_u:g}%)", val_iva_u_val)
-                
-                for pct_iva, base_amt in iva_bases.items():
-                    val_iva_normal = base_amt * (pct_iva / 100)
-                    print_total_row(f"IVA ({pct_iva:g}%)", val_iva_normal)
-                
-                print_total_row("TOTAL", total_final_cotizacion, bold=True)
-
-                p.ln(10); p.set_font('helvetica', 'B', 10); p.cell(0, 5, "CONDICIONES COMERCIALES", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                p.ln(2); p.set_font('helvetica', '', 10)
-
-                p.cell(0, 5, f"- Tiempo de entrega: {c_t_entrega}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                p.cell(0, 5, f"- Validez de la cotizacion: {c_validez}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                p.cell(0, 5, f"- Forma de pago: {c_pago}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                p.cell(0, 5, f"- Garantia: {c_garantia}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                
-                if c_notas:
-                    p.multi_cell(0, 5, f"- Notas: {c_notas}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                
-                p.ln(8); p.set_font("helvetica", 'B', 8); p.cell(0, 5, "Escanee este código para atención personalizada y directa con nuestra Gerencia.", border=0, align='L', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                
-                current_y = p.get_y()
-                p.image("assets/qr_temp.png", 10, current_y, 25, 25)
-
-                p.output(f"assets/{nombre_archivo}")
-                try: os.remove("assets/qr_temp.png")
-                except: pass
-                
-                dlg_d = ft.AlertDialog(
-                    title=ft.Text("✅ Guardado y Generado", color="#10b981"), 
-                    content=ft.Text(f"Archivo generado: {nombre_archivo}"), 
-                    actions=[
-                        ft.ElevatedButton("📥 DESCARGAR PDF", bgcolor="#2563eb", color="white", on_click=lambda evt: page.launch_url(f"/{nombre_archivo}")), 
-                        ft.TextButton("Cerrar", on_click=lambda evt: cerrar_dialogo(dlg_d))
-                    ]
-                )
-                page.dialog = dlg_d; dlg_d.open = True; page.update()
-            except Exception as errorFallo: mostrar_alerta("Error al generar PDF", f"Hubo un fallo: {str(errorFallo)}")
-
-        btn_salir = ft.ElevatedButton("🚪 CERRAR SESIÓN", bgcolor="#ef4444", color="white", on_click=lambda e: mostrar_login())
-
-        botones_lista = [
-            ft.ElevatedButton("➕ AÑADIR ÍTEM", bgcolor="#10b981", color="white", on_click=abrir_modal_item),
-            ft.ElevatedButton("📦 BODEGA", bgcolor="#2563eb", color="white", on_click=abrir_modal_bodega),
-            ft.ElevatedButton("👥 CLIENTES", bgcolor="#2563eb", color="white", on_click=abrir_modal_clientes)
-        ]
-
-        if sesion["rol"] == "ADMIN":
-            botones_lista.append(ft.ElevatedButton("🔐 USUARIOS", bgcolor="#8b5cf6", color="white", on_click=abrir_modal_usuarios))
-
-        botones_lista.extend([
-            ft.ElevatedButton("🔍 HISTORIAL", bgcolor="#2563eb", color="white", on_click=abrir_modal_historial),
-            ft.ElevatedButton("🧹 LIMPIAR", bgcolor="#64748b", color="white", on_click=limpiar_todo)
-        ])
-
-        if sesion["rol"] == "ADMIN":
-            botones_lista.append(ft.ElevatedButton("⚙️ SISTEMA", bgcolor="#475569", color="white", on_click=abrir_modal_sistema))
-
-        botones_lista.append(btn_salir)
-
-        botones_top = ft.Row(botones_lista, wrap=True, alignment=ft.MainAxisAlignment.CENTER)
-
-        tabla = ft.Container(
-            content=ft.Column([
-                ft.Row([ft.Text(f"COTIZACIÓN ING {nro_actual}", weight="bold", color="#fbbf24", size=16)], alignment=ft.MainAxisAlignment.CENTER),
-                ft.Divider(color="white24"),
-                ft.ResponsiveRow([
-                    ft.Text("DESCRIPCIÓN (Clic para editar)", weight="bold", color="#fbbf24", col={"sm": 6}, text_align="center"), 
-                    ft.Text("CANTIDAD", weight="bold", color="#fbbf24", col={"sm": 3}, text_align="center"), 
-                    ft.Text("TOTAL", weight="bold", color="#fbbf24", col={"sm": 3}, text_align="center")
-                ]),
-                columna_tabla_items, ft.Container(height=10)
-            ]), bgcolor="#0f172a", padding=15, border_radius=8, border=ft.border.all(1, "white12")
-        )
-
-        f_cli = ft.Container(
-            content=ft.Column([
-                ft.ResponsiveRow([
-                    ft.Column([input_cliente, lista_busqueda_cli], col={"sm": 12, "md": 5, "lg": 5}),
-                    ft.Container(content=input_nit, col={"sm": 6, "md": 3, "lg": 3}),
-                    ft.Container(content=input_ciudad, col={"sm": 6, "md": 4, "lg": 4})
-                ]),
-                ft.ResponsiveRow([
-                    ft.Container(content=input_atencion, col={"sm": 12, "md": 4, "lg": 4}),
-                    ft.Container(content=input_ref, col={"sm": 12, "md": 8, "lg": 8})
-                ]),
-                ft.ResponsiveRow([
-                    ft.Container(content=input_tiempo_entrega, col={"sm": 6, "md": 3, "lg": 3}),
-                    ft.Container(content=input_validez, col={"sm": 6, "md": 3, "lg": 3}),
-                    ft.Container(content=input_pago, col={"sm": 6, "md": 3, "lg": 3}),
-                    ft.Container(content=input_garantia, col={"sm": 6, "md": 3, "lg": 3}),
-                ]),
-                ft.ResponsiveRow([
-                    ft.Container(content=input_notas, col={"sm": 12, "md": 12, "lg": 12})
-                ]),
-                ft.ResponsiveRow([
-                    ft.Container(content=dropdown_modo_cot, col={"sm": 6, "md": 2, "lg": 2}),
-                    container_texto_aiu,
-                    cont_a,
-                    cont_i,
-                    cont_u,
-                    cont_iva_u,
-                ], vertical_alignment=ft.CrossAxisAlignment.CENTER)
-            ], spacing=10),
-            bgcolor="#0f172a", padding=15, border_radius=8, border=ft.border.all(1, "white12")
-        )
-
-        btn_generar = ft.Container(content=ft.ElevatedButton("🚀 GENERAR COTIZACIÓN PROFESIONAL", bgcolor="#f59e0b", color="black", height=50, on_click=generar_pdf_web), alignment=ft.alignment.center, padding=ft.padding.only(top=10, bottom=20))
-        lbl_bienvenida = ft.Container(content=ft.Text(f"👤 Usuario conectado: {sesion['usuario']} ({sesion['rol']})", size=12, color="#94a3b8"), alignment=ft.alignment.center_right)
-        
-        page.add(header, lbl_bienvenida, botones_top, tabla, f_cli, btn_generar)
-        page.update()
-
-    mostrar_login()
-
-ft.app(target=main, view=ft.AppView.WEB_BROWSER, port=PORT, host="0.0.0.0", assets_dir="assets")
+*   **Creación rápida de proveedores:** Añadir un botón (como un ícono de "+") directamente al lado de los campos de selección de proveedores. Al presionarlo, debe desplegarse un pequeño formulario o ventana emergente que permita registrar un nuevo proveedor capturando únicamente los campos clave: **Nombre** y **Teléfono**.
+*   **Filas dinámicas para comparar:** En lugar de tener una cantidad fija de campos para los proveedores y sus precios[cite: 1], se debe implementar un botón de "Añadir otro proveedor a la comparación". Esto permitirá generar nuevas filas dinámicamente si se requiere cotizar con más empresas, sin estar limitados a la cantidad predeterminada en el diseño actual.
+*   **Búsqueda de proveedores existentes:** Los campos donde actualmente se escribe el nombre del proveedor (ej. Mecatronic, RG Redes)[cite: 1] también deben funcionar con autocompletado, conectándose a la lista de proveedores previamente guardados en el sistema.
