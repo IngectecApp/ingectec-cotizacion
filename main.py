@@ -3,6 +3,7 @@ import psycopg2
 import os
 import shutil
 import re
+import json
 import qrcode
 import textwrap
 from fpdf import FPDF
@@ -12,11 +13,14 @@ from datetime import datetime
 PORT = int(os.environ.get("PORT", 8080))
 if not os.path.exists("assets"): os.makedirs("assets")
 
-# --- CONEXIÓN SEGURA A POSTGRESQL ---
+# --- CONEXIÓN SEGURA A POSTGRESQL CON AUTOCOMMIT PARA EVITAR BLOQUEOS ---
 DB_URL = os.environ.get("DATABASE_URL", "postgresql://ingectec_bd_user:HY7iwKhvaILCeuUKd7Pgknsh6Nsv4aUE@dpg-dapicrvf3r2c73ep15ag-a.oregon-postgres.render.com/ingectec_bd")
 
 def conectar_db():
-    try: return psycopg2.connect(DB_URL)
+    try:
+        conn = psycopg2.connect(DB_URL)
+        conn.autocommit = True # Esto evita el error de bloqueo de Bodega
+        return conn
     except: return None
 
 # --- INICIALIZADOR AUTOMÁTICO DE TABLAS ---
@@ -54,7 +58,7 @@ def init_db():
             except: pass
 
         c.execute('CREATE TABLE IF NOT EXISTS h_det (id SERIAL PRIMARY KEY, nro TEXT, "desc" TEXT, cant NUMERIC, und TEXT, unit NUMERIC, sub NUMERIC, imp TEXT, tipo TEXT)')
-        conn.commit(); conn.close()
+        conn.close()
 
 init_db()
 
@@ -120,12 +124,12 @@ def main(page: ft.Page):
                 if bloqueado == 1: mostrar_alerta("Bloqueado 🔒", "Usuario bloqueado."); db.close(); return
                 if db_pwd == p:
                     c.execute("UPDATE usuarios SET intentos=0, bloqueado=0 WHERE usuario=%s", (u,))
-                    db.commit(); db.close(); sesion["usuario"] = u; sesion["rol"] = rol; iniciar_app_principal()
+                    db.close(); sesion["usuario"] = u; sesion["rol"] = rol; iniciar_app_principal()
                 else:
                     intentos += 1
                     if intentos >= 3: c.execute("UPDATE usuarios SET intentos=%s, bloqueado=1 WHERE usuario=%s", (intentos, u)); mostrar_alerta("Bloqueado 🚫", "Excedió intentos.")
                     else: c.execute("UPDATE usuarios SET intentos=%s WHERE usuario=%s", (intentos, u)); page.snack_bar = ft.SnackBar(ft.Text("❌ Clave incorrecta"), bgcolor="#ef4444"); page.snack_bar.open = True
-                    db.commit(); db.close(); page.update()
+                    db.close(); page.update()
             else: db.close(); page.snack_bar = ft.SnackBar(ft.Text("❌ Usuario no existe"), bgcolor="#ef4444"); page.snack_bar.open = True; page.update()
 
     pantalla_login = ft.Container(content=ft.Column([ft.Icon(ft.icons.LOCK_PERSON, size=50, color="#fbbf24"), ft.Text("INGECTEC - Acceso Seguro", size=20, weight="bold", color="white"), input_usr, input_pwd, ft.ElevatedButton("INICIAR SESIÓN", bgcolor="#2563eb", color="white", width=300, height=45, on_click=procesar_login)], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15), alignment=ft.alignment.center, expand=True)
@@ -299,8 +303,7 @@ def main(page: ft.Page):
                     for n, t in c.fetchall():
                         ops.append(ft.dropdown.Option(n))
                         def ed(ev, nom=n, tel=t): e_pnom.value=nom; e_ptel.value=tel; page.update()
-                        def rm(ev, nom=n): 
-                            dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM proveedores WHERE nombre=%s", (nom,)); dbd.commit(); dbd.close(); load_provs()
+                        def rm(ev, nom=n): dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM proveedores WHERE nombre=%s", (nom,)); dbd.close(); load_provs()
                         lst_provs.controls.append(ft.ListTile(title=ft.Text(n, color="#fbbf24"), subtitle=ft.Text(f"Tel: {t}"), on_click=ed, trailing=ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=rm)))
                     db.close()
                 c_p1.options=ops; c_p2.options=ops; c_p3.options=ops; page.update()
@@ -310,7 +313,7 @@ def main(page: ft.Page):
                 db=conectar_db()
                 if db:
                     c=db.cursor(); c.execute("INSERT INTO proveedores (nombre, telefono) VALUES (%s,%s) ON CONFLICT(nombre) DO UPDATE SET telefono=EXCLUDED.telefono", (e_pnom.value.upper(), e_ptel.value))
-                    db.commit(); db.close(); e_pnom.value=""; e_ptel.value=""; load_provs(); page.snack_bar=ft.SnackBar(ft.Text("✅ Proveedor guardado"), bgcolor="#10b981"); page.snack_bar.open=True; page.update()
+                    db.close(); e_pnom.value=""; e_ptel.value=""; load_provs(); page.snack_bar=ft.SnackBar(ft.Text("✅ Proveedor guardado"), bgcolor="#10b981"); page.snack_bar.open=True; page.update()
 
             def b_bod(evt):
                 res_bod.controls.clear(); db = conectar_db()
@@ -320,7 +323,7 @@ def main(page: ft.Page):
                     except: c.execute("SELECT d, p, '' FROM inv WHERE UPPER(d) LIKE %s LIMIT 20", ('%'+txt+'%',))
                     for d, p, prov in c.fetchall():
                         def sel(ev, desc=d, prec=p): e_desc.value=desc; e_precio.value=str(int(float(prec))); page.update()
-                        def rm(ev, desc=d): dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM inv WHERE d=%s", (desc,)); dbd.commit(); dbd.close(); b_bod(None)
+                        def rm(ev, desc=d): dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM inv WHERE d=%s", (desc,)); dbd.close(); b_bod(None)
                         subt = f"${int(float(p)):,}" + (f" (Prov: {prov})" if prov else "")
                         res_bod.controls.append(ft.ListTile(title=ft.Text(d, color="#fbbf24"), subtitle=ft.Text(subt), on_click=sel, trailing=ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=rm)))
                     db.close(); page.update()
@@ -328,7 +331,7 @@ def main(page: ft.Page):
             def s_bod(evt):
                 if not e_desc.value: return
                 db=conectar_db()
-                if db: c=db.cursor(); c.execute("INSERT INTO inv (d, p, stock, proveedor) VALUES (%s,%s,0,'') ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p", (e_desc.value.upper(), float(e_precio.value or 0))); db.commit(); db.close(); e_desc.value=""; e_precio.value=""; b_bod(None); page.snack_bar=ft.SnackBar(ft.Text("✅ Guardado"), bgcolor="#2563eb"); page.snack_bar.open=True; page.update()
+                if db: c=db.cursor(); c.execute("INSERT INTO inv (d, p, stock, proveedor) VALUES (%s,%s,0,'') ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p", (e_desc.value.upper(), float(e_precio.value or 0))); db.close(); e_desc.value=""; e_precio.value=""; b_bod(None); page.snack_bar=ft.SnackBar(ft.Text("✅ Guardado"), bgcolor="#2563eb"); page.snack_bar.open=True; page.update()
 
             def p_mas(evt):
                 if not e_mas.value.strip(): return
@@ -343,7 +346,7 @@ def main(page: ft.Page):
                                 try: pr=float(pts[1].replace("$","").replace(".","").replace(",","").replace(" ","").strip())
                                 except: pass
                             c.execute("INSERT INTO inv (d, p, stock, proveedor) VALUES (%s,%s,0,'') ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p", (pts[0].strip().upper(), pr)); ag+=1
-                    db.commit(); db.close(); e_mas.value=""; b_bod(None); page.snack_bar=ft.SnackBar(ft.Text(f"✅ {ag} procesados"), bgcolor="#10b981"); page.snack_bar.open=True; page.update()
+                    db.close(); e_mas.value=""; b_bod(None); page.snack_bar=ft.SnackBar(ft.Text(f"✅ {ag} procesados"), bgcolor="#10b981"); page.snack_bar.open=True; page.update()
 
             def b_comp(evt):
                 txt = (c_item.value or "").upper().strip(); lst_comp.controls.clear()
@@ -371,7 +374,7 @@ def main(page: ft.Page):
                 gp, gpr = min(ofs, key=lambda x: x[1])
                 db = conectar_db()
                 if db:
-                    c=db.cursor(); c.execute("INSERT INTO inv (d, p, stock, proveedor) VALUES (%s, %s, 0, %s) ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p, proveedor=EXCLUDED.proveedor", (itm, gpr, gp)); db.commit(); db.close()
+                    c=db.cursor(); c.execute("INSERT INTO inv (d, p, stock, proveedor) VALUES (%s, %s, 0, %s) ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p, proveedor=EXCLUDED.proveedor", (itm, gpr, gp)); db.close()
                     c_item.value=""; c_p1.value=None; c_pr1.value=""; c_p2.value=None; c_pr2.value=""; c_p3.value=None; c_pr3.value=""; b_bod(None)
                     page.snack_bar=ft.SnackBar(ft.Text(f"🏆 GANADOR: {gp} (${int(gpr):,})"), bgcolor="#8b5cf6"); page.snack_bar.open=True; page.update()
 
@@ -403,7 +406,7 @@ def main(page: ft.Page):
                         def ed(ev, nom=n): 
                             dbi=conectar_db(); ci=dbi.cursor(); ci.execute("SELECT n, i, dir, email, ciu, tel FROM cli WHERE n=%s", (nom,)); cd = ci.fetchone(); dbi.close()
                             if cd: cn.value, ci.value, cd.value, ce.value, cc.value, ct.value = cd; page.update()
-                        def rm(ev, nom=n): dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM cli WHERE n=%s", (nom,)); dbd.commit(); dbd.close(); load_cli()
+                        def rm(ev, nom=n): dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM cli WHERE n=%s", (nom,)); dbd.close(); load_cli()
                         r_cli.controls.append(ft.ListTile(title=ft.Text(n, color="#fbbf24"), subtitle=ft.Text(f"NIT:{i} | Ciu:{ciu} | Tel:{tel}"), on_click=ed, trailing=ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=rm)))
                     db.close()
                 page.update()
@@ -413,7 +416,7 @@ def main(page: ft.Page):
                 db=conectar_db()
                 if db:
                     c=db.cursor(); c.execute("INSERT INTO cli (n, i, dir, email, ciu, tel) VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT(n) DO UPDATE SET i=EXCLUDED.i, dir=EXCLUDED.dir, email=EXCLUDED.email, ciu=EXCLUDED.ciu, tel=EXCLUDED.tel", (cn.value.upper(), ci.value, cd.value, ce.value, cc.value, ct.value))
-                    db.commit(); db.close(); cn.value=""; ci.value=""; cd.value=""; ce.value=""; cc.value=""; ct.value=""; load_cli(); page.snack_bar=ft.SnackBar(ft.Text("✅ Guardado"), bgcolor="#10b981"); page.snack_bar.open=True; page.update()
+                    db.close(); cn.value=""; ci.value=""; cd.value=""; ce.value=""; cc.value=""; ct.value=""; load_cli(); page.snack_bar=ft.SnackBar(ft.Text("✅ Guardado"), bgcolor="#10b981"); page.snack_bar.open=True; page.update()
 
             def p_cli(ev):
                 if not cm.value.strip(): return
@@ -425,7 +428,7 @@ def main(page: ft.Page):
                         if len(p)>=1 and p[0].strip():
                             n=sanitizar_texto(p[0].strip().upper()); ni=sanitizar_texto(p[1].strip()) if len(p)>1 else ""; tl=sanitizar_texto(p[2].strip()) if len(p)>2 else ""; dr=sanitizar_texto(p[3].strip()) if len(p)>3 else ""; cu=sanitizar_texto(p[4].strip()) if len(p)>4 else ""; ml=sanitizar_texto(p[5].strip()) if len(p)>5 else ""
                             c.execute("INSERT INTO cli (n, i, tel, dir, ciu, email) VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT(n) DO UPDATE SET i=EXCLUDED.i, tel=EXCLUDED.tel, dir=EXCLUDED.dir, ciu=EXCLUDED.ciu, email=EXCLUDED.email", (n, ni, tl, dr, cu, ml)); ag+=1
-                    db.commit(); db.close(); cm.value=""; load_cli(); page.snack_bar=ft.SnackBar(ft.Text(f"✅ {ag} clientes procesados"), bgcolor="#10b981"); page.snack_bar.open=True; page.update()
+                    db.close(); cm.value=""; load_cli(); page.snack_bar=ft.SnackBar(ft.Text(f"✅ {ag} procesados"), bgcolor="#10b981"); page.snack_bar.open=True; page.update()
 
             dlg = ft.AlertDialog(
                 title=ft.Text("👥 Gestión de Clientes"), 
@@ -446,8 +449,8 @@ def main(page: ft.Page):
                     c=db.cursor(); c.execute("SELECT usuario, rol, bloqueado FROM usuarios ORDER BY usuario ASC")
                     for u, r, b in c.fetchall():
                         def ed(ev, u=u, r=r): un.value=u; ur.value=r; up.value=""; page.update()
-                        def rm(ev, u=u): dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM usuarios WHERE usuario=%s", (u,)); dbd.commit(); dbd.close(); load_u()
-                        def dbq(ev, u=u): dbu=conectar_db(); cu=dbu.cursor(); cu.execute("UPDATE usuarios SET intentos=0, bloqueado=0 WHERE usuario=%s", (u,)); dbu.commit(); dbu.close(); load_u()
+                        def rm(ev, u=u): dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM usuarios WHERE usuario=%s", (u,)); dbd.close(); load_u()
+                        def dbq(ev, u=u): dbu=conectar_db(); cu=dbu.cursor(); cu.execute("UPDATE usuarios SET intentos=0, bloqueado=0 WHERE usuario=%s", (u,)); dbu.close(); load_u()
                         bts = [ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=rm)]
                         if b==1: bts.insert(0, ft.IconButton(ft.icons.LOCK_OPEN, icon_color="#10b981", on_click=dbq))
                         res_u.controls.append(ft.ListTile(title=ft.Text(f"{u}{' (Bloqueado)' if b==1 else ''}", color="#ef4444" if b==1 else "#fbbf24"), subtitle=ft.Text(r), trailing=ft.Row(bts, tight=True), on_click=ed))
@@ -459,7 +462,7 @@ def main(page: ft.Page):
                     c=db.cursor(); u = un.value.upper().strip(); c.execute("SELECT count(*) FROM usuarios WHERE usuario=%s", (u,))
                     if c.fetchone()[0]>0: c.execute("UPDATE usuarios SET password=%s, rol=%s, intentos=0, bloqueado=0 WHERE usuario=%s", (up.value.strip(), ur.value, u))
                     else: c.execute("INSERT INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES (%s,%s,%s,0,0)", (u, up.value.strip(), ur.value))
-                    db.commit(); db.close(); un.value=""; up.value=""; ur.value="ASESOR"; load_u()
+                    db.close(); un.value=""; up.value=""; ur.value="ASESOR"; load_u()
             dlg = ft.AlertDialog(title=ft.Text("🔐 Usuarios"), content=ft.Container(width=700, content=ft.Column([ft.ResponsiveRow([un, up, ur]), ft.ElevatedButton("Guardar", on_click=sv_u), res_u], tight=True)), actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))])
             page.dialog = dlg; dlg.open = True; load_u()
 
@@ -495,17 +498,63 @@ def main(page: ft.Page):
             page.dialog = dlg; dlg.open = True; load_h()
 
         def abrir_modal_sistema(e):
-            if sesion["rol"] != "ADMIN": return
-            def rst(ev):
-                ic = ft.TextField(label="Clave Maestra", password=True)
+            if sesion["rol"] != "ADMIN": return mostrar_alerta("Acceso Denegado", "Solo el Administrador tiene acceso a la configuración.")
+
+            def generar_backup_json(evt):
+                db = conectar_db()
+                if db:
+                    c = db.cursor(); b_data = {}; tablas = ["cli", "inv", "proveedores", "historial", "h_cab", "h_det", "n_cot"]
+                    for t in tablas:
+                        try:
+                            c.execute(f"SELECT * FROM {t}")
+                            cols = [desc[0] for desc in c.description]; rows = c.fetchall()
+                            b_data[t] = {"cols": cols, "rows": rows}
+                        except: pass
+                    db.close()
+                    with open("assets/backup_ingectec.json", "w", encoding="utf-8") as f: json.dump(b_data, f, default=str)
+                    page.launch_url('/backup_ingectec.json')
+                    page.snack_bar = ft.SnackBar(ft.Text("✅ Backup descargado correctamente. Guárdalo seguro."), bgcolor="#2563eb"); page.snack_bar.open = True; page.update()
+
+            e_json = ft.TextField(multiline=True, min_lines=6, max_lines=10, label="Pega aquí el contenido de tu archivo backup_ingectec.json")
+            
+            def subir_backup_json(evt):
+                if not e_json.value.strip(): return
+                try:
+                    data = json.loads(e_json.value.strip())
+                    db = conectar_db()
+                    if db:
+                        c = db.cursor()
+                        for t, tdata in data.items():
+                            c.execute(f"DELETE FROM {t}")
+                            cols = tdata.get("cols", []); rows = tdata.get("rows", [])
+                            if cols and rows:
+                                col_names = ", ".join(cols); placeholders = ", ".join(["%s"] * len(cols))
+                                for row in rows: c.execute(f"INSERT INTO {t} ({col_names}) VALUES ({placeholders})", tuple(row))
+                        db.close()
+                        page.snack_bar = ft.SnackBar(ft.Text("✅ Backup restaurado con éxito"), bgcolor="#10b981"); page.snack_bar.open = True; page.update(); e_json.value = ""
+                except Exception as ex: mostrar_alerta("Error", f"Archivo JSON inválido o corrupto: {str(ex)}")
+
+            def confirmar_reseteo(evt):
+                ic = ft.TextField(label="Contraseña Maestra", password=True)
                 def ex(e):
                     if ic.value.strip() == "7705178":
-                        db=conectar_db(); c=db.cursor(); c.execute("DELETE FROM cli"); c.execute("DELETE FROM inv"); c.execute("DELETE FROM historial"); c.execute("DELETE FROM h_cab"); c.execute("DELETE FROM h_det"); c.execute("UPDATE n_cot SET num=100 WHERE id=1"); db.commit(); db.close()
-                        cerrar_dialogo(dc); cerrar_dialogo(ds); page.snack_bar=ft.SnackBar(ft.Text("✅ SISTEMA RESTAURADO"), bgcolor="#10b981"); page.snack_bar.open=True; page.update()
-                dc = ft.AlertDialog(title=ft.Text("⚠️ ADVERTENCIA", color="#ef4444"), content=ft.Column([ft.Text("Se borrará TODO."), ic], tight=True), actions=[ft.ElevatedButton("BORRAR", bgcolor="#ef4444", on_click=ex), ft.TextButton("Cancelar", on_click=lambda e: cerrar_dialogo(dc))])
+                        db=conectar_db()
+                        if db:
+                            c=db.cursor(); c.execute("DELETE FROM cli"); c.execute("DELETE FROM inv"); c.execute("DELETE FROM historial"); c.execute("DELETE FROM h_cab"); c.execute("DELETE FROM h_det"); c.execute("UPDATE n_cot SET num=100 WHERE id=1"); db.close()
+                        cerrar_dialogo(dc); cerrar_dialogo(dlg_sis); page.snack_bar=ft.SnackBar(ft.Text("✅ RESTAURADO"), bgcolor="#10b981"); page.snack_bar.open=True; page.update()
+                dc = ft.AlertDialog(title=ft.Text("⚠️ ADVERTENCIA EXTREMA", color="#ef4444"), content=ft.Column([ft.Text("Se borrará TODO."), ic], tight=True), actions=[ft.ElevatedButton("BORRAR", bgcolor="#ef4444", on_click=ex), ft.TextButton("Cancelar", on_click=lambda e: cerrar_dialogo(dc))])
                 page.dialog = dc; dc.open = True; page.update()
-            ds = ft.AlertDialog(title=ft.Text("⚙️ Sistema"), content=ft.Container(width=400, content=ft.Column([ft.ElevatedButton("⚠️ RESTAURAR DE FÁBRICA", bgcolor="#ef4444", color="white", width=350, on_click=rst)], tight=True)), actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(ds))])
-            page.dialog = ds; ds.open = True; page.update()
+
+            dlg_sis = ft.AlertDialog(
+                title=ft.Text("⚙️ Configuración del Sistema (ADMIN)"),
+                content=ft.Container(width=600, height=400, content=ft.Tabs(
+                    selected_index=0, tabs=[
+                        ft.Tab(text="General", content=ft.Column([ft.Container(height=10), ft.ElevatedButton("📥 1. DESCARGAR BACKUP", bgcolor="#2563eb", color="white", width=350, on_click=generar_backup_json), ft.Container(height=20), ft.Text("ZONA DE PELIGRO:", color="#ef4444", weight="bold"), ft.ElevatedButton("⚠️ 2. RESTAURAR DE FÁBRICA", bgcolor="#ef4444", color="white", width=350, on_click=confirmar_reseteo)], tight=True)),
+                        ft.Tab(text="Subir Backup", content=ft.Column([ft.Container(height=10), ft.Text("Abre tu archivo .json, copia todo el texto y pégalo aquí:", size=12, color="white54"), e_json, ft.ElevatedButton("RESTAURAR INFORMACIÓN", bgcolor="#10b981", color="white", on_click=subir_backup_json)], tight=True))
+                    ]
+                )), actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg_sis))]
+            )
+            page.dialog = dlg_sis; dlg_sis.open = True; page.update()
 
         def limpiar_todo(e):
             lista_items.clear(); estado["nro_edicion"] = None; estado["creador_edicion"] = None; actualizar_tabla_visual()
@@ -515,18 +564,7 @@ def main(page: ft.Page):
             if not verificar_permiso_edicion(): return
             try:
                 if not lista_items or not input_cliente.value: return mostrar_alerta("Aviso", "Faltan datos.")
-                
-                c_nom = sanitizar_texto(input_cliente.value or "").upper().strip()
-                c_nit = sanitizar_texto(input_nit.value or "").strip()
-                c_ciu_origen = sanitizar_texto(input_ciudad.value or "Yumbo").strip()
-                c_atn = sanitizar_texto(input_atencion.value or "").strip()
-                c_ref = sanitizar_texto(input_ref.value or "").strip()
-                c_t_entrega = sanitizar_texto(input_tiempo_entrega.value or "").strip()
-                c_validez = sanitizar_texto(input_validez.value or "").strip()
-                c_pago = sanitizar_texto(input_pago.value or "").strip()
-                c_garantia = sanitizar_texto(input_garantia.value or "").strip()
-                c_notas = sanitizar_texto(input_notas.value or "").strip()
-                c_modo = dropdown_modo_cot.value or "AIU"
+                c_nom = sanitizar_texto(input_cliente.value or "").upper().strip(); c_nit = sanitizar_texto(input_nit.value or "").strip(); c_ciu_origen = sanitizar_texto(input_ciudad.value or "Yumbo").strip(); c_atn = sanitizar_texto(input_atencion.value or "").strip(); c_ref = sanitizar_texto(input_ref.value or "").strip(); c_t_entrega = sanitizar_texto(input_tiempo_entrega.value or "").strip(); c_validez = sanitizar_texto(input_validez.value or "").strip(); c_pago = sanitizar_texto(input_pago.value or "").strip(); c_garantia = sanitizar_texto(input_garantia.value or "").strip(); c_notas = sanitizar_texto(input_notas.value or "").strip(); c_modo = dropdown_modo_cot.value or "AIU"
                 try: pct_a = float(input_pct_a.value)
                 except: pct_a = 0.0
                 try: pct_i = float(input_pct_i.value)
@@ -567,12 +605,9 @@ def main(page: ft.Page):
                 tot_fin = (subtotal + tot_aiu + val_iva_u) if c_modo == "AIU" else subtotal
                 for p_iva, b_amt in iva_bases.items(): tot_fin += b_amt * (p_iva / 100)
 
-                nom_limp = re.sub(r'[^\w\s-]', '', c_nom).strip()
-                nom_arc = f"{nom_limp}-{nro_doc}.pdf"
-                f_h = datetime.now().strftime("%Y-%m-%d %H:%M")
-                
-                c_up.execute("INSERT INTO historial (nro, cliente, fecha, archivo, total, origen, creador) VALUES (%s,%s,%s,%s,%s,%s,%s)", (nro_doc, c_nom, f_h, nom_arc, tot_fin, "WEB", sesion["usuario"]))
-                db.commit(); db.close()
+                nom_limp = re.sub(r'[^\w\s-]', '', c_nom).strip(); nom_arc = f"{nom_limp}-{nro_doc}.pdf"
+                c_up.execute("INSERT INTO historial (nro, cliente, fecha, archivo, total, origen, creador) VALUES (%s,%s,%s,%s,%s,%s,%s)", (nro_doc, c_nom, datetime.now().strftime("%Y-%m-%d %H:%M"), nom_arc, tot_fin, "WEB", sesion["usuario"]))
+                db.close()
 
                 asesor_act = sesion["usuario"].upper()
                 num_wp = {"OSCAR":"573175046404", "YEISON":"573002986963", "JOHN":"573225532559", "PAULO":"573175046404"}.get(asesor_act, "573175046404")
@@ -585,13 +620,7 @@ def main(page: ft.Page):
 
                 y_st = p.get_y(); lin_dir = c_dir
                 if c_ciu_cli: lin_dir = f"{c_dir} - {c_ciu_cli}".strip(" -")
-                lc = 1 
-                if c_atn: lc+=1
-                if c_nom: lc+=1
-                if c_nit: lc+=1
-                if lin_dir: lc+=1
-                if c_tel: lc+=1
-                if c_email: lc+=1
+                lc = 1 + (1 if c_atn else 0) + (1 if c_nom else 0) + (1 if c_nit else 0) + (1 if lin_dir else 0) + (1 if c_tel else 0) + (1 if c_email else 0)
                 
                 p.set_fill_color(240, 240, 240); p.rounded_rect(8, y_st - 2, 105, (lc * 5) + 4, r=3, style='F'); p.rounded_rect(118, y_st - 2, 84, 14, r=3, style='F') 
                 p.set_xy(10, y_st); p.cell(0, 5, "Señores:", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
@@ -612,10 +641,7 @@ def main(page: ft.Page):
 
                 p.set_fill_color(194, 229, 194); p.set_text_color(0, 0, 0); p.set_font("helvetica", '', 8) 
                 p.cell(10, 6, "ITEM", 1, fill=True, align='C'); p.cell(78, 6, "DESCRIPCION", 1, fill=True, align='C'); p.cell(12, 6, "CANT", 1, fill=True, align='C'); p.cell(25, 6, "UND", 1, fill=True, align='C')
-                
-                # --- ESTA FUE LA LÍNEA QUE CAUSÓ EL ERROR EN EL MENSAJE ANTERIOR, YA ESTÁ 100% LIMPIA ---
-                p.cell(20, 6, "V. UNIT", 1, fill=True, align='C'); p.cell(20, 6, "IMPUESTO", 1, fill=True, align='C')
-                p.cell(25, 6, "VALOR", 1, fill=True, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                p.cell(20, 6, "V. UNIT", 1, fill=True, align='C'); p.cell(20, 6, "IMPUESTO", 1, fill=True, align='C'); p.cell(25, 6, "VALOR", 1, fill=True, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
                 p.set_fill_color(255, 255, 255)
                 
