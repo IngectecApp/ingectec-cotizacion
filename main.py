@@ -38,7 +38,13 @@ def init_db():
             c.execute("INSERT INTO n_cot (id, num) VALUES (1, 100) ON CONFLICT (id) DO NOTHING")
             
             c.execute("CREATE TABLE IF NOT EXISTS cli (n TEXT PRIMARY KEY, i TEXT, dir TEXT, email TEXT, ciu TEXT, tel TEXT)")
-            c.execute("CREATE TABLE IF NOT EXISTS inv (d TEXT PRIMARY KEY, p NUMERIC, stock NUMERIC)")
+            
+            # Nueva estructura de bodega con columna proveedor
+            c.execute("CREATE TABLE IF NOT EXISTS inv (d TEXT PRIMARY KEY, p NUMERIC, stock NUMERIC, proveedor TEXT)")
+            try:
+                c.execute("ALTER TABLE inv ADD COLUMN IF NOT EXISTS proveedor TEXT")
+            except: pass
+
             c.execute("CREATE TABLE IF NOT EXISTS historial (nro TEXT PRIMARY KEY, cliente TEXT, fecha TEXT, archivo TEXT, total NUMERIC, origen TEXT, creador TEXT)")
             
             c.execute("""CREATE TABLE IF NOT EXISTS h_cab (
@@ -67,10 +73,8 @@ def init_db():
                 ("pct_a", "NUMERIC"), ("pct_i", "NUMERIC"), ("pct_u", "NUMERIC"), ("pct_iva_u", "NUMERIC")
             ]
             for col, tipo in columnas_extra:
-                try:
-                    c.execute(f"ALTER TABLE h_cab ADD COLUMN IF NOT EXISTS {col} {tipo}")
-                except Exception:
-                    pass
+                try: c.execute(f"ALTER TABLE h_cab ADD COLUMN IF NOT EXISTS {col} {tipo}")
+                except: pass
 
             c.execute('CREATE TABLE IF NOT EXISTS h_det (id SERIAL PRIMARY KEY, nro TEXT, "desc" TEXT, cant NUMERIC, und TEXT, unit NUMERIC, sub NUMERIC, imp TEXT, tipo TEXT)')
             
@@ -81,21 +85,13 @@ def init_db():
 
 init_db()
 
-# --- FUNCION SANITIZADORA PARA EVITAR ERRORES DE FUENTE EN FPDF ---
 def sanitizar_texto(texto):
-    if not texto:
-        return ""
+    if not texto: return ""
     s = str(texto)
-    reemplazos = {
-        "•": "-", "·": "-", "–": "-", "—": "-",
-        "“": '"', "”": '"', "‘": "'", "’": "'",
-        "…": "...", "€": "EUR"
-    }
-    for orig, nuevo in reemplazos.items():
-        s = s.replace(orig, nuevo)
+    reemplazos = {"•": "-", "·": "-", "–": "-", "—": "-", "“": '"', "”": '"', "‘": "'", "’": "'", "…": "...", "€": "EUR"}
+    for orig, nuevo in reemplazos.items(): s = s.replace(orig, nuevo)
     return s.encode("latin-1", "replace").decode("latin-1")
 
-# --- CLASE PDF ORIGINAL DE INGECTEC ---
 class PDF(FPDF):
     def rounded_rect(self, x, y, w, h, r, style='F'):
         if style == 'F':
@@ -156,9 +152,6 @@ def main(page: ft.Page):
     input_usr = ft.TextField(label="Usuario (Ej. OSCAR, PAULO, YEISON)", width=300)
     input_pwd = ft.TextField(label="Contraseña", password=True, can_reveal_password=True, width=300)
 
-    # ==========================================
-    # LÓGICA DE INGRESO CON SEGURIDAD (POSTGRESQL)
-    # ==========================================
     def procesar_login(e):
         u = input_usr.value.upper().strip()
         p = input_pwd.value.strip()
@@ -227,15 +220,11 @@ def main(page: ft.Page):
         estado["creador_edicion"] = None
         input_usr.value = ""
         input_pwd.value = ""
-        
         page.scroll = None  
         page.controls.clear()
         page.add(pantalla_login)
         page.update()
 
-    # ==========================================
-    # INTERFAZ PRINCIPAL AISLADA
-    # ==========================================
     def iniciar_app_principal():
         page.scroll = ft.ScrollMode.AUTO
         page.controls.clear()
@@ -483,16 +472,28 @@ def main(page: ft.Page):
                 if db:
                     c = db.cursor()
                     txt = (buscador_inv.value or "").upper()
-                    c.execute("SELECT d, p FROM inv WHERE UPPER(d) LIKE %s ORDER BY d ASC LIMIT 30", ('%'+txt+'%',))
+                    
+                    try:
+                        c.execute("SELECT d, p, proveedor FROM inv WHERE UPPER(d) LIKE %s ORDER BY d ASC LIMIT 30", ('%'+txt+'%',))
+                    except:
+                        c.execute("SELECT d, p, '' FROM inv WHERE UPPER(d) LIKE %s ORDER BY d ASC LIMIT 30", ('%'+txt+'%',))
+
                     for row in c.fetchall():
-                        d, p = row[0], (row[1] if row[1] else 0)
+                        d = row[0]
+                        p = row[1] if row[1] else 0
+                        prov = row[2] if len(row)>2 and row[2] else ""
+                        
                         def sel(evt, desc=d, precio=p): 
                             input_desc.value = desc; input_precio.value = str(int(float(precio)))
                             if "TUBO" in desc.upper() or "CABLE" in desc.upper(): input_und.value = "ML"
                             elif "INSTALACION" in desc.upper(): input_und.value = "GLB"
                             else: input_und.value = "UNID"
                             input_und_custom.visible = False; input_cant.col = {"sm": 3}; input_und.col = {"sm": 4}; input_precio.col = {"sm": 5}; page.update()
-                        resultados_inv.controls.append(ft.ListTile(title=ft.Text(d, color="#fbbf24", size=14), subtitle=ft.Text(f"${int(float(p)):,}"), on_click=sel))
+                        
+                        subtit = f"${int(float(p)):,}"
+                        if prov: subtit += f"  (Proveedor: {prov})"
+                            
+                        resultados_inv.controls.append(ft.ListTile(title=ft.Text(d, color="#fbbf24", size=14), subtitle=ft.Text(subtit, color="#94a3b8"), on_click=sel))
                     db.close()
                 page.update()
 
@@ -551,15 +552,30 @@ def main(page: ft.Page):
                 label="Pega aquí desde Excel (Columna 1: Nombre | Columna 2: Precio)"
             )
             
+            # --- CAMPOS PARA EL COMPARADOR DE COMPRAS ---
+            comp_item = ft.TextField(label="Nombre del Ítem a cotizar")
+            comp_prov1 = ft.TextField(label="Proveedor 1 (Ej. Mecatronic)", col={"sm": 6})
+            comp_pre1 = ft.TextField(label="Precio Prov 1", col={"sm": 6})
+            comp_prov2 = ft.TextField(label="Proveedor 2 (Ej. RG Redes)", col={"sm": 6})
+            comp_pre2 = ft.TextField(label="Precio Prov 2", col={"sm": 6})
+            comp_prov3 = ft.TextField(label="Proveedor 3 (Ej. SMT)", col={"sm": 6})
+            comp_pre3 = ft.TextField(label="Precio Prov 3", col={"sm": 6})
+
             def buscar_bodega(evt):
                 resultados_bod.controls.clear()
                 db = conectar_db()
                 if db:
                     c = db.cursor()
                     txt = (e_desc.value or "").upper()
-                    c.execute("SELECT d, p FROM inv WHERE UPPER(d) LIKE %s LIMIT 20", ('%'+txt+'%',))
+                    try:
+                        c.execute("SELECT d, p, proveedor FROM inv WHERE UPPER(d) LIKE %s LIMIT 20", ('%'+txt+'%',))
+                    except:
+                        c.execute("SELECT d, p, '' FROM inv WHERE UPPER(d) LIKE %s LIMIT 20", ('%'+txt+'%',))
+
                     for row in c.fetchall():
                         d, p = row[0], row[1]
+                        prov = row[2] if len(row)>2 and row[2] else ""
+
                         def sel(evt, desc=d, prec=p): e_desc.value = desc; e_precio.value = str(int(float(prec))); page.update()
                         
                         def eliminar(evt, desc=d):
@@ -570,9 +586,12 @@ def main(page: ft.Page):
                             buscar_bodega(None)
                             page.snack_bar = ft.SnackBar(ft.Text(f"🗑️ Producto eliminado"), bgcolor="#ef4444"); page.snack_bar.open = True; page.update()
 
+                        subtit = f"${int(float(p)):,}"
+                        if prov: subtit += f"  (Proveedor: {prov})"
+
                         resultados_bod.controls.append(ft.ListTile(
                             title=ft.Text(d, size=13, color="#fbbf24", weight="bold"), 
-                            subtitle=ft.Text(f"${int(float(p)):,}"), 
+                            subtitle=ft.Text(subtit, color="#94a3b8"), 
                             on_click=sel,
                             trailing=ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=eliminar)
                         ))
@@ -584,7 +603,7 @@ def main(page: ft.Page):
                 try:
                     db = conectar_db()
                     c = db.cursor()
-                    c.execute("INSERT INTO inv (d, p, stock) VALUES (%s,%s,0) ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p", (e_desc.value.upper(), float(e_precio.value or 0)))
+                    c.execute("INSERT INTO inv (d, p, stock, proveedor) VALUES (%s,%s,0,'') ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p", (e_desc.value.upper(), float(e_precio.value or 0)))
                     db.commit(); db.close()
                     e_desc.value = ""; e_precio.value = ""; buscar_bodega(None)
                     page.snack_bar = ft.SnackBar(ft.Text("✅ Precio guardado correctamente"), bgcolor="#2563eb"); page.snack_bar.open = True; page.update()
@@ -612,7 +631,7 @@ def main(page: ft.Page):
                         try: prec = float(prec_str)
                         except: prec = 0.0
                         
-                        c.execute("INSERT INTO inv (d, p, stock) VALUES (%s,%s,0) ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p", (desc, prec))
+                        c.execute("INSERT INTO inv (d, p, stock, proveedor) VALUES (%s,%s,0,'') ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p", (desc, prec))
                         agregados += 1
                         
                 db.commit()
@@ -622,6 +641,50 @@ def main(page: ft.Page):
                 page.snack_bar = ft.SnackBar(ft.Text(f"✅ ¡Éxito! Se procesaron {agregados} productos."), bgcolor="#10b981")
                 page.snack_bar.open = True
                 page.update()
+
+            # --- LÓGICA DEL COMPARADOR DE COMPRAS ---
+            def ejecutar_comparador(evt):
+                item_desc = comp_item.value.strip().upper()
+                if not item_desc:
+                    return mostrar_alerta("Aviso", "Debes ingresar el nombre del ítem a cotizar.")
+                
+                ofertas = []
+                
+                if comp_prov1.value and comp_pre1.value:
+                    try: ofertas.append((comp_prov1.value.upper(), float(comp_pre1.value)))
+                    except: pass
+                if comp_prov2.value and comp_pre2.value:
+                    try: ofertas.append((comp_prov2.value.upper(), float(comp_pre2.value)))
+                    except: pass
+                if comp_prov3.value and comp_pre3.value:
+                    try: ofertas.append((comp_prov3.value.upper(), float(comp_pre3.value)))
+                    except: pass
+                
+                if not ofertas:
+                    return mostrar_alerta("Aviso", "Debes ingresar al menos un proveedor con su precio.")
+
+                ganador = min(ofertas, key=lambda x: x[1])
+                prov_ganador, precio_ganador = ganador
+
+                try:
+                    db = conectar_db()
+                    c = db.cursor()
+                    c.execute("""INSERT INTO inv (d, p, stock, proveedor) 
+                                 VALUES (%s, %s, 0, %s) 
+                                 ON CONFLICT(d) DO UPDATE 
+                                 SET p=EXCLUDED.p, proveedor=EXCLUDED.proveedor""", 
+                              (item_desc, precio_ganador, prov_ganador))
+                    db.commit()
+                    db.close()
+                    
+                    comp_item.value = ""; comp_prov1.value = ""; comp_pre1.value = ""; comp_prov2.value = ""; comp_pre2.value = ""; comp_prov3.value = ""; comp_pre3.value = ""
+                    buscar_bodega(None)
+                    
+                    page.snack_bar = ft.SnackBar(ft.Text(f"🏆 GANADOR: {prov_ganador} con ${int(precio_ganador):,}. Bodega actualizada."), bgcolor="#8b5cf6")
+                    page.snack_bar.open = True
+                    page.update()
+                except Exception as ex:
+                    mostrar_alerta("Error", str(ex))
 
             e_desc.on_change = buscar_bodega
             
@@ -648,6 +711,18 @@ def main(page: ft.Page):
                             e_masivo,
                             ft.ElevatedButton("📥 IMPORTAR DESDE EXCEL", bgcolor="#10b981", color="white", on_click=procesar_masivo)
                         ], tight=True)
+                    ),
+                    ft.Tab(
+                        text="⚖️ Comparador Proveedores",
+                        content=ft.Column([
+                            ft.Container(height=10),
+                            ft.Text("Ingresa los precios de cotización. El sistema guardará el más económico en bodega.", size=12, color="white54"),
+                            comp_item,
+                            ft.ResponsiveRow([comp_prov1, comp_pre1]),
+                            ft.ResponsiveRow([comp_prov2, comp_pre2]),
+                            ft.ResponsiveRow([comp_prov3, comp_pre3]),
+                            ft.ElevatedButton("⚖️ ANALIZAR Y ELEGIR GANADOR", bgcolor="#8b5cf6", color="white", on_click=ejecutar_comparador)
+                        ], tight=True, scroll=ft.ScrollMode.AUTO)
                     )
                 ],
                 expand=1
