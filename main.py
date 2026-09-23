@@ -285,7 +285,7 @@ def main(page: ft.Page):
 
         def abrir_modal_bodega(e):
             try:
-                res_bod = ft.ListView(height=180)
+                resultados_bod = ft.ListView(height=180)
                 e_desc = ft.TextField(label="Nombre Producto")
                 e_precio = ft.TextField(label="Precio Producto")
                 e_mas = ft.TextField(multiline=True, min_lines=6, max_lines=10, label="Pega desde Excel (Nombre | Precio)")
@@ -299,7 +299,6 @@ def main(page: ft.Page):
                 e_pnom = ft.TextField(label="Nombre Proveedor*", col={"sm": 7}); e_ptel = ft.TextField(label="Teléfono", col={"sm": 5})
                 lst_provs = ft.ListView(height=200)
 
-                # --- NUEVA PESTAÑA CATÁLOGO COMPLETO ---
                 filtro_cat = ft.TextField(label="Filtrar catálogo completo...")
                 lst_cat = ft.ListView(expand=True, spacing=5, height=300)
 
@@ -325,7 +324,7 @@ def main(page: ft.Page):
                         db.close(); e_pnom.value=""; e_ptel.value=""; load_provs(); page.snack_bar=ft.SnackBar(ft.Text("✅ Proveedor guardado"), bgcolor="#10b981"); page.snack_bar.open=True; page.update()
 
                 def b_bod(evt):
-                    res_bod.controls.clear(); db = conectar_db()
+                    resultados_bod.controls.clear(); db = conectar_db()
                     if db:
                         c=db.cursor(); txt=(e_desc.value or "").upper()
                         try: c.execute("SELECT d, p, proveedor, fecha_act FROM inv WHERE UPPER(d) LIKE %s LIMIT 20", ('%'+txt+'%',))
@@ -335,7 +334,7 @@ def main(page: ft.Page):
                             def sel(ev, desc=d, prec=p): e_desc.value=desc; e_precio.value=str(int(float(prec))); page.update()
                             def rm(ev, desc=d): dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM inv WHERE d=%s", (desc,)); dbd.close(); b_bod(None); load_cat(None)
                             subt = f"${int(float(p)):,}" + (f" (Prov: {prov})" if prov else "") + (f" - Act: {fa}" if fa else "")
-                            res_bod.controls.append(ft.ListTile(title=ft.Text(d, size=13, color="#fbbf24", weight="bold"), subtitle=ft.Text(subt), on_click=sel, trailing=ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=rm)))
+                            resultados_bod.controls.append(ft.ListTile(title=ft.Text(d, size=13, color="#fbbf24", weight="bold"), subtitle=ft.Text(subt), on_click=sel, trailing=ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=rm)))
                         db.close(); page.update()
 
                 def s_bod(evt):
