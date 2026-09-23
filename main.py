@@ -128,13 +128,13 @@ def main(page: ft.Page):
             user_row = c.fetchone()
             if user_row:
                 db_pwd, rol, bloqueado, intentos = user_row
-                if bloqueado == 1: mostrar_alerta("Bloqueado 🔒", "Usuario bloqueado."); db.close(); return
+                if bloqueado == 1: mostrar_alerta("Bloqueado 🔒", "Usuario bloqueado. Contacta a un Super Administrador (OMERA o PLEAL)."); db.close(); return
                 if db_pwd == p:
                     c.execute("UPDATE usuarios SET intentos=0, bloqueado=0 WHERE usuario=%s", (u,))
                     db.close(); sesion["usuario"] = u; sesion["rol"] = rol; iniciar_app_principal()
                 else:
                     intentos += 1
-                    if intentos >= 3: c.execute("UPDATE usuarios SET intentos=%s, bloqueado=1 WHERE usuario=%s", (intentos, u)); mostrar_alerta("Bloqueado 🚫", "Excedió intentos.")
+                    if intentos >= 3: c.execute("UPDATE usuarios SET intentos=%s, bloqueado=1 WHERE usuario=%s", (intentos, u)); mostrar_alerta("Bloqueado 🚫", "Excedió intentos. Tu usuario ha sido bloqueado por seguridad.")
                     else: c.execute("UPDATE usuarios SET intentos=%s WHERE usuario=%s", (intentos, u)); page.snack_bar = ft.SnackBar(ft.Text("❌ Clave incorrecta"), bgcolor="#ef4444"); page.snack_bar.open = True
                     db.close(); page.update()
             else: db.close(); page.snack_bar = ft.SnackBar(ft.Text("❌ Usuario no existe"), bgcolor="#ef4444"); page.snack_bar.open = True; page.update()
@@ -169,7 +169,6 @@ def main(page: ft.Page):
         cont_a = ft.Container(content=input_pct_a, col={"sm": 3, "md": 2, "lg": 2}); cont_i = ft.Container(content=input_pct_i, col={"sm": 3, "md": 2, "lg": 2})
         cont_u = ft.Container(content=input_pct_u, col={"sm": 3, "md": 2, "lg": 2}); cont_iva_u = ft.Container(content=input_pct_iva_u, col={"sm": 3, "md": 2, "lg": 2})
 
-        # --- LÓGICA DE PERMISOS ACTUALIZADA ---
         def verificar_permiso_edicion():
             if estado.get("nro_edicion") and estado.get("creador_edicion"):
                 if estado["creador_edicion"] not in ["SISTEMA", sesion["usuario"]]:
@@ -555,8 +554,24 @@ def main(page: ft.Page):
             ); page.dialog = dlg; dlg.open = True; load_cli()
 
         def abrir_modal_usuarios(e):
-            if sesion["rol"] != "ADMIN": return mostrar_alerta("Denegado", "Solo Admin.")
+            pass_act = ft.TextField(label="Contraseña Actual", password=True, can_reveal_password=True)
+            pass_new = ft.TextField(label="Nueva Contraseña", password=True, can_reveal_password=True)
+            pass_conf = ft.TextField(label="Confirmar Nueva Contraseña", password=True, can_reveal_password=True)
+            
+            def guardar_clave(evt):
+                if pass_new.value != pass_conf.value: return mostrar_alerta("Error", "Las contraseñas nuevas no coinciden.")
+                db = conectar_db()
+                if db:
+                    c = db.cursor(); c.execute("SELECT password FROM usuarios WHERE usuario=%s", (sesion["usuario"],)); curr_pw = c.fetchone()[0]
+                    if curr_pw != pass_act.value: db.close(); return mostrar_alerta("Error", "La contraseña actual es incorrecta.")
+                    c.execute("UPDATE usuarios SET password=%s WHERE usuario=%s", (pass_new.value, sesion["usuario"])); db.close()
+                    pass_act.value = ""; pass_new.value = ""; pass_conf.value = ""
+                    page.snack_bar = ft.SnackBar(ft.Text("✅ Contraseña actualizada correctamente"), bgcolor="#10b981"); page.snack_bar.open = True; page.update()
+
+            tab_clave = ft.Tab(text="🔑 Mi Clave", content=ft.Column([ft.Container(height=10), pass_act, pass_new, pass_conf, ft.ElevatedButton("Actualizar Contraseña", bgcolor="#f59e0b", color="black", on_click=guardar_clave)], tight=True))
+            
             res_u = ft.ListView(expand=True, spacing=10, height=200); un = ft.TextField(label="Usuario*", col={"sm":4}); up = ft.TextField(label="Clave*", password=True, can_reveal_password=True, col={"sm":4}); ur = ft.Dropdown(label="Rol", options=[ft.dropdown.Option("ADMIN"), ft.dropdown.Option("ASESOR")], value="ASESOR", col={"sm":4})
+            
             def load_u():
                 res_u.controls.clear(); db=conectar_db()
                 if db:
@@ -569,6 +584,7 @@ def main(page: ft.Page):
                         if b==1: bts.insert(0, ft.IconButton(ft.icons.LOCK_OPEN, icon_color="#10b981", on_click=dbq))
                         res_u.controls.append(ft.ListTile(title=ft.Text(f"{u}{' (Bloqueado)' if b==1 else ''}", color="#ef4444" if b==1 else "#fbbf24"), subtitle=ft.Text(r), trailing=ft.Row(bts, tight=True), on_click=ed))
                     db.close(); page.update()
+                    
             def sv_u(ev):
                 if not un.value or not up.value: return
                 db=conectar_db()
@@ -577,29 +593,21 @@ def main(page: ft.Page):
                     if c.fetchone()[0]>0: c.execute("UPDATE usuarios SET password=%s, rol=%s, intentos=0, bloqueado=0 WHERE usuario=%s", (up.value.strip(), ur.value, u))
                     else: c.execute("INSERT INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES (%s,%s,%s,0,0)", (u, up.value.strip(), ur.value))
                     db.close(); un.value=""; up.value=""; ur.value="ASESOR"; load_u()
-            dlg = ft.AlertDialog(title=ft.Text("🔐 Usuarios"), content=ft.Container(width=700, content=ft.Column([ft.ResponsiveRow([un, up, ur]), ft.ElevatedButton("Guardar", on_click=sv_u), res_u], tight=True)), actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))])
-            page.dialog = dlg; dlg.open = True; load_u()
 
-        # --- NUEVA FUNCIÓN: CAMBIO DE CONTRASEÑA PERSONAL ---
-        def abrir_modal_cambiar_clave(e):
-            pass_act = ft.TextField(label="Contraseña Actual", password=True, can_reveal_password=True)
-            pass_new = ft.TextField(label="Nueva Contraseña", password=True, can_reveal_password=True)
-            pass_conf = ft.TextField(label="Confirmar Nueva Contraseña", password=True, can_reveal_password=True)
+            tab_gest = ft.Tab(text="👥 Gestión", content=ft.Column([ft.Container(height=10), ft.ResponsiveRow([un, up, ur]), ft.ElevatedButton("Guardar", bgcolor="#8b5cf6", color="white", on_click=sv_u), res_u], tight=True))
+
+            tabs_list = [tab_clave]
             
-            def guardar_clave(evt):
-                if pass_new.value != pass_conf.value: return mostrar_alerta("Error", "Las contraseñas nuevas no coinciden.")
-                db = conectar_db()
-                if db:
-                    c = db.cursor(); c.execute("SELECT password FROM usuarios WHERE usuario=%s", (sesion["usuario"],)); curr_pw = c.fetchone()[0]
-                    if curr_pw != pass_act.value: db.close(); return mostrar_alerta("Error", "La contraseña actual es incorrecta.")
-                    c.execute("UPDATE usuarios SET password=%s WHERE usuario=%s", (pass_new.value, sesion["usuario"])); db.close()
-                    cerrar_dialogo(dlg)
-                    page.snack_bar = ft.SnackBar(ft.Text("✅ Contraseña actualizada correctamente"), bgcolor="#10b981"); page.snack_bar.open = True; page.update()
+            # --- VALIDACIÓN DE SUPER ADMINISTRADOR ---
+            if sesion["usuario"] in ["OMERA", "PLEAL"]:
+                tabs_list.append(tab_gest)
+            
+            dlg = ft.AlertDialog(title=ft.Text("🔐 Usuarios y Seguridad"), content=ft.Container(width=700, height=400, content=ft.Tabs(selected_index=0, tabs=tabs_list)), actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))])
+            page.dialog = dlg; dlg.open = True
+            
+            if sesion["usuario"] in ["OMERA", "PLEAL"]: load_u()
+            else: page.update()
 
-            dlg = ft.AlertDialog(title=ft.Text("🔑 Cambiar Mi Contraseña"), content=ft.Column([pass_act, pass_new, pass_conf], tight=True), actions=[ft.ElevatedButton("Guardar Cambios", bgcolor="#10b981", color="white", on_click=guardar_clave), ft.TextButton("Cancelar", on_click=lambda ev: cerrar_dialogo(dlg))])
-            page.dialog = dlg; dlg.open = True; page.update()
-
-        # --- HISTORIAL ACTUALIZADO CON FUNCIÓN COMPARTIR ---
         def abrir_modal_historial(e):
             res_h = ft.ListView(expand=True, spacing=10, height=300); bus_h = ft.TextField(label="Buscar cliente...", width=400)
             def load_h(evt=None):
@@ -632,7 +640,6 @@ def main(page: ft.Page):
                             if creador and creador not in ["SISTEMA", sesion["usuario"]] and sesion["usuario"] not in perm_list:
                                 page.snack_bar=ft.SnackBar(ft.Text(f"👁️ Solo lectura (creado por {creador})"), bgcolor="#3b82f6"); page.snack_bar.open=True; page.update()
                         
-                        # --- BOTÓN DE COMPARTIR SI ES EL DUEÑO ---
                         trail_btns = []
                         if cr == sesion["usuario"]:
                             def share_cot(ev, nro_val=nr, actual_perms=permitidos_list):
@@ -667,7 +674,8 @@ def main(page: ft.Page):
             page.dialog = dlg; dlg.open = True; load_h()
 
         def abrir_modal_sistema(e):
-            if sesion["rol"] != "ADMIN": return mostrar_alerta("Acceso Denegado", "Solo el Administrador tiene acceso a la configuración.")
+            if sesion["usuario"] not in ["OMERA", "PLEAL"]: 
+                return mostrar_alerta("Acceso Denegado", "Solo los Super Administradores tienen acceso a la configuración del sistema.")
 
             def generar_backup_json(evt):
                 db = conectar_db()
@@ -868,15 +876,16 @@ def main(page: ft.Page):
         botones_lista = [
             ft.ElevatedButton("➕ AÑADIR ÍTEM", bgcolor="#10b981", color="white", on_click=abrir_modal_item),
             ft.ElevatedButton("📦 BODEGA", bgcolor="#2563eb", color="white", on_click=abrir_modal_bodega),
-            ft.ElevatedButton("👥 CLIENTES", bgcolor="#2563eb", color="white", on_click=abrir_modal_clientes)
+            ft.ElevatedButton("👥 CLIENTES", bgcolor="#2563eb", color="white", on_click=abrir_modal_clientes),
+            ft.ElevatedButton("🔐 USUARIOS", bgcolor="#8b5cf6", color="white", on_click=abrir_modal_usuarios),
+            ft.ElevatedButton("🔍 HISTORIAL", bgcolor="#2563eb", color="white", on_click=abrir_modal_historial),
+            ft.ElevatedButton("🧹 LIMPIAR", bgcolor="#64748b", color="white", on_click=limpiar_todo)
         ]
-        if sesion["rol"] == "ADMIN": botones_lista.append(ft.ElevatedButton("🔐 USUARIOS", bgcolor="#8b5cf6", color="white", on_click=abrir_modal_usuarios))
-        botones_lista.extend([ft.ElevatedButton("🔍 HISTORIAL", bgcolor="#2563eb", color="white", on_click=abrir_modal_historial), ft.ElevatedButton("🧹 LIMPIAR", bgcolor="#64748b", color="white", on_click=limpiar_todo)])
         
-        # --- NUEVO BOTÓN: MI CLAVE ---
-        botones_lista.append(ft.ElevatedButton("🔑 MI CLAVE", bgcolor="#f59e0b", color="black", on_click=abrir_modal_cambiar_clave))
-        
-        if sesion["rol"] == "ADMIN": botones_lista.append(ft.ElevatedButton("⚙️ SISTEMA", bgcolor="#475569", color="white", on_click=abrir_modal_sistema))
+        # --- EL BOTÓN DE SISTEMA SOLO APARECE PARA SUPER ADMINISTRADORES ---
+        if sesion["usuario"] in ["OMERA", "PLEAL"]: 
+            botones_lista.append(ft.ElevatedButton("⚙️ SISTEMA", bgcolor="#475569", color="white", on_click=abrir_modal_sistema))
+            
         botones_lista.append(ft.ElevatedButton("🚪 CERRAR SESIÓN", bgcolor="#ef4444", color="white", on_click=lambda e: mostrar_login()))
 
         tabla = ft.Container(content=ft.Column([ft.Row([ft.Text(f"COTIZACIÓN ING {nro_actual}", weight="bold", color="#fbbf24", size=16)], alignment=ft.MainAxisAlignment.CENTER), ft.Divider(color="white24"), ft.ResponsiveRow([ft.Text("DESCRIPCIÓN (Clic para editar)", weight="bold", color="#fbbf24", col={"sm": 6}, text_align="center"), ft.Text("CANTIDAD", weight="bold", color="#fbbf24", col={"sm": 3}, text_align="center"), ft.Text("TOTAL", weight="bold", color="#fbbf24", col={"sm": 3}, text_align="center")]), columna_tabla_items, ft.Container(height=10)]), bgcolor="#0f172a", padding=15, border_radius=8, border=ft.border.all(1, "white12"))
