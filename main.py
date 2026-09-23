@@ -12,8 +12,8 @@ from datetime import datetime
 PORT = int(os.environ.get("PORT", 8080))
 if not os.path.exists("assets"): os.makedirs("assets")
 
-# --- BASE DE DATOS BLINDADA EN LA NUBE (POSTGRESQL) ---
-DB_URL = "postgresql://ingectec_bd_user:HY7iwKhvaILCeuUKd7Pgknsh6Nsv4aUE@dpg-dapicrvf3r2c73ep15ag-a.oregon-postgres.render.com/ingectec_bd"
+# --- CONEXIÓN SEGURA A POSTGRESQL MEDIANTE VARIABLE DE ENTORNO ---
+DB_URL = os.environ.get("DATABASE_URL", "postgresql://ingectec_bd_user:HY7iwKhvaILCeuUKd7Pgknsh6Nsv4aUE@dpg-dapicrvf3r2c73ep15ag-a.oregon-postgres.render.com/ingectec_bd")
 
 def conectar_db():
     try:
@@ -506,12 +506,10 @@ def main(page: ft.Page):
             page.dialog = dlg; dlg.open = True; buscar_inv_bd(None)
 
         def abrir_modal_bodega(e):
-            # --- NUEVA ESTRUCTURA CON PESTAÑAS (MANUAL Y MASIVA) ---
             resultados_bod = ft.ListView(height=180)
             e_desc = ft.TextField(label="Nombre del Producto")
             e_precio = ft.TextField(label="Precio del Producto")
             
-            # --- Campo gigante para pegar desde Excel ---
             e_masivo = ft.TextField(
                 multiline=True, 
                 min_lines=6, 
