@@ -29,10 +29,15 @@ def init_db():
     if conn:
         c = conn.cursor()
         c.execute("CREATE TABLE IF NOT EXISTS usuarios (usuario TEXT PRIMARY KEY, password TEXT, rol TEXT, intentos INTEGER DEFAULT 0, bloqueado INTEGER DEFAULT 0)")
-        c.execute("INSERT INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES ('OSCAR', '1234', 'ADMIN', 0, 0) ON CONFLICT DO NOTHING")
-        c.execute("INSERT INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES ('YEISON', '1234', 'ASESOR', 0, 0) ON CONFLICT DO NOTHING")
-        c.execute("INSERT INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES ('PAULO', '1234', 'ADMIN', 0, 0) ON CONFLICT DO NOTHING")
-        c.execute("INSERT INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES ('JOHN', '1234', 'ASESOR', 0, 0) ON CONFLICT DO NOTHING")
+        
+        # ELIMINAR USUARIOS ANTIGUOS
+        c.execute("DELETE FROM usuarios WHERE usuario IN ('OSCAR', 'YEISON', 'PAULO', 'JOHN', 'JHON')")
+        
+        # INSERTAR NUEVOS USUARIOS COMO ADMINISTRADORES
+        c.execute("INSERT INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES ('OMERA', '1234', 'ADMIN', 0, 0) ON CONFLICT DO NOTHING")
+        c.execute("INSERT INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES ('YRESTREPO', '1234', 'ADMIN', 0, 0) ON CONFLICT DO NOTHING")
+        c.execute("INSERT INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES ('JCARDONA', '1234', 'ADMIN', 0, 0) ON CONFLICT DO NOTHING")
+        c.execute("INSERT INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES ('PLEAL', '1234', 'ADMIN', 0, 0) ON CONFLICT DO NOTHING")
         
         c.execute("CREATE TABLE IF NOT EXISTS n_cot (id SERIAL PRIMARY KEY, num INTEGER)")
         c.execute("INSERT INTO n_cot (id, num) VALUES (1, 100) ON CONFLICT DO NOTHING")
@@ -112,7 +117,7 @@ def main(page: ft.Page):
         dlg = ft.AlertDialog(title=ft.Text(titulo, weight="bold", color="#fbbf24"), content=ft.Text(str(mensaje)), actions=[ft.TextButton("OK", on_click=lambda e: cerrar_dialogo(dlg))])
         page.dialog = dlg; dlg.open = True; page.update()
 
-    input_usr = ft.TextField(label="Usuario", width=300)
+    input_usr = ft.TextField(label="Usuario (Ej. OMERA, YRESTREPO)", width=300)
     input_pwd = ft.TextField(label="Contraseña", password=True, can_reveal_password=True, width=300)
 
     def procesar_login(e):
@@ -358,17 +363,14 @@ def main(page: ft.Page):
                     if db:
                         c=db.cursor(); ag=0; fh = datetime.now().strftime("%Y-%m-%d")
                         evaluados = {}
-                        
                         for l in e_mas.value.strip().split('\n'):
                             pts = l.split('\t')
                             if len(pts)>=1 and pts[0].strip():
                                 item = pts[0].strip().upper()
                                 prov = sanitizar_texto(pts[1].strip().upper()) if len(pts)>=3 else ""
-                                
                                 pr_str = "0"
                                 if len(pts) >= 3: pr_str = pts[2]
                                 elif len(pts) == 2: pr_str = pts[1]; prov = ""
-                                
                                 try: pr = float(pr_str.replace("$","").replace(".","").replace(",","").replace(" ","").strip())
                                 except: pr = 0.0
                                 
@@ -670,10 +672,26 @@ def main(page: ft.Page):
                 db.close()
 
                 asesor_act = sesion["usuario"].upper()
-                num_wp = {"OSCAR":"573175046404", "YEISON":"573002986963", "JOHN":"573225532559", "PAULO":"573175046404"}.get(asesor_act, "573175046404")
-                qr = qrcode.QRCode(box_size=10, border=2); qr.add_data(f"https://wa.me/{num_wp}"); qr.make(fit=True); qr.make_image(fill_color="black", back_color="white").save("assets/qr_temp.png")
+                
+                # ACTUALIZACIÓN DE NOMBRES Y NÚMEROS DE WHATSAPP PARA LOS NUEVOS USUARIOS
+                numeros_whatsapp = {
+                    "OMERA": "573175046404", 
+                    "YRESTREPO": "573002986963", 
+                    "JCARDONA": "573225532559", 
+                    "PLEAL": "573175046404"
+                }
+                numero_asesor = numeros_whatsapp.get(asesor_act, "573175046404")
 
-                p = PDF(); p.asesor_nombre = {"OSCAR":"OSCAR MERA", "YEISON":"YEISON FABIAN RESTREPO", "JOHN":"JOHN JAIRO CARDONA", "PAULO":"PAULO ANDRES LEAL GARCIA"}.get(asesor_act, asesor_act) 
+                qr = qrcode.QRCode(box_size=10, border=2); qr.add_data(f"https://wa.me/{numero_asesor}"); qr.make(fit=True); qr.make_image(fill_color="black", back_color="white").save("assets/qr_temp.png")
+
+                nombres_completos = {
+                    "OMERA": "OSCAR MERA", 
+                    "YRESTREPO": "YEISON FABIAN RESTREPO", 
+                    "JCARDONA": "JOHN JAIRO CARDONA", 
+                    "PLEAL": "PAULO ANDRES LEAL GARCIA"
+                }
+                
+                p = PDF(); p.asesor_nombre = nombres_completos.get(asesor_act, asesor_act) 
                 p.set_margins(10, 10, 10); p.set_auto_page_break(auto=True, margin=30); p.add_page()
                 p.set_font('helvetica', 'B', 11); hy = datetime.now()
                 p.cell(0, 5, sanitizar_texto(f"{c_ciu_origen}, {hy.day} de {['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'][hy.month-1]} de {hy.year}"), border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT); p.ln(4)
