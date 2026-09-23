@@ -742,7 +742,13 @@ def main(page: ft.Page):
                     for row in filas:
                         nro, cli, fec, tot, creador = row[0], row[1], row[2], row[3], row[4]
                         
-                        def cargar_cotizacion(evt, numero=nro):
+                        def cargar_cotizacion(evt, numero=nro, creador_doc=creador):
+                            # --- CANDADO DE SEGURIDAD PARA COMPETENCIA COMERCIAL ---
+                            if creador_doc and creador_doc != "SISTEMA" and creador_doc != sesion["usuario"]:
+                                cerrar_dialogo(dlg)
+                                return mostrar_alerta("Acceso Protegido 🛡️", f"Esta cotización es propiedad exclusiva de {creador_doc}. El sistema bloquea su modificación para proteger el trabajo y comisiones del asesor.")
+                            # ---------------------------------------------------------
+
                             db_h = conectar_db()
                             cab = db_h.execute("SELECT cli, nit FROM h_cab WHERE nro=?", (numero,)).fetchone()
                             if cab: input_cliente.value = cab[0] if cab[0] else ""; input_nit.value = cab[1] if cab[1] else ""
