@@ -181,7 +181,6 @@ def main(page: ft.Page):
         input_pct_a = ft.TextField(label="Admin %", value="10"); input_pct_i = ft.TextField(label="Imprev %", value="2")
         input_pct_u = ft.TextField(label="Util %", value="8"); input_pct_iva_u = ft.TextField(label="IVA s/U %", value="19")
         
-        # --- CASILLA DE RENTABILIDAD GLOBAL ---
         input_pct_ganancia = ft.TextField(label="Ganancia Global %", value="0")
         
         lista_busqueda_cli = ft.ListView(height=150, visible=False, spacing=2)
@@ -190,8 +189,6 @@ def main(page: ft.Page):
         container_texto_aiu = ft.Container(content=ft.Text("⚙️ Config. AIU:", weight="bold", color="#fbbf24"), col={"sm": 12, "md": 2, "lg": 2}, alignment=ft.alignment.center_left)
         cont_a = ft.Container(content=input_pct_a, col={"sm": 3, "md": 2, "lg": 2}); cont_i = ft.Container(content=input_pct_i, col={"sm": 3, "md": 2, "lg": 2})
         cont_u = ft.Container(content=input_pct_u, col={"sm": 3, "md": 2, "lg": 2}); cont_iva_u = ft.Container(content=input_pct_iva_u, col={"sm": 3, "md": 2, "lg": 2})
-        
-        # Oculto por defecto ya que arranca en AIU
         cont_ganancia = ft.Container(content=input_pct_ganancia, col={"sm": 6, "md": 2, "lg": 2}, visible=False)
 
         def verificar_permiso_edicion(mostrar_aviso=True):
@@ -204,7 +201,6 @@ def main(page: ft.Page):
                         return False
             return True
 
-        # --- CORRECCIÓN: OCULTAR GANANCIA EN AIU ---
         def cambiar_modo_cot(e):
             es_aiu = dropdown_modo_cot.value == "AIU"
             es_iva = dropdown_modo_cot.value == "IVA"
@@ -308,18 +304,26 @@ def main(page: ft.Page):
                 def evt_edit(idx_r):
                     def on_c(e):
                         if not verificar_permiso_edicion(): return
+                        
+                        # --- NUEVO RASTREADOR DE ESTADO PARA NO CERRAR EL MODAL AL MOVER ---
+                        estado_modal = {"idx": idx_r}
+                        
                         ec = ft.TextField(label="Cant", value=str(lista_items[idx_r]['cant']))
                         ep = ft.TextField(label="Costo Proveedor (Sin ganancia)", value=str(int(lista_items[idx_r]['precio'])))
                         
                         def move_up(ev):
-                            if idx_r > 0:
-                                lista_items[idx_r], lista_items[idx_r-1] = lista_items[idx_r-1], lista_items[idx_r]
-                                actualizar_tabla_visual(); cerrar_dialogo(dlg_e)
+                            curr = estado_modal["idx"]
+                            if curr > 0:
+                                lista_items[curr], lista_items[curr-1] = lista_items[curr-1], lista_items[curr]
+                                estado_modal["idx"] = curr - 1
+                                actualizar_tabla_visual()
                         
                         def move_down(ev):
-                            if idx_r < len(lista_items) - 1:
-                                lista_items[idx_r], lista_items[idx_r+1] = lista_items[idx_r+1], lista_items[idx_r]
-                                actualizar_tabla_visual(); cerrar_dialogo(dlg_e)
+                            curr = estado_modal["idx"]
+                            if curr < len(lista_items) - 1:
+                                lista_items[curr], lista_items[curr+1] = lista_items[curr+1], lista_items[curr]
+                                estado_modal["idx"] = curr + 1
+                                actualizar_tabla_visual()
                         
                         btn_up = ft.IconButton(ft.icons.ARROW_UPWARD, on_click=move_up, tooltip="Subir posición", icon_color="#3b82f6")
                         btn_down = ft.IconButton(ft.icons.ARROW_DOWNWARD, on_click=move_down, tooltip="Bajar posición", icon_color="#3b82f6")
@@ -329,11 +333,13 @@ def main(page: ft.Page):
                         
                         def s(ev):
                             try: 
-                                lista_items[idx_r]['cant']=float(ec.value or 0); lista_items[idx_r]['precio']=float(ep.value or 0); lista_items[idx_r]['total']=lista_items[idx_r]['cant']*lista_items[idx_r]['precio']
+                                curr = estado_modal["idx"]
+                                lista_items[curr]['cant']=float(ec.value or 0); lista_items[curr]['precio']=float(ep.value or 0); lista_items[curr]['total']=lista_items[curr]['cant']*lista_items[curr]['precio']
                                 actualizar_tabla_visual(); cerrar_dialogo(dlg_e)
                             except: pass
                         def rm(ev): 
-                            lista_items.pop(idx_r); actualizar_tabla_visual(); cerrar_dialogo(dlg_e)
+                            curr = estado_modal["idx"]
+                            lista_items.pop(curr); actualizar_tabla_visual(); cerrar_dialogo(dlg_e)
                             
                         dlg_e.actions = [ft.ElevatedButton("Guardar", bgcolor="#10b981", on_click=s), ft.ElevatedButton("Eliminar", bgcolor="#ef4444", on_click=rm), ft.TextButton("Cancelar", on_click=lambda ev: cerrar_dialogo(dlg_e))]
                         page.overlay.append(dlg_e); page.update()
@@ -520,7 +526,7 @@ def main(page: ft.Page):
                                 except: pass
                             
                             def sel(ev, desc=d, prec=p): e_desc.value=desc; e_precio.value=str(int(float(prec))); page.update()
-                            def rm(ev, desc=d): dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM inv WHERE d=%s", (desc,)); dbd.commit(); dbd.close(); b_bod(None); load_cat(None); mostrar_snack("🗑️ Ítem eliminado", "#ef4444")
+                            def rm(ev, desc=d): dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM inv WHERE d=%s", (desc,)); db.commit(); dbd.close(); b_bod(None); load_cat(None); mostrar_snack("🗑️ Ítem eliminado", "#ef4444")
                             
                             subt = f"${int(float(p)):,}" + (f" (Prov: {prov})" if prov else "") + (f" - Act: {fa}")
                             tile = ft.ListTile(title=ft.Text(d, size=13, color="#fbbf24", weight="bold"), subtitle=ft.Text(subt))
