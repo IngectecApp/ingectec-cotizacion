@@ -169,12 +169,14 @@ def main(page: ft.Page):
         cont_a = ft.Container(content=input_pct_a, col={"sm": 3, "md": 2, "lg": 2}); cont_i = ft.Container(content=input_pct_i, col={"sm": 3, "md": 2, "lg": 2})
         cont_u = ft.Container(content=input_pct_u, col={"sm": 3, "md": 2, "lg": 2}); cont_iva_u = ft.Container(content=input_pct_iva_u, col={"sm": 3, "md": 2, "lg": 2})
 
-        def verificar_permiso_edicion():
+        # --- VALIDACIÓN PROTEGIDA CON CONTROL DE VISUALIZACIÓN ---
+        def verificar_permiso_edicion(mostrar_aviso=True):
             if estado.get("nro_edicion") and estado.get("creador_edicion"):
                 if estado["creador_edicion"] not in ["SISTEMA", sesion["usuario"]]:
                     permitidos = estado.get("permitidos_edicion", [])
                     if sesion["usuario"] not in permitidos:
-                        mostrar_alerta("Protegido 🛡️", f"Cotización exclusiva de {estado['creador_edicion']}. No tienes permiso de edición para este documento.")
+                        if mostrar_aviso:
+                            mostrar_alerta("Protegido 🛡️", f"Cotización exclusiva de {estado['creador_edicion']}. No tienes permiso de edición para este documento.")
                         return False
             return True
 
@@ -637,7 +639,7 @@ def main(page: ft.Page):
                             actualizar_tabla_visual(); cerrar_dialogo(dlg)
                             
                             if creador and creador not in ["SISTEMA", sesion["usuario"]] and sesion["usuario"] not in perm_list:
-                                page.snack_bar=ft.SnackBar(ft.Text(f"👁️ Solo lectura (creado por {creador})"), bgcolor="#3b82f6"); page.snack_bar.open=True; page.update()
+                                page.snack_bar=ft.SnackBar(ft.Text(f"👁️ Solo lectura (creado por {creador}). Podrás generar un PDF pero sin alterar la BD."), bgcolor="#3b82f6"); page.snack_bar.open=True; page.update()
                         
                         trail_btns = []
                         if cr == sesion["usuario"]:
@@ -673,9 +675,6 @@ def main(page: ft.Page):
             page.dialog = dlg; dlg.open = True; load_h()
 
         def abrir_modal_sistema(e):
-            if sesion["usuario"] not in ["OMERA", "PLEAL"]: 
-                return mostrar_alerta("Acceso Denegado", "Solo los Super Administradores tienen acceso a la configuración del sistema.")
-
             def generar_backup_json(evt):
                 db = conectar_db()
                 if db:
@@ -716,11 +715,24 @@ def main(page: ft.Page):
                 dc = ft.AlertDialog(title=ft.Text("⚠️ ADVERTENCIA EXTREMA", color="#ef4444"), content=ft.Column([ft.Text("Se borrará TODO."), ic], tight=True), actions=[ft.ElevatedButton("BORRAR", bgcolor="#ef4444", on_click=ex), ft.TextButton("Cancelar", on_click=lambda e: cerrar_dialogo(dc))])
                 page.dialog = dc; dc.open = True; page.update()
 
+            col_general = [
+                ft.Container(height=10), 
+                ft.ElevatedButton("📥 1. DESCARGAR BACKUP", bgcolor="#2563eb", color="white", width=350, on_click=generar_backup_json)
+            ]
+            
+            # --- SOLO LOS SUPER ADMINISTRADORES VEN EL RESETEO DE FÁBRICA ---
+            if sesion["usuario"] in ["OMERA", "PLEAL"]:
+                col_general.extend([
+                    ft.Container(height=20), 
+                    ft.Text("ZONA DE PELIGRO:", color="#ef4444", weight="bold"), 
+                    ft.ElevatedButton("⚠️ 2. RESTAURAR DE FÁBRICA", bgcolor="#ef4444", color="white", width=350, on_click=confirmar_reseteo)
+                ])
+
             dlg_sis = ft.AlertDialog(
-                title=ft.Text("⚙️ Configuración del Sistema (ADMIN)"),
+                title=ft.Text("⚙️ Configuración del Sistema"),
                 content=ft.Container(width=600, height=400, content=ft.Tabs(
                     selected_index=0, tabs=[
-                        ft.Tab(text="General", content=ft.Column([ft.Container(height=10), ft.ElevatedButton("📥 1. DESCARGAR BACKUP", bgcolor="#2563eb", color="white", width=350, on_click=generar_backup_json), ft.Container(height=20), ft.Text("ZONA DE PELIGRO:", color="#ef4444", weight="bold"), ft.ElevatedButton("⚠️ 2. RESTAURAR DE FÁBRICA", bgcolor="#ef4444", color="white", width=350, on_click=confirmar_reseteo)], tight=True)),
+                        ft.Tab(text="General", content=ft.Column(col_general, tight=True)),
                         ft.Tab(text="Subir Backup", content=ft.Column([ft.Container(height=10), ft.Text("Abre tu archivo .json, copia todo el texto y pégalo aquí:", size=12, color="white54"), e_json, ft.ElevatedButton("RESTAURAR INFORMACIÓN", bgcolor="#10b981", color="white", on_click=subir_backup_json)], tight=True))
                     ]
                 )), actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg_sis))]
@@ -732,9 +744,12 @@ def main(page: ft.Page):
             input_cliente.value = ""; input_nit.value = ""; input_atencion.value = ""; input_ref.value = ""; input_ciudad.value = "Yumbo"; input_tiempo_entrega.value = "4 Días hábiles"; input_validez.value = "20 Días"; input_pago.value = "30 Días"; input_garantia.value = "6 meses en mano de obra"; input_notas.value = "Toda la actividad será coordinada por el ingeniero Edward Álvarez y/o John Paniagua"; dropdown_modo_cot.value = "AIU"; input_pct_a.value = "10"; input_pct_i.value = "2"; input_pct_u.value = "8"; input_pct_iva_u.value = "19"; lista_busqueda_cli.visible = False; cambiar_modo_cot(None); page.update()
 
         def generar_pdf_web(e):
-            if not verificar_permiso_edicion(): return
             try:
                 if not lista_items or not input_cliente.value: return mostrar_alerta("Aviso", "Faltan datos.")
+                
+                # --- CONTROL DE PERMISOS PARA GUARDAR (Permite Generar PDF) ---
+                puede_guardar = verificar_permiso_edicion(mostrar_aviso=False)
+
                 c_nom = sanitizar_texto(input_cliente.value or "").upper().strip(); c_nit = sanitizar_texto(input_nit.value or "").strip(); c_ciu_origen = sanitizar_texto(input_ciudad.value or "Yumbo").strip(); c_atn = sanitizar_texto(input_atencion.value or "").strip(); c_ref = sanitizar_texto(input_ref.value or "").strip(); c_t_entrega = sanitizar_texto(input_tiempo_entrega.value or "").strip(); c_validez = sanitizar_texto(input_validez.value or "").strip(); c_pago = sanitizar_texto(input_pago.value or "").strip(); c_garantia = sanitizar_texto(input_garantia.value or "").strip(); c_notas = sanitizar_texto(input_notas.value or "").strip(); c_modo = dropdown_modo_cot.value or "AIU"
                 try: pct_a = float(input_pct_a.value)
                 except: pct_a = 0.0
@@ -753,20 +768,12 @@ def main(page: ft.Page):
                     if cli_d: c_dir=sanitizar_texto(cli_d[0] or ""); c_email=sanitizar_texto(cli_d[1] or ""); c_ciu_cli=sanitizar_texto(cli_d[2] or ""); c_tel=sanitizar_texto(cli_d[3] or "")
                 except: pass
 
-                nro_doc = estado["nro_edicion"]; mes_act = datetime.now().strftime("%m"); c_up = db.cursor()
-                if not nro_doc:
-                    c_up.execute("UPDATE n_cot SET num = num + 1 WHERE id=1 RETURNING num")
-                    nf = c_up.fetchone(); num_p = nf[0] if nf else 100; nro_doc = f"{mes_act}-{num_p:03d}"
-                else:
-                    c_up.execute("DELETE FROM h_cab WHERE nro=%s", (nro_doc,)); c_up.execute("DELETE FROM h_det WHERE nro=%s", (nro_doc,)); c_up.execute("DELETE FROM historial WHERE nro=%s", (nro_doc,))
-                    
-                c_up.execute("INSERT INTO cli (n, i) VALUES (%s, %s) ON CONFLICT(n) DO NOTHING", (c_nom, c_nit))
-                c_up.execute("""INSERT INTO h_cab (nro, cli, nit, atn, ref, ciu_origen, t_entrega, validez, pago, garantia, notas, modo, pct_a, pct_i, pct_u, pct_iva_u) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", (nro_doc, c_nom, c_nit, c_atn, c_ref, c_ciu_origen, c_t_entrega, c_validez, c_pago, c_garantia, c_notas, c_modo, pct_a, pct_i, pct_u, pct_iva_u))
+                nro_doc = estado["nro_edicion"]
+                mes_act = datetime.now().strftime("%m")
                 
                 subtotal = 0; iva_bases = {}
                 for i in lista_items:
                     cn=float(i['cant']); un=float(i['precio']); tot=float(i['total']); imps=i.get('impuesto', 'EXENTO'); u_s=i.get('und', 'UNID'); t_v=i.get('tipo', 'P')
-                    c_up.execute('INSERT INTO h_det (nro, "desc", cant, und, unit, sub, imp, tipo) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)', (nro_doc, i['desc'], cn, u_s, un, tot, imps, t_v))
                     subtotal += tot
                     if "IVA" in imps.upper():
                         try: pct = float(re.findall(r"[\d.]+", imps)[0]); iva_bases[pct] = iva_bases.get(pct, 0) + tot
@@ -776,14 +783,36 @@ def main(page: ft.Page):
                 tot_fin = (subtotal + tot_aiu + val_iva_u) if c_modo == "AIU" else subtotal
                 for p_iva, b_amt in iva_bases.items(): tot_fin += b_amt * (p_iva / 100)
 
-                nom_limp = re.sub(r'[^\w\s-]', '', c_nom).strip(); nom_arc = f"{nom_limp}-{nro_doc}.pdf"
+                # --- GUARDADO EN BD O MODO LECTURA ---
+                if puede_guardar:
+                    c_up = db.cursor()
+                    if not nro_doc:
+                        c_up.execute("UPDATE n_cot SET num = num + 1 WHERE id=1 RETURNING num")
+                        nf = c_up.fetchone(); num_p = nf[0] if nf else 100; nro_doc = f"{mes_act}-{num_p:03d}"
+                        estado["nro_edicion"] = nro_doc
+                    else:
+                        c_up.execute("DELETE FROM h_cab WHERE nro=%s", (nro_doc,)); c_up.execute("DELETE FROM h_det WHERE nro=%s", (nro_doc,)); c_up.execute("DELETE FROM historial WHERE nro=%s", (nro_doc,))
+                        
+                    c_up.execute("INSERT INTO cli (n, i) VALUES (%s, %s) ON CONFLICT(n) DO NOTHING", (c_nom, c_nit))
+                    c_up.execute("""INSERT INTO h_cab (nro, cli, nit, atn, ref, ciu_origen, t_entrega, validez, pago, garantia, notas, modo, pct_a, pct_i, pct_u, pct_iva_u) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", (nro_doc, c_nom, c_nit, c_atn, c_ref, c_ciu_origen, c_t_entrega, c_validez, c_pago, c_garantia, c_notas, c_modo, pct_a, pct_i, pct_u, pct_iva_u))
+                    
+                    for i in lista_items:
+                        cn=float(i['cant']); un=float(i['precio']); tot=float(i['total']); imps=i.get('impuesto', 'EXENTO'); u_s=i.get('und', 'UNID'); t_v=i.get('tipo', 'P')
+                        c_up.execute('INSERT INTO h_det (nro, "desc", cant, und, unit, sub, imp, tipo) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)', (nro_doc, i['desc'], cn, u_s, un, tot, imps, t_v))
+                        
+                    nom_limp = re.sub(r'[^\w\s-]', '', c_nom).strip(); nom_arc = f"{nom_limp}-{nro_doc}.pdf"
+                    
+                    c_up.execute("SELECT permitidos FROM historial WHERE nro=%s", (nro_doc,))
+                    row_perm = c_up.fetchone(); perm_string = row_perm[0] if row_perm else ""
+                    
+                    creador_final = estado.get("creador_edicion") or sesion["usuario"]
+                    c_up.execute("INSERT INTO historial (nro, cliente, fecha, archivo, total, origen, creador, permitidos) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)", (nro_doc, c_nom, datetime.now().strftime("%Y-%m-%d %H:%M"), nom_arc, tot_fin, "WEB", creador_final, perm_string))
+                else:
+                    if not nro_doc: nro_doc = f"{mes_act}-TEMP"
+                    nom_limp = re.sub(r'[^\w\s-]', '', c_nom).strip(); nom_arc = f"{nom_limp}-{nro_doc}.pdf"
+                    page.snack_bar = ft.SnackBar(ft.Text("⚠️ Modo Lectura: PDF generado, pero la base de datos no fue modificada."), bgcolor="#f59e0b", color="black")
+                    page.snack_bar.open = True
                 
-                c_up.execute("SELECT permitidos FROM historial WHERE nro=%s", (nro_doc,))
-                row_perm = c_up.fetchone()
-                perm_string = row_perm[0] if row_perm else ""
-                
-                creador_final = estado.get("creador_edicion") or sesion["usuario"]
-                c_up.execute("INSERT INTO historial (nro, cliente, fecha, archivo, total, origen, creador, permitidos) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)", (nro_doc, c_nom, datetime.now().strftime("%Y-%m-%d %H:%M"), nom_arc, tot_fin, "WEB", creador_final, perm_string))
                 db.close()
 
                 asesor_act = sesion["usuario"].upper()
@@ -878,12 +907,10 @@ def main(page: ft.Page):
             ft.ElevatedButton("👥 CLIENTES", bgcolor="#2563eb", color="white", on_click=abrir_modal_clientes),
             ft.ElevatedButton("🔐 USUARIOS", bgcolor="#8b5cf6", color="white", on_click=abrir_modal_usuarios),
             ft.ElevatedButton("🔍 HISTORIAL", bgcolor="#2563eb", color="white", on_click=abrir_modal_historial),
-            ft.ElevatedButton("🧹 LIMPIAR", bgcolor="#64748b", color="white", on_click=limpiar_todo)
+            ft.ElevatedButton("🧹 LIMPIAR", bgcolor="#64748b", color="white", on_click=limpiar_todo),
+            ft.ElevatedButton("⚙️ SISTEMA", bgcolor="#475569", color="white", on_click=abrir_modal_sistema)
         ]
         
-        if sesion["usuario"] in ["OMERA", "PLEAL"]: 
-            botones_lista.append(ft.ElevatedButton("⚙️ SISTEMA", bgcolor="#475569", color="white", on_click=abrir_modal_sistema))
-            
         botones_lista.append(ft.ElevatedButton("🚪 CERRAR SESIÓN", bgcolor="#ef4444", color="white", on_click=lambda e: mostrar_login()))
 
         contenedor_botones = ft.Container(
