@@ -180,7 +180,9 @@ def main(page: ft.Page):
         input_notas = ft.TextField(label="Notas adicionales", value="Toda la actividad será coordinada por el ingeniero Edward Álvarez y/o John Paniagua", multiline=True)
         input_pct_a = ft.TextField(label="Admin %", value="10"); input_pct_i = ft.TextField(label="Imprev %", value="2")
         input_pct_u = ft.TextField(label="Util %", value="8"); input_pct_iva_u = ft.TextField(label="IVA s/U %", value="19")
-        input_pct_ganancia = ft.TextField(label="Ganancia Global %", value="0")
+        
+        # --- NUEVO NOMBRE: UTILIDAD % ---
+        input_pct_ganancia = ft.TextField(label="Utilidad %", value="0")
         
         lista_busqueda_cli = ft.ListView(height=150, visible=False, spacing=2)
 
@@ -209,6 +211,7 @@ def main(page: ft.Page):
             cont_i.visible = es_aiu
             cont_u.visible = es_aiu
             cont_iva_u.visible = es_aiu
+            
             cont_ganancia.visible = es_iva
             
             if es_aiu: 
@@ -388,9 +391,7 @@ def main(page: ft.Page):
                             i_desc.value=desc; i_pre.value=str(int(float(prec)))
                             i_und.value = "ML" if ("TUBO" in desc.upper() or "CABLE" in desc.upper()) else ("GLB" if "INSTALACION" in desc.upper() else "UNID")
                             i_und_c.visible=False; i_cant.col={"sm":3}; i_und.col={"sm":4}; i_pre.col={"sm":5}; page.update()
-                        
-                        # --- NOTA VISUAL DEL PROVEEDOR EN BÚSQUEDA ---
-                        subt = f"${int(float(p)):,}" + (f" ({prov})" if prov else "")
+                        subt = f"${int(float(p)):,}" + (f" (Prov: {prov})" if prov else "")
                         res_inv.controls.append(ft.ListTile(title=ft.Text(d, color="#fbbf24", size=14), subtitle=ft.Text(subt, color="#94a3b8"), on_click=sel))
                     db.close()
                 page.update()
@@ -568,15 +569,11 @@ def main(page: ft.Page):
                                     pr_iva = pr * 1.19
                                     if item not in evaluados: evaluados[item] = {"prov": prov, "prec": pr_iva}
                                     else:
-                                        # --- NUEVA LÓGICA DE MASIVO: GUARDA EL MÁS ALTO PERO ANOTA EL MÁS BARATO ---
                                         precio_alto_existente = evaluados[item]["prec"]
                                         if pr_iva > precio_alto_existente:
-                                            # Encontró uno más caro. Guardar este como el precio a cotizar.
-                                            # Guardar el barato en la nota del proveedor
                                             prov_viejo = evaluados[item]["prov"]
                                             evaluados[item] = {"prov": f"Cotizar con: {prov} | +Barato en: {prov_viejo}", "prec": pr_iva}
                                         else:
-                                            # Encontró uno más barato. No actualiza el precio alto, pero anota el proveedor.
                                             prov_caro_exist = evaluados[item]["prov"]
                                             if "| +Barato en" not in prov_caro_exist:
                                                 evaluados[item]["prov"] = f"Cotizar con: {prov_caro_exist} | +Barato en: {prov}"
@@ -601,7 +598,6 @@ def main(page: ft.Page):
                     else: lst_comp.visible = False
                     page.update()
 
-                # --- NUEVO ALGORITMO COMPARADOR: MAX PRICE & MIN SUPPLIER ---
                 def run_comp(evt):
                     itm = c_item.value.strip().upper()
                     if not itm: return mostrar_alerta("Aviso", "Ingresa ítem.")
@@ -617,11 +613,9 @@ def main(page: ft.Page):
                             except: pass
                     if not ofs: return mostrar_alerta("Aviso", "Ingresa al menos un proveedor con costo válido (mayor a 0).")
                     
-                    # Lógica Inversa: Cotiza el más alto, anota el más bajo
                     gp_caro, gpr_alto = max(ofs, key=lambda x: x[1])
                     gp_barato, gpr_bajo = min(ofs, key=lambda x: x[1])
                     
-                    # Si el caro y el barato son el mismo, no anota nota extra
                     if gp_caro == gp_barato: string_prov = gp_caro
                     else: string_prov = f"Cotiza con: {gp_caro} | +Barato en: {gp_barato}"
 
@@ -1010,7 +1004,13 @@ def main(page: ft.Page):
 
                 val_a = subtotal * (pct_a / 100); val_i = subtotal * (pct_i / 100); val_u = subtotal * (pct_u / 100); tot_aiu = val_a + val_i + val_u; val_iva_u = val_u * (pct_iva_u / 100)
                 tot_fin = (subtotal + tot_aiu + val_iva_u) if c_modo == "AIU" else subtotal
-                for p_iva, b_amt in iva_bases.items(): tot_fin += b_amt * (p_iva / 100)
+                
+                # --- RESPALDO SEGURO DEL IVA PARA MODO 'IVA' ---
+                if c_modo == "IVA" and not iva_bases:
+                    # Si no hay ítems marcados con IVA explícito, el sistema fuerza 19% al total para que no desaparezca.
+                    tot_fin += subtotal * 0.19
+                else:
+                    for p_iva, b_amt in iva_bases.items(): tot_fin += b_amt * (p_iva / 100)
 
                 if puede_guardar:
                     c_up = db.cursor()
@@ -1137,8 +1137,20 @@ def main(page: ft.Page):
                     if b: p.set_font('helvetica', '', 9)
 
                 p.set_font('helvetica', '', 9); p_tot("SUBTOTAL", subtotal)
-                if c_modo == "AIU": p_tot(f"ADMINISTRACIÓN ({pct_a:g}%)", val_a); p_tot(f"IMPREVISTOS ({pct_i:g}%)", val_i); p_tot(f"UTILIDAD ({pct_u:g}%)", val_u); p_tot("TOTAL AIU", tot_aiu, True); p_tot(f"IVA S/UTILIDAD ({pct_iva_u:g}%)", val_iva_u)
-                for pv, ba in iva_bases.items(): p_tot(f"IVA ({pv:g}%)", ba * (pv / 100))
+                if c_modo == "AIU": 
+                    p_tot(f"ADMINISTRACIÓN ({pct_a:g}%)", val_a)
+                    p_tot(f"IMPREVISTOS ({pct_i:g}%)", val_i)
+                    p_tot(f"UTILIDAD ({pct_u:g}%)", val_u)
+                    p_tot("TOTAL AIU", tot_aiu, True)
+                    p_tot(f"IVA S/UTILIDAD ({pct_iva_u:g}%)", val_iva_u)
+                
+                # --- RESPALDO VISUAL DEL IVA EN EL PDF ---
+                if c_modo == "IVA" and not iva_bases:
+                    p_tot("IVA (19%)", subtotal * 0.19)
+                else:
+                    for pv, ba in iva_bases.items(): 
+                        p_tot(f"IVA ({pv:g}%)", ba * (pv / 100))
+                        
                 p_tot("TOTAL", tot_fin, True)
 
                 p.ln(10); p.set_font('helvetica', 'B', 10); p.cell(0, 5, "CONDICIONES COMERCIALES", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT); p.ln(2); p.set_font('helvetica', '', 10)
