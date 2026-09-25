@@ -353,6 +353,8 @@ def main(page: ft.Page):
                 c_p3 = ft.Dropdown(label="Proveedor 3", col={"sm": 6}); c_pr3 = ft.TextField(label="Precio 3", col={"sm": 6})
 
                 e_pnom = ft.TextField(label="Nombre Proveedor*", col={"sm": 7}); e_ptel = ft.TextField(label="Teléfono", col={"sm": 5})
+                # --- NUEVO: CAMPO DE TEXTO PARA CARGA MASIVA DE PROVEEDORES ---
+                e_pmas = ft.TextField(multiline=True, min_lines=4, max_lines=8, label="Pega Excel (Col 1: Nombre Proveedor | Col 2: Teléfono)")
                 lst_provs = ft.ListView(height=200)
 
                 filtro_cat = ft.TextField(label="Filtrar catálogo completo...")
@@ -376,15 +378,30 @@ def main(page: ft.Page):
                     if not e_pnom.value: return
                     db=conectar_db()
                     if db:
-                        c=db.cursor(); c.execute("INSERT INTO proveedores (nombre, telefono) VALUES (%s,%s) ON CONFLICT(nombre) DO UPDATE SET telefono=EXCLUDED.telefono", (e_pnom.value.upper(), e_ptel.value))
+                        c=db.cursor(); c.execute("INSERT INTO proveedores (nombre, telefono) VALUES (%s,%s) ON CONFLICT(nombre) DO UPDATE SET telefono=EXCLUDED.telefono", (e_pnom.value.strip().upper(), e_ptel.value.strip()))
                         db.close(); e_pnom.value=""; e_ptel.value=""; load_provs(); page.snack_bar=ft.SnackBar(ft.Text("✅ Proveedor guardado"), bgcolor="#10b981"); page.snack_bar.open=True; page.update()
+
+                # --- NUEVA FUNCIÓN PARA IMPORTAR PROVEEDORES DESDE EXCEL ---
+                def p_mas_provs(evt):
+                    if not e_pmas.value.strip(): return
+                    db=conectar_db()
+                    if db:
+                        c=db.cursor(); ag=0
+                        for l in e_pmas.value.strip().split('\n'):
+                            p = l.split('\t')
+                            if len(p)>=1 and p[0].strip():
+                                n=sanitizar_texto(p[0].strip().upper())
+                                t=sanitizar_texto(p[1].strip()) if len(p)>1 else ""
+                                c.execute("INSERT INTO proveedores (nombre, telefono) VALUES (%s,%s) ON CONFLICT(nombre) DO UPDATE SET telefono=EXCLUDED.telefono", (n, t))
+                                ag+=1
+                        db.close(); e_pmas.value=""; load_provs(); page.snack_bar=ft.SnackBar(ft.Text(f"✅ {ag} proveedores guardados"), bgcolor="#10b981"); page.snack_bar.open=True; page.update()
 
                 def b_bod(evt):
                     resultados_bod.controls.clear(); db = conectar_db()
                     if db:
                         c=db.cursor(); txt=(e_desc.value or "").upper()
                         try: c.execute("SELECT d, p, proveedor, fecha_act FROM inv WHERE UPPER(d) LIKE %s LIMIT 20", ('%'+txt+'%',))
-                        except: c.execute("SELECT d, p, '', '' FROM inv WHERE UPPER(d) LIKE %s LIMIT 20", ('%'+txt+'%',))
+                        except: c.execute("SELECT d, p, '' FROM inv WHERE UPPER(d) LIKE %s LIMIT 20", ('%'+txt+'%',))
                         
                         hoy_dt = datetime.now()
                         for r in c.fetchall():
@@ -503,7 +520,20 @@ def main(page: ft.Page):
                             ft.Tab(text="📥 Masivo / Comparar", content=ft.Column([ft.Container(height=10), ft.Text("Si un ítem se repite con diferentes proveedores, el sistema elegirá el precio más bajo automáticamente.", color="#fbbf24", size=12), e_mas, ft.ElevatedButton("Importar y Analizar Ganadores", bgcolor="#10b981", on_click=p_mas)], tight=True)),
                             ft.Tab(text="⚖️ Comparador", content=ft.Column([ft.Container(height=10), ft.Text("Se elegirá el menor precio y se guardará en la BD principal con la Fecha de Hoy.", color="#10b981", size=12), c_item, lst_comp, ft.ResponsiveRow([c_p1, c_pr1]), ft.ResponsiveRow([c_p2, c_pr2]), ft.ResponsiveRow([c_p3, c_pr3]), ft.ElevatedButton("Analizar", bgcolor="#8b5cf6", color="white", on_click=run_comp)], tight=True, scroll=ft.ScrollMode.AUTO)),
                             ft.Tab(text="📜 Catálogo (Fechas)", content=ft.Column([ft.Container(height=10), ft.Text("Los ítems de más de 6 días se marcan como 'Antigua':", color="#fbbf24", size=12), filtro_cat, lst_cat], tight=True, scroll=ft.ScrollMode.AUTO)),
-                            ft.Tab(text="🏢 Provs.", content=ft.Column([ft.Container(height=10), ft.ResponsiveRow([e_pnom, e_ptel]), ft.ElevatedButton("Guardar", bgcolor="#10b981", color="white", on_click=save_prov), lst_provs], tight=True, scroll=ft.ScrollMode.AUTO))
+                            
+                            # --- PESTAÑA PROVEEDORES MODIFICADA (CARGA MASIVA Y REPARADA) ---
+                            ft.Tab(text="🏢 Provs.", content=ft.Column([
+                                ft.Container(height=10), 
+                                ft.Text("Ingreso Manual:", weight="bold", color="#fbbf24"),
+                                ft.ResponsiveRow([e_pnom, e_ptel]), 
+                                ft.ElevatedButton("Guardar Proveedor", bgcolor="#10b981", color="white", on_click=save_prov), 
+                                ft.Divider(color="white24"),
+                                ft.Text("Carga Masiva (Copiar y Pegar Excel):", weight="bold", color="#fbbf24"),
+                                e_pmas,
+                                ft.ElevatedButton("Importar Masivo", bgcolor="#2563eb", color="white", on_click=p_mas_provs),
+                                ft.Divider(color="white24"),
+                                lst_provs
+                            ], tight=True, scroll=ft.ScrollMode.AUTO))
                         ], expand=1
                     )), actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))]
                 )
@@ -961,7 +991,6 @@ def main(page: ft.Page):
         )
         page.update()
 
-        # --- NUEVO: RECORDATORIO DE SEGURIDAD AL INICIAR SESIÓN ---
         page.snack_bar = ft.SnackBar(
             ft.Text("🛡️ RECORDATORIO: Por favor, genere un Backup en 'SISTEMA' periódicamente para salvaguardar la información contra vulnerabilidades o ciberataques.", color="black", weight="bold"),
             bgcolor="#fbbf24",
