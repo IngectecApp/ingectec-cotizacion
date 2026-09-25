@@ -114,19 +114,17 @@ def main(page: ft.Page):
 
     # --- NUEVAS FUNCIONES DE NOTIFICACIÓN COMPATIBLES CON FLET 0.23+ ---
     def mostrar_alerta(titulo, mensaje):
-        dlg = ft.AlertDialog(title=ft.Text(titulo, weight="bold", color="#fbbf24"), content=ft.Text(str(mensaje)))
+        dlg = ft.AlertDialog(title=ft.Text(titulo, weight="bold", color="#fbbf24"), content=ft.Text(str(mensaje)), open=True)
         def cerrar(e):
             dlg.open = False
             page.update()
         dlg.actions = [ft.TextButton("OK", on_click=cerrar)]
         page.overlay.append(dlg)
-        dlg.open = True
         page.update()
 
     def mostrar_snack(mensaje, color_fondo="#10b981", color_texto="white"):
-        snack = ft.SnackBar(content=ft.Text(mensaje, color=color_texto), bgcolor=color_fondo)
+        snack = ft.SnackBar(content=ft.Text(mensaje, color=color_texto), bgcolor=color_fondo, open=True)
         page.overlay.append(snack)
-        snack.open = True
         page.update()
 
     def cerrar_dialogo(dlg):
@@ -283,7 +281,7 @@ def main(page: ft.Page):
                         ec = ft.TextField(label="Cant", value=str(lista_items[idx_r]['cant']))
                         ep = ft.TextField(label="Precio (Uso Interno)", value=str(int(lista_items[idx_r]['precio'])))
                         
-                        dlg_e = ft.AlertDialog(title=ft.Text(f"Editar: {lista_items[idx_r]['desc']}"), content=ft.Column([ec, ep], tight=True))
+                        dlg_e = ft.AlertDialog(title=ft.Text(f"Editar: {lista_items[idx_r]['desc']}"), content=ft.Column([ec, ep], tight=True), open=True)
                         
                         def s(ev):
                             try: 
@@ -294,7 +292,7 @@ def main(page: ft.Page):
                             lista_items.pop(idx_r); actualizar_tabla_visual(); cerrar_dialogo(dlg_e)
                             
                         dlg_e.actions = [ft.ElevatedButton("Guardar", bgcolor="#10b981", on_click=s), ft.ElevatedButton("Eliminar", bgcolor="#ef4444", on_click=rm), ft.TextButton("Cancelar", on_click=lambda ev: cerrar_dialogo(dlg_e))]
-                        page.overlay.append(dlg_e); dlg_e.open=True; page.update()
+                        page.overlay.append(dlg_e); page.update()
                     return on_c
 
                 columna_tabla_items.controls.append(
@@ -360,9 +358,9 @@ def main(page: ft.Page):
 
             b_busq = ft.TextField(label="Buscar en bodega...", on_change=b_inv)
             
-            dlg_i = ft.AlertDialog(title=ft.Text("➕ Añadir"), content=ft.Container(width=750, content=ft.Column([tipo_it, b_busq, res_inv, i_desc, ft.ResponsiveRow([i_cant, i_und, i_und_c, i_pre]), ft.ResponsiveRow([i_imp_t, i_imp_p])], tight=True)))
+            dlg_i = ft.AlertDialog(title=ft.Text("➕ Añadir"), content=ft.Container(width=750, content=ft.Column([tipo_it, b_busq, res_inv, i_desc, ft.ResponsiveRow([i_cant, i_und, i_und_c, i_pre]), ft.ResponsiveRow([i_imp_t, i_imp_p])], tight=True)), open=True)
             dlg_i.actions = [ft.ElevatedButton("Guardar", bgcolor="#10b981", on_click=g_item), ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg_i))]
-            page.overlay.append(dlg_i); dlg_i.open = True; b_inv(None)
+            page.overlay.append(dlg_i); page.update(); b_inv(None)
 
         def abrir_modal_bodega(e):
             try:
@@ -392,22 +390,32 @@ def main(page: ft.Page):
                         c=db.cursor(); c.execute("SELECT nombre, telefono FROM proveedores ORDER BY nombre ASC")
                         for n, t in c.fetchall():
                             ops.append(ft.dropdown.Option(n))
-                            def ed(ev, nom=n, tel=t): e_pnom.value=nom; e_ptel.value=tel; page.update()
+                            # --- CREACIÓN DE FILA SEGURA PARA BORRADO ---
+                            tile = ft.ListTile(title=ft.Text(n, color="#fbbf24"), subtitle=ft.Text(f"Tel: {t} (Clic para editar)"))
                             
-                            def rm(ev, nom=n): 
+                            def ed(ev, nom=n, tel=t): 
+                                e_pnom.value=nom; e_ptel.value=tel; e_pnom.update(); e_ptel.update()
+                            
+                            def rm(ev, nom=n, t_item=tile): 
                                 try:
                                     dbd=conectar_db(); cd=dbd.cursor()
-                                    # Limpiamos el string antes de buscarlo en BD
                                     cd.execute("DELETE FROM proveedores WHERE nombre = %s", (nom,))
                                     dbd.commit(); dbd.close()
-                                    mostrar_snack(f"🗑️ Proveedor eliminado exitosamente", "#ef4444")
-                                    load_provs()
+                                    # Eliminación quirúrgica: no recargamos toda la lista, solo borramos la fila seleccionada
+                                    if t_item in lst_provs.controls:
+                                        lst_provs.controls.remove(t_item)
+                                        lst_provs.update()
+                                    mostrar_snack(f"🗑️ Proveedor {nom} eliminado exitosamente", "#ef4444")
                                 except Exception as ex:
                                     mostrar_alerta("Error al eliminar", str(ex))
 
-                            lst_provs.controls.append(ft.ListTile(title=ft.Text(n, color="#fbbf24"), subtitle=ft.Text(f"Tel: {t} (Clic para editar)"), on_click=ed, trailing=ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=rm)))
+                            tile.on_click = ed
+                            tile.trailing = ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=rm)
+                            lst_provs.controls.append(tile)
                         db.close()
-                    c_p1.options=ops; c_p2.options=ops; c_p3.options=ops; page.update()
+                    c_p1.options=ops; c_p2.options=ops; c_p3.options=ops
+                    try: page.update()
+                    except: pass
 
                 def save_prov(ev):
                     if not e_pnom.value: return
@@ -416,7 +424,7 @@ def main(page: ft.Page):
                         nom_limpio = e_pnom.value.strip().upper()
                         c=db.cursor(); c.execute("INSERT INTO proveedores (nombre, telefono) VALUES (%s,%s) ON CONFLICT(nombre) DO UPDATE SET telefono=EXCLUDED.telefono", (nom_limpio, e_ptel.value.strip()))
                         db.commit(); db.close(); e_pnom.value=""; e_ptel.value=""
-                        mostrar_snack(f"✅ Proveedor guardado")
+                        mostrar_snack(f"✅ Proveedor guardado exitosamente")
                         load_provs()
 
                 def p_mas_provs(evt):
@@ -445,7 +453,7 @@ def main(page: ft.Page):
                                     ag+=1
                             db.commit(); db.close()
                             e_pmas.value = ""
-                            mostrar_snack(f"✅ {ag} proveedores procesados exitosamente")
+                            mostrar_snack(f"✅ {ag} proveedores procesados y guardados exitosamente")
                             load_provs()
                     except Exception as ex:
                         mostrar_alerta("Error en Carga Masiva", str(ex))
@@ -467,11 +475,26 @@ def main(page: ft.Page):
                                     if (hoy_dt - datetime.strptime(fa_raw, "%Y-%m-%d")).days <= 5: fa = fa_raw
                                 except: pass
                             
-                            def sel(ev, desc=d, prec=p): e_desc.value=desc; e_precio.value=str(int(float(prec))); page.update()
-                            def rm(ev, desc=d): dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM inv WHERE d=%s", (desc,)); dbd.commit(); dbd.close(); b_bod(None); load_cat(None)
                             subt = f"${int(float(p)):,}" + (f" (Prov: {prov})" if prov else "") + (f" - Act: {fa}")
-                            resultados_bod.controls.append(ft.ListTile(title=ft.Text(d, size=13, color="#fbbf24", weight="bold"), subtitle=ft.Text(subt), on_click=sel, trailing=ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=rm)))
-                        db.close(); page.update()
+                            tile = ft.ListTile(title=ft.Text(d, size=13, color="#fbbf24", weight="bold"), subtitle=ft.Text(subt))
+                            
+                            def sel(ev, desc=d, prec=p): 
+                                e_desc.value=desc; e_precio.value=str(int(float(prec)))
+                                e_desc.update(); e_precio.update()
+                            
+                            def rm(ev, desc=d, t_item=tile): 
+                                dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM inv WHERE d=%s", (desc,)); dbd.commit(); dbd.close()
+                                if t_item in resultados_bod.controls:
+                                    resultados_bod.controls.remove(t_item)
+                                    resultados_bod.update()
+                                mostrar_snack("🗑️ Ítem eliminado", "#ef4444")
+                                
+                            tile.on_click = sel
+                            tile.trailing = ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=rm)
+                            resultados_bod.controls.append(tile)
+                        db.close()
+                    try: page.update()
+                    except: pass
 
                 def s_bod(evt):
                     if not e_desc.value: return
@@ -596,10 +619,10 @@ def main(page: ft.Page):
                                 lst_provs
                             ], tight=True, scroll=ft.ScrollMode.AUTO))
                         ], expand=1
-                    ))
+                    )), open=True
                 )
                 dlg_b.actions = [ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg_b))]
-                page.overlay.append(dlg_b); dlg_b.open = True; b_bod(None); load_provs(); load_cat(None)
+                page.overlay.append(dlg_b); page.update(); b_bod(None); load_provs(); load_cat(None)
             except Exception as bug:
                 mostrar_alerta("Error abriendo Bodega", str(bug))
 
@@ -614,13 +637,25 @@ def main(page: ft.Page):
                 if db:
                     c=db.cursor(); c.execute("SELECT n, i, ciu, tel FROM cli ORDER BY n ASC")
                     for n, i, ciu, tel in c.fetchall():
+                        tile = ft.ListTile(title=ft.Text(n, color="#fbbf24"), subtitle=ft.Text(f"NIT:{i} | Ciu:{ciu} | Tel:{tel}"))
+                        
                         def ed(ev, nom=n): 
                             dbi=conectar_db(); ci=dbi.cursor(); ci.execute("SELECT n, i, dir, email, ciu, tel FROM cli WHERE n=%s", (nom,)); cd = ci.fetchone(); dbi.close()
                             if cd: cn.value, ci.value, cd.value, ce.value, cc.value, ct.value = cd; page.update()
-                        def rm(ev, nom=n): dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM cli WHERE n=%s", (nom,)); dbd.commit(); dbd.close(); load_cli()
-                        r_cli.controls.append(ft.ListTile(title=ft.Text(n, color="#fbbf24"), subtitle=ft.Text(f"NIT:{i} | Ciu:{ciu} | Tel:{tel}"), on_click=ed, trailing=ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=rm)))
+                        
+                        def rm(ev, nom=n, t_item=tile): 
+                            dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM cli WHERE n=%s", (nom,)); dbd.commit(); dbd.close()
+                            if t_item in r_cli.controls:
+                                r_cli.controls.remove(t_item)
+                                r_cli.update()
+                            mostrar_snack("🗑️ Cliente eliminado", "#ef4444")
+                            
+                        tile.on_click = ed
+                        tile.trailing = ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=rm)
+                        r_cli.controls.append(tile)
                     db.close()
-                page.update()
+                try: page.update()
+                except: pass
 
             def s_cli(ev):
                 if not cn.value: return
@@ -648,10 +683,10 @@ def main(page: ft.Page):
                         ft.Tab(text="Edición", content=ft.Column([ft.Container(height=10), ft.ResponsiveRow([cn, ci, ct, cd, cc, ce]), ft.ElevatedButton("Guardar", bgcolor="#10b981", on_click=s_cli), r_cli], tight=True, scroll=ft.ScrollMode.AUTO)),
                         ft.Tab(text="Carga Masiva", content=ft.Column([ft.Container(height=10), cm, ft.ElevatedButton("Importar", bgcolor="#10b981", on_click=p_cli)], tight=True))
                     ], expand=1
-                ))
+                )), open=True
             )
             dlg_c.actions = [ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg_c))]
-            page.overlay.append(dlg_c); dlg_c.open = True; load_cli()
+            page.overlay.append(dlg_c); page.update(); load_cli()
 
         def abrir_modal_usuarios(e):
             pass_act = ft.TextField(label="Contraseña Actual", password=True, can_reveal_password=True)
@@ -677,13 +712,29 @@ def main(page: ft.Page):
                 if db:
                     c=db.cursor(); c.execute("SELECT usuario, rol, bloqueado FROM usuarios ORDER BY usuario ASC")
                     for u, r, b in c.fetchall():
-                        def ed(ev, u=u, r=r): un.value=u; ur.value=r; up.value=""; page.update()
-                        def rm(ev, u=u): dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM usuarios WHERE usuario=%s", (u,)); dbd.commit(); dbd.close(); load_u()
-                        def dbq(ev, u=u): dbu=conectar_db(); cu=dbu.cursor(); cu.execute("UPDATE usuarios SET intentos=0, bloqueado=0 WHERE usuario=%s", (u,)); dbu.commit(); dbu.close(); load_u()
+                        tile = ft.ListTile(title=ft.Text(f"{u}{' (Bloqueado)' if b==1 else ''}", color="#ef4444" if b==1 else "#fbbf24"), subtitle=ft.Text(r))
+                        
+                        def ed(ev, us=u, ro=r): un.value=us; ur.value=ro; up.value=""; page.update()
+                        
+                        def rm(ev, us=u, t_item=tile): 
+                            dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM usuarios WHERE usuario=%s", (us,)); dbd.commit(); dbd.close()
+                            if t_item in res_u.controls:
+                                res_u.controls.remove(t_item)
+                                res_u.update()
+                            mostrar_snack("🗑️ Usuario eliminado", "#ef4444")
+                            
+                        def dbq(ev, us=u): 
+                            dbu=conectar_db(); cu=dbu.cursor(); cu.execute("UPDATE usuarios SET intentos=0, bloqueado=0 WHERE usuario=%s", (us,)); dbu.commit(); dbu.close(); load_u()
+                            
                         bts = [ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=rm)]
                         if b==1: bts.insert(0, ft.IconButton(ft.icons.LOCK_OPEN, icon_color="#10b981", on_click=dbq))
-                        res_u.controls.append(ft.ListTile(title=ft.Text(f"{u}{' (Bloqueado)' if b==1 else ''}", color="#ef4444" if b==1 else "#fbbf24"), subtitle=ft.Text(r), trailing=ft.Row(bts, tight=True), on_click=ed))
-                    db.close(); page.update()
+                        
+                        tile.on_click = ed
+                        tile.trailing = ft.Row(bts, tight=True)
+                        res_u.controls.append(tile)
+                    db.close()
+                try: page.update()
+                except: pass
                     
             def sv_u(ev):
                 if not un.value or not up.value: return
@@ -701,12 +752,11 @@ def main(page: ft.Page):
             if sesion["usuario"] in ["OMERA", "PLEAL"]:
                 tabs_list.append(tab_gest)
             
-            dlg_u = ft.AlertDialog(title=ft.Text("🔐 Usuarios y Seguridad"), content=ft.Container(width=700, height=400, content=ft.Tabs(selected_index=0, tabs=tabs_list)))
+            dlg_u = ft.AlertDialog(title=ft.Text("🔐 Usuarios y Seguridad"), content=ft.Container(width=700, height=400, content=ft.Tabs(selected_index=0, tabs=tabs_list)), open=True)
             dlg_u.actions = [ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg_u))]
-            page.overlay.append(dlg_u); dlg_u.open = True
+            page.overlay.append(dlg_u); page.update()
             
             if sesion["usuario"] in ["OMERA", "PLEAL"]: load_u()
-            else: page.update()
 
         def abrir_modal_historial(e):
             res_h = ft.ListView(expand=True, spacing=10, height=300); bus_h = ft.TextField(label="Buscar cliente...", width=400)
@@ -751,7 +801,7 @@ def main(page: ft.Page):
                                 
                                 usr_drop = ft.Dropdown(label="Seleccionar Usuario a dar permiso", options=ops)
                                 
-                                dlg_share = ft.AlertDialog(title=ft.Text(f"🤝 Compartir Cotización {nro_val}"), content=ft.Column([ft.Text("Otorga permiso de edición a un compañero:"), usr_drop], tight=True))
+                                dlg_share = ft.AlertDialog(title=ft.Text(f"🤝 Compartir Cotización {nro_val}"), content=ft.Column([ft.Text("Otorga permiso de edición a un compañero:"), usr_drop], tight=True), open=True)
                                 
                                 def grant_perm(ev2):
                                     if usr_drop.value:
@@ -766,16 +816,16 @@ def main(page: ft.Page):
                                         else: mostrar_alerta("Aviso", "El usuario ya tiene permisos.")
                                 
                                 dlg_share.actions = [ft.ElevatedButton("Dar Permiso", bgcolor="#10b981", color="white", on_click=grant_perm), ft.TextButton("Cancelar", on_click=lambda ev: cerrar_dialogo(dlg_share))]
-                                page.overlay.append(dlg_share); dlg_share.open = True; page.update()
+                                page.overlay.append(dlg_share); page.update()
                             
                             trail_btns.append(ft.IconButton(ft.icons.SHARE, icon_color="#3b82f6", tooltip="Compartir Permisos", on_click=share_cot))
 
                         res_h.controls.append(ft.ListTile(title=ft.Text(f"N° {nr} - {cl} (Por: {cr})", color="#fbbf24"), subtitle=ft.Text(f"{fc} | ${int(float(tt)):,}"), on_click=c_cot, trailing=ft.Row(trail_btns, tight=True) if trail_btns else None))
                 db.close(); page.update()
             bus_h.on_change = load_h
-            dlg_h = ft.AlertDialog(title=ft.Text("🔍 Historial"), content=ft.Container(width=700, content=ft.Column([bus_h, res_h], tight=True)))
+            dlg_h = ft.AlertDialog(title=ft.Text("🔍 Historial"), content=ft.Container(width=700, content=ft.Column([bus_h, res_h], tight=True)), open=True)
             dlg_h.actions = [ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg_h))]
-            page.overlay.append(dlg_h); dlg_h.open = True; load_h()
+            page.overlay.append(dlg_h); page.update(); load_h()
 
         def abrir_modal_sistema(e):
             def generar_backup_json(evt):
@@ -819,7 +869,7 @@ def main(page: ft.Page):
 
             def confirmar_reseteo(evt):
                 ic = ft.TextField(label="Contraseña Maestra", password=True)
-                dc = ft.AlertDialog(title=ft.Text("⚠️ ADVERTENCIA EXTREMA", color="#ef4444"), content=ft.Column([ft.Text("Se borrará TODO."), ic], tight=True))
+                dc = ft.AlertDialog(title=ft.Text("⚠️ ADVERTENCIA EXTREMA", color="#ef4444"), content=ft.Column([ft.Text("Se borrará TODO."), ic], tight=True), open=True)
                 def ex(e):
                     if ic.value.strip() == "7705178":
                         db=conectar_db()
@@ -827,7 +877,7 @@ def main(page: ft.Page):
                             c=db.cursor(); c.execute("DELETE FROM cli"); c.execute("DELETE FROM inv"); c.execute("DELETE FROM historial"); c.execute("DELETE FROM h_cab"); c.execute("DELETE FROM h_det"); c.execute("UPDATE n_cot SET num=100 WHERE id=1"); db.commit(); db.close()
                         cerrar_dialogo(dc); cerrar_dialogo(dlg_sis); mostrar_snack("✅ RESTAURADO")
                 dc.actions = [ft.ElevatedButton("BORRAR", bgcolor="#ef4444", on_click=ex), ft.TextButton("Cancelar", on_click=lambda e: cerrar_dialogo(dc))]
-                page.overlay.append(dc); dc.open = True; page.update()
+                page.overlay.append(dc); page.update()
 
             col_general = [
                 ft.Container(height=10), 
@@ -848,10 +898,10 @@ def main(page: ft.Page):
                         ft.Tab(text="General", content=ft.Column(col_general, tight=True)),
                         ft.Tab(text="Subir Backup", content=ft.Column([ft.Container(height=10), ft.Text("Abre tu archivo .json, copia todo el texto y pégalo aquí:", size=12, color="white54"), e_json, ft.ElevatedButton("RESTAURAR INFORMACIÓN", bgcolor="#10b981", color="white", on_click=subir_backup_json)], tight=True))
                     ]
-                ))
+                )), open=True
             )
             dlg_sis.actions = [ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg_sis))]
-            page.overlay.append(dlg_sis); dlg_sis.open = True; page.update()
+            page.overlay.append(dlg_sis); page.update()
 
         def limpiar_todo(e):
             lista_items.clear(); estado["nro_edicion"] = None; estado["creador_edicion"] = None; estado["permitidos_edicion"] = []; actualizar_tabla_visual()
@@ -1013,9 +1063,9 @@ def main(page: ft.Page):
                 if not puede_guardar:
                     mostrar_snack("⚠️ Modo Lectura: PDF de consulta generado. Original sin alterar.", "#f59e0b", "black")
                 
-                dlg_d = ft.AlertDialog(title=ft.Text("✅ Generado", color="#10b981"), content=ft.Text(f"Archivo: {nom_arc}"))
+                dlg_d = ft.AlertDialog(title=ft.Text("✅ Generado", color="#10b981"), content=ft.Text(f"Archivo: {nom_arc}"), open=True)
                 dlg_d.actions = [ft.ElevatedButton("📥 DESCARGAR", bgcolor="#2563eb", color="white", on_click=lambda ev: page.launch_url(f"/{nom_arc}")), ft.TextButton("Cerrar", on_click=lambda ev: cerrar_dialogo(dlg_d))]
-                page.overlay.append(dlg_d); dlg_d.open = True; page.update()
+                page.overlay.append(dlg_d); page.update()
             except Exception as eFallo: mostrar_alerta("Error al generar PDF", f"Hubo un fallo: {str(eFallo)}")
 
         botones_lista = [
@@ -1062,8 +1112,6 @@ def main(page: ft.Page):
             ft.Container(content=ft.ElevatedButton("GENERAR COTIZACIÓN PROFESIONAL", icon=ft.icons.BOLT, bgcolor="#f59e0b", color="black", height=50, on_click=generar_pdf_web), alignment=ft.alignment.center, padding=ft.padding.only(top=10, bottom=20))
         )
         page.update()
-
-        mostrar_snack("🛡️ RECORDATORIO: Genere un Backup en 'SISTEMA' para salvaguardar la información contra vulnerabilidades o ciberataques.", "#fbbf24", "black")
 
     mostrar_login()
 
