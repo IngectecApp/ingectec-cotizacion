@@ -139,7 +139,12 @@ def main(page: ft.Page):
                     db.close(); page.update()
             else: db.close(); page.snack_bar = ft.SnackBar(ft.Text("❌ Usuario no existe"), bgcolor="#ef4444"); page.snack_bar.open = True; page.update()
 
-    pantalla_login = ft.Container(content=ft.Column([ft.Icon(ft.icons.LOCK_PERSON, size=50, color="#fbbf24"), ft.Text("INGECTEC - Acceso Seguro", size=20, weight="bold", color="white"), input_usr, input_pwd, ft.ElevatedButton("INICIAR SESIÓN", bgcolor="#2563eb", color="white", width=300, height=45, on_click=procesar_login)], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15), alignment=ft.alignment.center, expand=True)
+    pantalla_login = ft.Container(content=ft.Column([
+        ft.Icon(ft.icons.BOLT, size=70, color="#f59e0b"), 
+        ft.Text("INGECTEC - Acceso Seguro", size=20, weight="bold", color="white"), 
+        input_usr, input_pwd, 
+        ft.ElevatedButton("INICIAR SESIÓN", bgcolor="#f59e0b", color="black", width=300, height=45, on_click=procesar_login)
+    ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15), alignment=ft.alignment.center, expand=True)
 
     def mostrar_login():
         sesion["usuario"] = None; sesion["rol"] = None; lista_items.clear()
@@ -816,19 +821,21 @@ def main(page: ft.Page):
                 else:
                     if not nro_doc: nro_doc = f"{mes_act}-TEMP"
                     nom_limp = re.sub(r'[^\w\s-]', '', c_nom).strip(); nom_arc = f"{nom_limp}-{nro_doc}.pdf"
-                    page.snack_bar = ft.SnackBar(ft.Text("⚠️ Modo Lectura: PDF generado, pero la base de datos no fue modificada.", color="black"), bgcolor="#f59e0b")
-                    page.snack_bar.open = True
-                
+                    
                 db.close()
 
-                # --- CORRECCIÓN EXACTA DE AUDITORÍA: SI LA COTIZACIÓN ES VIEJA, SALDRÁ A NOMBRE DE SU CREADOR ORIGINAL ---
-                asesor_act = (estado.get("creador_edicion") or sesion["usuario"]).upper()
+                # --- CORRECCIÓN EXACTA DE AUDITORÍA: EL NOMBRE EN EL PDF SIEMPRE SERÁ EL DEL CREADOR DE LA FACTURA ---
+                # Si la factura ya existe en el estado, se imprime a nombre de quien la creó originalmente.
+                # Si es una factura totalmente nueva (estado vacío), se imprime a nombre del usuario activo.
+                asesor_impresion = (estado.get("creador_edicion") or sesion["usuario"]).upper()
+                
                 numeros_whatsapp = {"OMERA": "573175046404", "YRESTREPO": "573002986963", "JCARDONA": "573225532559", "PLEAL": "573175046404"}
-                numero_asesor = numeros_whatsapp.get(asesor_act, "573175046404")
+                numero_asesor = numeros_whatsapp.get(asesor_impresion, "573175046404")
                 qr = qrcode.QRCode(box_size=10, border=2); qr.add_data(f"https://wa.me/{numero_asesor}"); qr.make(fit=True); qr.make_image(fill_color="black", back_color="white").save("assets/qr_temp.png")
 
                 nombres_completos = {"OMERA": "OSCAR MERA", "YRESTREPO": "YEISON FABIAN RESTREPO", "JCARDONA": "JOHN JAIRO CARDONA", "PLEAL": "PAULO ANDRES LEAL GARCIA"}
-                p = PDF(); p.asesor_nombre = nombres_completos.get(asesor_act, asesor_act) 
+                p = PDF(); p.asesor_nombre = nombres_completos.get(asesor_impresion, asesor_impresion) 
+                
                 p.set_margins(10, 10, 10); p.set_auto_page_break(auto=True, margin=30); p.add_page()
                 p.set_font('helvetica', 'B', 11); hy = datetime.now()
                 p.cell(0, 5, sanitizar_texto(f"{c_ciu_origen}, {hy.day} de {['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'][hy.month-1]} de {hy.year}"), border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT); p.ln(4)
@@ -904,21 +911,28 @@ def main(page: ft.Page):
                 try: os.remove("assets/qr_temp.png")
                 except: pass
                 
+                # --- AVISO VISUAL DE QUE SE ESTÁ GENERANDO UNA COPIA NO OFICIAL ---
+                if not puede_guardar:
+                    page.snack_bar = ft.SnackBar(ft.Text("⚠️ Modo Lectura: PDF de consulta generado. Original sin alterar.", color="black"), bgcolor="#f59e0b")
+                    page.snack_bar.open = True
+                
                 dlg_d = ft.AlertDialog(title=ft.Text("✅ Generado", color="#10b981"), content=ft.Text(f"Archivo: {nom_arc}"), actions=[ft.ElevatedButton("📥 DESCARGAR", bgcolor="#2563eb", color="white", on_click=lambda ev: page.launch_url(f"/{nom_arc}")), ft.TextButton("Cerrar", on_click=lambda ev: cerrar_dialogo(dlg_d))])
                 page.dialog = dlg_d; dlg_d.open = True; page.update()
             except Exception as eFallo: mostrar_alerta("Error al generar PDF", f"Hubo un fallo: {str(eFallo)}")
 
         botones_lista = [
-            ft.ElevatedButton("➕ AÑADIR ÍTEM", bgcolor="#10b981", color="white", on_click=abrir_modal_item),
-            ft.ElevatedButton("📦 BODEGA", bgcolor="#2563eb", color="white", on_click=abrir_modal_bodega),
-            ft.ElevatedButton("👥 CLIENTES", bgcolor="#2563eb", color="white", on_click=abrir_modal_clientes),
-            ft.ElevatedButton("🔐 USUARIOS", bgcolor="#8b5cf6", color="white", on_click=abrir_modal_usuarios),
-            ft.ElevatedButton("🔍 HISTORIAL", bgcolor="#2563eb", color="white", on_click=abrir_modal_historial),
-            ft.ElevatedButton("🧹 LIMPIAR", bgcolor="#64748b", color="white", on_click=limpiar_todo),
-            ft.ElevatedButton("⚙️ SISTEMA", bgcolor="#475569", color="white", on_click=abrir_modal_sistema)
+            ft.ElevatedButton("AÑADIR ÍTEM", icon=ft.icons.ADD, bgcolor="#f59e0b", color="black", on_click=abrir_modal_item),
+            ft.ElevatedButton("BODEGA", icon=ft.icons.INVENTORY_2, bgcolor="#334155", color="white", on_click=abrir_modal_bodega),
+            ft.ElevatedButton("CLIENTES", icon=ft.icons.GROUPS, bgcolor="#334155", color="white", on_click=abrir_modal_clientes),
+            ft.ElevatedButton("USUARIOS", icon=ft.icons.SECURITY, bgcolor="#334155", color="white", on_click=abrir_modal_usuarios),
+            ft.ElevatedButton("HISTORIAL", icon=ft.icons.HISTORY, bgcolor="#334155", color="white", on_click=abrir_modal_historial),
+            ft.ElevatedButton("LIMPIAR", icon=ft.icons.DELETE_SWEEP, bgcolor="#475569", color="white", on_click=limpiar_todo)
         ]
         
-        botones_lista.append(ft.ElevatedButton("🚪 CERRAR SESIÓN", bgcolor="#ef4444", color="white", on_click=lambda e: mostrar_login()))
+        if sesion["usuario"] in ["OMERA", "PLEAL"]: 
+            botones_lista.append(ft.ElevatedButton("SISTEMA", icon=ft.icons.SETTINGS, bgcolor="#475569", color="white", on_click=abrir_modal_sistema))
+            
+        botones_lista.append(ft.ElevatedButton("SALIR", icon=ft.icons.LOGOUT, bgcolor="#ef4444", color="white", on_click=lambda e: mostrar_login()))
 
         contenedor_botones = ft.Container(
             content=ft.Row(
@@ -942,12 +956,12 @@ def main(page: ft.Page):
         ], spacing=10), bgcolor="#0f172a", padding=15, border_radius=8, border=ft.border.all(1, "white12"))
 
         page.add(
-            ft.Container(content=ft.Text(f"⚡ INGECTEC SAS", size=22, weight="bold", color="#fbbf24"), alignment=ft.alignment.center, padding=5), 
+            ft.Container(content=ft.Row([ft.Icon(ft.icons.BOLT, color="#fbbf24", size=30), ft.Text(f"INGECTEC SAS", size=22, weight="bold", color="#fbbf24")], alignment=ft.MainAxisAlignment.CENTER), padding=5), 
             ft.Container(content=ft.Text(f"👤 Conectado: {sesion['usuario']} ({sesion['rol']})", size=12, color="#94a3b8"), alignment=ft.alignment.center_right), 
             contenedor_botones, 
             tabla, 
             f_cli, 
-            ft.Container(content=ft.ElevatedButton("🚀 GENERAR COTIZACIÓN PROFESIONAL", bgcolor="#f59e0b", color="black", height=50, on_click=generar_pdf_web), alignment=ft.alignment.center, padding=ft.padding.only(top=10, bottom=20))
+            ft.Container(content=ft.ElevatedButton("GENERAR COTIZACIÓN PROFESIONAL", icon=ft.icons.BOLT, bgcolor="#f59e0b", color="black", height=50, on_click=generar_pdf_web), alignment=ft.alignment.center, padding=ft.padding.only(top=10, bottom=20))
         )
         page.update()
 
