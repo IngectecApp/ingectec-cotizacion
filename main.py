@@ -180,6 +180,7 @@ def main(page: ft.Page):
         input_notas = ft.TextField(label="Notas adicionales", value="Toda la actividad será coordinada por el ingeniero Edward Álvarez y/o John Paniagua", multiline=True)
         input_pct_a = ft.TextField(label="Admin %", value="10"); input_pct_i = ft.TextField(label="Imprev %", value="2")
         input_pct_u = ft.TextField(label="Util %", value="8"); input_pct_iva_u = ft.TextField(label="IVA s/U %", value="19")
+        
         input_pct_ganancia = ft.TextField(label="Utilidad %", value="0")
         
         lista_busqueda_cli = ft.ListView(height=150, visible=False, spacing=2)
@@ -411,9 +412,53 @@ def main(page: ft.Page):
 
         def abrir_modal_bodega(e):
             try:
+                # --- NUEVAS FUNCIONES DE VACIADO MASIVO ---
+                def vaciar_bodega(evt):
+                    def confirmar(ev):
+                        db = conectar_db()
+                        if db:
+                            c = db.cursor(); c.execute("DELETE FROM inv"); db.commit(); db.close()
+                            cerrar_dialogo(dlg_vaciar_b)
+                            mostrar_snack("✅ Bodega vaciada completamente.", "#ef4444")
+                            b_bod(None); load_cat(None)
+                    
+                    dlg_vaciar_b = ft.AlertDialog(
+                        title=ft.Text("⚠️ VACIAR BODEGA", color="#ef4444"),
+                        content=ft.Text("¿Estás 100% seguro de que deseas ELIMINAR TODOS los ítems del inventario? Esta acción no se puede deshacer."),
+                        open=True
+                    )
+                    dlg_vaciar_b.actions = [
+                        ft.ElevatedButton("SÍ, ELIMINAR TODO", bgcolor="#ef4444", color="white", on_click=confirmar),
+                        ft.TextButton("Cancelar", on_click=lambda ev: cerrar_dialogo(dlg_vaciar_b))
+                    ]
+                    page.overlay.append(dlg_vaciar_b); page.update()
+
+                def vaciar_proveedores(evt):
+                    def confirmar(ev):
+                        db = conectar_db()
+                        if db:
+                            c = db.cursor(); c.execute("DELETE FROM proveedores"); db.commit(); db.close()
+                            cerrar_dialogo(dlg_vaciar_p)
+                            mostrar_snack("✅ Todos los proveedores fueron eliminados.", "#ef4444")
+                            load_provs()
+                    
+                    dlg_vaciar_p = ft.AlertDialog(
+                        title=ft.Text("⚠️ VACIAR PROVEEDORES", color="#ef4444"),
+                        content=ft.Text("¿Estás seguro de que deseas ELIMINAR TODOS los proveedores de la base de datos?"),
+                        open=True
+                    )
+                    dlg_vaciar_p.actions = [
+                        ft.ElevatedButton("SÍ, ELIMINAR TODO", bgcolor="#ef4444", color="white", on_click=confirmar),
+                        ft.TextButton("Cancelar", on_click=lambda ev: cerrar_dialogo(dlg_vaciar_p))
+                    ]
+                    page.overlay.append(dlg_vaciar_p); page.update()
+                
                 resultados_bod = ft.ListView(height=180)
                 e_desc = ft.TextField(label="Nombre Producto")
-                e_precio = ft.TextField(label="Costo Producto (Se sumará 19% de IVA auto)")
+                e_precio = ft.TextField(label="Costo Producto")
+                
+                e_bodega_iva = ft.Dropdown(label="Impuesto al Costo", options=[ft.dropdown.Option("+19% IVA"), ft.dropdown.Option("EXENTO")], value="+19% IVA")
+                
                 e_mas = ft.TextField(multiline=True, min_lines=6, max_lines=10, label="Pega Excel (Col 1: Ítem | Col 2: Prov | Col 3: Costo Neto)")
                 
                 c_item = ft.TextField(label="Buscar Ítem para cotizar...")
@@ -448,7 +493,8 @@ def main(page: ft.Page):
                                     dbd=conectar_db(); cd=dbd.cursor()
                                     cd.execute("DELETE FROM proveedores WHERE nombre = %s", (nom,))
                                     dbd.commit(); dbd.close()
-                                    mostrar_snack(f"🗑️ Proveedor eliminado exitosamente", "#ef4444")
+                                    mostrar_snack(f"🗑️ Proveedor eliminado", "#ef4444")
+                                    # --- RECARGA OBLIGATORIA PARA SINCRONIZAR DB Y PANTALLA ---
                                     load_provs()
                                 except Exception as ex:
                                     mostrar_alerta("Error al eliminar", str(ex))
@@ -523,7 +569,16 @@ def main(page: ft.Page):
                                 except: pass
                             
                             def sel(ev, desc=d, prec=p): e_desc.value=desc; e_precio.value=str(int(float(prec))); page.update()
-                            def rm(ev, desc=d): dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM inv WHERE d=%s", (desc,)); db.commit(); dbd.close(); b_bod(None); load_cat(None); mostrar_snack("🗑️ Ítem eliminado", "#ef4444")
+                            def rm(ev, desc=d): 
+                                try:
+                                    dbd=conectar_db(); cd=dbd.cursor()
+                                    cd.execute("DELETE FROM inv WHERE d=%s", (desc,))
+                                    dbd.commit(); dbd.close()
+                                    mostrar_snack("🗑️ Ítem eliminado", "#ef4444")
+                                    # --- RECARGA OBLIGATORIA PARA SINCRONIZAR DB Y PANTALLA ---
+                                    b_bod(None); load_cat(None)
+                                except Exception as ex:
+                                    mostrar_alerta("Error al eliminar", str(ex))
                             
                             subt = f"${int(float(p)):,}" + (f" ({prov})" if prov else "") + (f" - Act: {fa}")
                             tile = ft.ListTile(title=ft.Text(d, size=13, color="#fbbf24", weight="bold"), subtitle=ft.Text(subt))
@@ -538,14 +593,14 @@ def main(page: ft.Page):
                     except: p_val = 0
                     if p_val <= 0: return mostrar_alerta("Error", "El precio debe ser mayor a 0.")
                     
-                    p_val_iva = p_val * 1.19
+                    multiplicador = 1.19 if e_bodega_iva.value == "+19% IVA" else 1.0
+                    p_val_final = p_val * multiplicador
                     
                     db=conectar_db()
                     if db: 
                         fh = datetime.now().strftime("%Y-%m-%d")
-                        c=db.cursor(); c.execute("INSERT INTO inv (d, p, stock, proveedor, fecha_act) VALUES (%s,%s,0,'',%s) ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p, fecha_act=EXCLUDED.fecha_act", (e_desc.value.upper(), p_val_iva, fh)); db.commit(); db.close(); e_desc.value=""; e_precio.value=""; b_bod(None); load_cat(None); mostrar_snack("✅ Guardado con IVA 19% aplicado", "#2563eb")
+                        c=db.cursor(); c.execute("INSERT INTO inv (d, p, stock, proveedor, fecha_act) VALUES (%s,%s,0,'',%s) ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p, fecha_act=EXCLUDED.fecha_act", (e_desc.value.upper(), p_val_final, fh)); db.commit(); db.close(); e_desc.value=""; e_precio.value=""; b_bod(None); load_cat(None); mostrar_snack("✅ Guardado con éxito", "#2563eb")
 
-                # --- NUEVA LÓGICA DE MASIVO (SOLO ANOTA EL MÁS BARATO, SIN REPETICIONES) ---
                 def p_mas(evt):
                     if not e_mas.value.strip(): return
                     db=conectar_db()
@@ -560,19 +615,21 @@ def main(page: ft.Page):
                                 pr_str = "0"
                                 if len(pts) >= 3: pr_str = pts[2]
                                 elif len(pts) == 2: pr_str = pts[1]; prov = ""
-                                try: pr = float(pr_str.replace("$","").replace(".","").replace(",","").replace(" ","").strip())
+                                try: pr = float(pr_str.replace("$","").replace(".","").replace(",","replace(" ","").strip())
                                 except: pr = 0.0
                                 
                                 if pr > 0: 
-                                    pr_iva = pr * 1.19
+                                    multiplicador = 1.0 if "EXENTO" in item else 1.19
+                                    pr_final = pr * multiplicador
+                                    
                                     if item not in evaluados: 
-                                        evaluados[item] = {"max_p": pr_iva, "max_prov": prov, "min_p": pr_iva, "min_prov": prov}
+                                        evaluados[item] = {"max_p": pr_final, "max_prov": prov, "min_p": pr_final, "min_prov": prov}
                                     else:
-                                        if pr_iva > evaluados[item]["max_p"]:
-                                            evaluados[item]["max_p"] = pr_iva
+                                        if pr_final > evaluados[item]["max_p"]:
+                                            evaluados[item]["max_p"] = pr_final
                                             evaluados[item]["max_prov"] = prov
-                                        if pr_iva < evaluados[item]["min_p"]:
-                                            evaluados[item]["min_p"] = pr_iva
+                                        if pr_final < evaluados[item]["min_p"]:
+                                            evaluados[item]["min_p"] = pr_final
                                             evaluados[item]["min_prov"] = prov
                         
                         for itm, data in evaluados.items():
@@ -585,7 +642,7 @@ def main(page: ft.Page):
                             ag+=1
                         
                         db.commit(); db.close(); e_mas.value=""; b_bod(None); load_cat(None)
-                        mostrar_snack(f"✅ {ag} ítems procesados (+19% IVA y seleccionando el más costoso).")
+                        mostrar_snack(f"✅ {ag} ítems procesados exitosamente.")
 
                 def b_comp(evt):
                     txt = (c_item.value or "").upper().strip(); lst_comp.controls.clear()
@@ -600,19 +657,21 @@ def main(page: ft.Page):
                     else: lst_comp.visible = False
                     page.update()
 
-                # --- NUEVA LÓGICA DE COMPARADOR (SOLO ANOTA EL MÁS BARATO, SIN REPETICIONES) ---
                 def run_comp(evt):
                     itm = c_item.value.strip().upper()
                     if not itm: return mostrar_alerta("Aviso", "Ingresa ítem.")
                     ofs = []
+                    
+                    multiplicador = 1.0 if "EXENTO" in itm else 1.19
+                    
                     for pr, pc in [(c_p1.value, c_pr1.value), (c_p2.value, c_pr2.value), (c_p3.value, c_pr3.value),
                                    (c_p4.value, c_pr4.value), (c_p5.value, c_pr5.value), (c_p6.value, c_pr6.value)]:
                         if pr and pc:
                             try: 
                                 p_float = float(pc)
                                 if p_float > 0:
-                                    p_iva = p_float * 1.19
-                                    ofs.append((pr, p_iva))
+                                    p_final = p_float * multiplicador
+                                    ofs.append((pr, p_final))
                             except: pass
                     if not ofs: return mostrar_alerta("Aviso", "Ingresa al menos un proveedor con costo válido (mayor a 0).")
                     
@@ -662,8 +721,8 @@ def main(page: ft.Page):
                     title=ft.Text("📦 Gestión de Bodega / Catálogo"), 
                     content=ft.Container(width=750, height=550, content=ft.Tabs(
                         selected_index=0, tabs=[
-                            ft.Tab(text="🔍 Buscar", content=ft.Column([ft.Container(height=10), ft.Text("Ingreso Manual (Se suma +19% IVA automáticamente al Costo):", weight="bold", color="#fbbf24", size=12), e_desc, e_precio, ft.ElevatedButton("Guardar Precio / Actualizar Fecha", bgcolor="#2563eb", on_click=s_bod), resultados_bod], tight=True)),
-                            ft.Tab(text="📥 Masivo / Comparar", content=ft.Column([ft.Container(height=10), ft.Text("Guarda el valor MAYOR +19% de IVA y te avisa cuál era el más barato.", color="#fbbf24", size=12), e_mas, ft.ElevatedButton("Importar y Analizar Ganadores", bgcolor="#10b981", on_click=p_mas)], tight=True)),
+                            ft.Tab(text="🔍 Buscar", content=ft.Column([ft.Container(height=10), ft.Text("Ingreso Manual:", weight="bold", color="#fbbf24", size=12), e_desc, ft.ResponsiveRow([ft.Container(e_precio, col={"sm": 8}), ft.Container(e_bodega_iva, col={"sm": 4})]), ft.ElevatedButton("Guardar Precio / Actualizar Fecha", bgcolor="#2563eb", on_click=s_bod), resultados_bod], tight=True)),
+                            ft.Tab(text="📥 Masivo / Comparar", content=ft.Column([ft.Container(height=10), ft.Text("Guarda el MAYOR valor +19% IVA (Si el ítem dice 'EXENTO', no suma IVA).", color="#fbbf24", size=12), e_mas, ft.ElevatedButton("Importar y Analizar Ganadores", bgcolor="#10b981", on_click=p_mas)], tight=True)),
                             ft.Tab(text="⚖️ Comparador", content=ft.Column([
                                 ft.Container(height=10), 
                                 ft.Text("Compite COSTOS NETOS. Guarda el más ALTO (+19% IVA) y anota el más BARATO.", color="#10b981", size=12), 
@@ -672,10 +731,20 @@ def main(page: ft.Page):
                                 ft.ResponsiveRow([c_p4, c_pr4]), ft.ResponsiveRow([c_p5, c_pr5]), ft.ResponsiveRow([c_p6, c_pr6]), 
                                 ft.ElevatedButton("Analizar", bgcolor="#8b5cf6", color="white", on_click=run_comp)
                             ], tight=True, scroll=ft.ScrollMode.AUTO)),
-                            ft.Tab(text="📜 Catálogo (Fechas)", content=ft.Column([ft.Container(height=10), ft.Text("Los ítems de más de 6 días se marcan como 'Antigua':", color="#fbbf24", size=12), filtro_cat, lst_cat], tight=True, scroll=ft.ScrollMode.AUTO)),
+                            ft.Tab(text="📜 Catálogo (Fechas)", content=ft.Column([
+                                ft.Container(height=10), 
+                                ft.Row([
+                                    ft.Text("Los ítems de >6 días se marcan como 'Antigua':", color="#fbbf24", size=12),
+                                    ft.ElevatedButton("🗑️ VACIAR TODA LA BODEGA", bgcolor="#ef4444", color="white", on_click=vaciar_bodega)
+                                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                                filtro_cat, lst_cat
+                            ], tight=True, scroll=ft.ScrollMode.AUTO)),
                             ft.Tab(text="🏢 Provs.", content=ft.Column([
                                 ft.Container(height=10), 
-                                ft.Text("Ingreso Manual:", weight="bold", color="#fbbf24"),
+                                ft.Row([
+                                    ft.Text("Ingreso Manual:", weight="bold", color="#fbbf24"),
+                                    ft.ElevatedButton("🗑️ VACIAR TODOS", bgcolor="#ef4444", color="white", on_click=vaciar_proveedores)
+                                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                                 ft.Row([e_pnom, e_ptel]), 
                                 ft.ElevatedButton("Guardar Proveedor", bgcolor="#10b981", color="white", on_click=save_prov), 
                                 ft.Divider(color="white24"),
@@ -707,7 +776,11 @@ def main(page: ft.Page):
                         def ed(ev, nom=n): 
                             dbi=conectar_db(); ci=dbi.cursor(); ci.execute("SELECT n, i, dir, email, ciu, tel FROM cli WHERE n=%s", (nom,)); cd = ci.fetchone(); dbi.close()
                             if cd: cn.value, ci.value, cd.value, ce.value, cc.value, ct.value = cd; page.update()
-                        def rm(ev, nom=n): dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM cli WHERE n=%s", (nom,)); dbd.commit(); dbd.close(); load_cli(); mostrar_snack("🗑️ Cliente eliminado", "#ef4444")
+                        def rm(ev, nom=n): 
+                            dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM cli WHERE n=%s", (nom,)); dbd.commit(); dbd.close()
+                            mostrar_snack("🗑️ Cliente eliminado", "#ef4444")
+                            # --- RECARGA OBLIGATORIA PARA SINCRONIZAR DB Y PANTALLA ---
+                            load_cli()
                         
                         tile = ft.ListTile(title=ft.Text(n, color="#fbbf24"), subtitle=ft.Text(f"NIT:{i} | Ciu:{ciu} | Tel:{tel}"))
                         tile.on_click = ed
@@ -773,7 +846,10 @@ def main(page: ft.Page):
                     c=db.cursor(); c.execute("SELECT usuario, rol, bloqueado FROM usuarios ORDER BY usuario ASC")
                     for u, r, b in c.fetchall():
                         def ed(ev, us=u, ro=r): un.value=us; ur.value=ro; up.value=""; page.update()
-                        def rm(ev, us=u): dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM usuarios WHERE usuario=%s", (us,)); dbd.commit(); dbd.close(); load_u(); mostrar_snack("🗑️ Usuario eliminado", "#ef4444")
+                        def rm(ev, us=u): 
+                            dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM usuarios WHERE usuario=%s", (us,)); dbd.commit(); dbd.close()
+                            mostrar_snack("🗑️ Usuario eliminado", "#ef4444")
+                            load_u()
                         def dbq(ev, us=u): dbu=conectar_db(); cu=dbu.cursor(); cu.execute("UPDATE usuarios SET intentos=0, bloqueado=0 WHERE usuario=%s", (us,)); dbu.commit(); dbu.close(); load_u()
                         
                         bts = [ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=rm)]
@@ -1008,7 +1084,6 @@ def main(page: ft.Page):
                 val_a = subtotal * (pct_a / 100); val_i = subtotal * (pct_i / 100); val_u = subtotal * (pct_u / 100); tot_aiu = val_a + val_i + val_u; val_iva_u = val_u * (pct_iva_u / 100)
                 tot_fin = (subtotal + tot_aiu + val_iva_u) if c_modo == "AIU" else subtotal
                 
-                # --- RESPALDO SEGURO DEL IVA PARA MODO 'IVA' ---
                 if c_modo == "IVA" and not iva_bases:
                     tot_fin += subtotal * 0.19
                 else:
@@ -1146,7 +1221,6 @@ def main(page: ft.Page):
                     p_tot("TOTAL AIU", tot_aiu, True)
                     p_tot(f"IVA S/UTILIDAD ({pct_iva_u:g}%)", val_iva_u)
                 
-                # --- RESPALDO VISUAL DEL IVA EN EL PDF ---
                 if c_modo == "IVA" and not iva_bases:
                     p_tot("IVA (19%)", subtotal * 0.19)
                 else:
