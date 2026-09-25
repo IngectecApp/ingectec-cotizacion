@@ -112,10 +112,26 @@ def main(page: ft.Page):
     lista_items = []
     estado = {"nro_edicion": None, "creador_edicion": None, "permitidos_edicion": []}
 
-    def cerrar_dialogo(dlg): dlg.open = False; page.update()
+    # --- NUEVAS FUNCIONES DE NOTIFICACIÓN COMPATIBLES CON FLET 0.23+ ---
     def mostrar_alerta(titulo, mensaje):
-        dlg = ft.AlertDialog(title=ft.Text(titulo, weight="bold", color="#fbbf24"), content=ft.Text(str(mensaje)), actions=[ft.TextButton("OK", on_click=lambda e: cerrar_dialogo(dlg))])
-        page.dialog = dlg; dlg.open = True; page.update()
+        dlg = ft.AlertDialog(title=ft.Text(titulo, weight="bold", color="#fbbf24"), content=ft.Text(str(mensaje)))
+        def cerrar(e):
+            dlg.open = False
+            page.update()
+        dlg.actions = [ft.TextButton("OK", on_click=cerrar)]
+        page.overlay.append(dlg)
+        dlg.open = True
+        page.update()
+
+    def mostrar_snack(mensaje, color_fondo="#10b981", color_texto="white"):
+        snack = ft.SnackBar(content=ft.Text(mensaje, color=color_texto), bgcolor=color_fondo)
+        page.overlay.append(snack)
+        snack.open = True
+        page.update()
+
+    def cerrar_dialogo(dlg):
+        dlg.open = False
+        page.update()
 
     input_usr = ft.TextField(label="Usuario (Ej. OMERA, YRESTREPO)", width=300)
     input_pwd = ft.TextField(label="Contraseña", password=True, can_reveal_password=True, width=300)
@@ -135,9 +151,9 @@ def main(page: ft.Page):
                 else:
                     intentos += 1
                     if intentos >= 3: c.execute("UPDATE usuarios SET intentos=%s, bloqueado=1 WHERE usuario=%s", (intentos, u)); mostrar_alerta("Bloqueado 🚫", "Excedió intentos. Tu usuario ha sido bloqueado por seguridad.")
-                    else: c.execute("UPDATE usuarios SET intentos=%s WHERE usuario=%s", (intentos, u)); page.snack_bar = ft.SnackBar(ft.Text("❌ Clave incorrecta"), bgcolor="#ef4444"); page.snack_bar.open = True
+                    else: c.execute("UPDATE usuarios SET intentos=%s WHERE usuario=%s", (intentos, u)); mostrar_snack("❌ Clave incorrecta", "#ef4444")
                     db.close(); page.update()
-            else: db.close(); page.snack_bar = ft.SnackBar(ft.Text("❌ Usuario no existe"), bgcolor="#ef4444"); page.snack_bar.open = True; page.update()
+            else: db.close(); mostrar_snack("❌ Usuario no existe", "#ef4444"); page.update()
 
     pantalla_login = ft.Container(content=ft.Column([
         ft.Icon(ft.icons.BOLT, size=70, color="#f59e0b"), 
@@ -266,12 +282,19 @@ def main(page: ft.Page):
                         if not verificar_permiso_edicion(): return
                         ec = ft.TextField(label="Cant", value=str(lista_items[idx_r]['cant']))
                         ep = ft.TextField(label="Precio (Uso Interno)", value=str(int(lista_items[idx_r]['precio'])))
+                        
+                        dlg_e = ft.AlertDialog(title=ft.Text(f"Editar: {lista_items[idx_r]['desc']}"), content=ft.Column([ec, ep], tight=True))
+                        
                         def s(ev):
-                            try: lista_items[idx_r]['cant']=float(ec.value or 0); lista_items[idx_r]['precio']=float(ep.value or 0); lista_items[idx_r]['total']=lista_items[idx_r]['cant']*lista_items[idx_r]['precio']; actualizar_tabla_visual(); cerrar_dialogo(dlg)
+                            try: 
+                                lista_items[idx_r]['cant']=float(ec.value or 0); lista_items[idx_r]['precio']=float(ep.value or 0); lista_items[idx_r]['total']=lista_items[idx_r]['cant']*lista_items[idx_r]['precio']
+                                actualizar_tabla_visual(); cerrar_dialogo(dlg_e)
                             except: pass
-                        def rm(ev): lista_items.pop(idx_r); actualizar_tabla_visual(); cerrar_dialogo(dlg)
-                        dlg = ft.AlertDialog(title=ft.Text(f"Editar: {lista_items[idx_r]['desc']}"), content=ft.Column([ec, ep], tight=True), actions=[ft.ElevatedButton("Guardar", bgcolor="#10b981", on_click=s), ft.ElevatedButton("Eliminar", bgcolor="#ef4444", on_click=rm), ft.TextButton("Cancelar", on_click=lambda ev: cerrar_dialogo(dlg))])
-                        page.dialog = dlg; dlg.open=True; page.update()
+                        def rm(ev): 
+                            lista_items.pop(idx_r); actualizar_tabla_visual(); cerrar_dialogo(dlg_e)
+                            
+                        dlg_e.actions = [ft.ElevatedButton("Guardar", bgcolor="#10b981", on_click=s), ft.ElevatedButton("Eliminar", bgcolor="#ef4444", on_click=rm), ft.TextButton("Cancelar", on_click=lambda ev: cerrar_dialogo(dlg_e))]
+                        page.overlay.append(dlg_e); dlg_e.open=True; page.update()
                     return on_c
 
                 columna_tabla_items.controls.append(
@@ -332,12 +355,14 @@ def main(page: ft.Page):
                     uf = str(i_und_c.value).upper().strip() if i_und.value=="✍️ ESCRIBIR..." else i_und.value; uf = uf or "UNID"
                     lista_items.append({"desc": i_desc.value, "cant": c, "precio": p, "total": c*p, "impuesto": imp, "und": uf, "tipo": tipo_it.value}); actualizar_tabla_visual()
                     i_desc.value=""; i_cant.value="1"; i_pre.value="0"; i_und.value="UNID"; i_und_c.value=""; i_und_c.visible=False; i_imp_t.value=m_cot; i_imp_p.value=pct_def; b_busq.value=""; b_inv(None)
-                    page.snack_bar=ft.SnackBar(ft.Text("✅ Agregado"), bgcolor="#10b981"); page.snack_bar.open=True; page.update()
+                    mostrar_snack("✅ Agregado")
                 except: pass
 
             b_busq = ft.TextField(label="Buscar en bodega...", on_change=b_inv)
-            dlg = ft.AlertDialog(title=ft.Text("➕ Añadir"), content=ft.Container(width=750, content=ft.Column([tipo_it, b_busq, res_inv, i_desc, ft.ResponsiveRow([i_cant, i_und, i_und_c, i_pre]), ft.ResponsiveRow([i_imp_t, i_imp_p])], tight=True)), actions=[ft.ElevatedButton("Guardar", bgcolor="#10b981", on_click=g_item), ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))])
-            page.dialog = dlg; dlg.open = True; b_inv(None)
+            
+            dlg_i = ft.AlertDialog(title=ft.Text("➕ Añadir"), content=ft.Container(width=750, content=ft.Column([tipo_it, b_busq, res_inv, i_desc, ft.ResponsiveRow([i_cant, i_und, i_und_c, i_pre]), ft.ResponsiveRow([i_imp_t, i_imp_p])], tight=True)))
+            dlg_i.actions = [ft.ElevatedButton("Guardar", bgcolor="#10b981", on_click=g_item), ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg_i))]
+            page.overlay.append(dlg_i); dlg_i.open = True; b_inv(None)
 
         def abrir_modal_bodega(e):
             try:
@@ -369,19 +394,17 @@ def main(page: ft.Page):
                             ops.append(ft.dropdown.Option(n))
                             def ed(ev, nom=n, tel=t): e_pnom.value=nom; e_ptel.value=tel; page.update()
                             
-                            # --- CORRECCIÓN ELIMINAR PROVEEDOR ---
                             def rm(ev, nom=n): 
                                 try:
                                     dbd=conectar_db(); cd=dbd.cursor()
-                                    cd.execute("DELETE FROM proveedores WHERE nombre=%s", (nom,))
+                                    # Limpiamos el string antes de buscarlo en BD
+                                    cd.execute("DELETE FROM proveedores WHERE nombre = %s", (nom,))
                                     dbd.commit(); dbd.close()
-                                    page.snack_bar = ft.SnackBar(ft.Text(f"🗑️ Proveedor eliminado exitosamente"), bgcolor="#ef4444")
-                                    page.snack_bar.open = True
+                                    mostrar_snack(f"🗑️ Proveedor eliminado exitosamente", "#ef4444")
                                     load_provs()
                                 except Exception as ex:
                                     mostrar_alerta("Error al eliminar", str(ex))
 
-                            # Añadimos un texto que invita a dar clic para modificar
                             lst_provs.controls.append(ft.ListTile(title=ft.Text(n, color="#fbbf24"), subtitle=ft.Text(f"Tel: {t} (Clic para editar)"), on_click=ed, trailing=ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=rm)))
                         db.close()
                     c_p1.options=ops; c_p2.options=ops; c_p3.options=ops; page.update()
@@ -393,10 +416,9 @@ def main(page: ft.Page):
                         nom_limpio = e_pnom.value.strip().upper()
                         c=db.cursor(); c.execute("INSERT INTO proveedores (nombre, telefono) VALUES (%s,%s) ON CONFLICT(nombre) DO UPDATE SET telefono=EXCLUDED.telefono", (nom_limpio, e_ptel.value.strip()))
                         db.commit(); db.close(); e_pnom.value=""; e_ptel.value=""
-                        page.snack_bar=ft.SnackBar(ft.Text(f"✅ Proveedor guardado"), bgcolor="#10b981"); page.snack_bar.open=True
+                        mostrar_snack(f"✅ Proveedor guardado")
                         load_provs()
 
-                # --- CORRECCIÓN IMPORTACIÓN MASIVA INTELIGENTE ---
                 def p_mas_provs(evt):
                     if not e_pmas.value.strip(): return
                     try:
@@ -422,10 +444,9 @@ def main(page: ft.Page):
                                     c.execute("INSERT INTO proveedores (nombre, telefono) VALUES (%s,%s) ON CONFLICT(nombre) DO UPDATE SET telefono=EXCLUDED.telefono", (n, t))
                                     ag+=1
                             db.commit(); db.close()
-                            e_pmas.value = "" # Vacía la caja de texto tras la carga exitosa
-                            page.snack_bar = ft.SnackBar(ft.Text(f"✅ {ag} proveedores procesados y guardados exitosamente"), bgcolor="#10b981")
-                            page.snack_bar.open = True
-                            load_provs() # Refresca la lista visualmente
+                            e_pmas.value = ""
+                            mostrar_snack(f"✅ {ag} proveedores procesados exitosamente")
+                            load_provs()
                     except Exception as ex:
                         mostrar_alerta("Error en Carga Masiva", str(ex))
 
@@ -461,7 +482,7 @@ def main(page: ft.Page):
                     db=conectar_db()
                     if db: 
                         fh = datetime.now().strftime("%Y-%m-%d")
-                        c=db.cursor(); c.execute("INSERT INTO inv (d, p, stock, proveedor, fecha_act) VALUES (%s,%s,0,'',%s) ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p, fecha_act=EXCLUDED.fecha_act", (e_desc.value.upper(), p_val, fh)); db.commit(); db.close(); e_desc.value=""; e_precio.value=""; b_bod(None); load_cat(None); page.snack_bar=ft.SnackBar(ft.Text("✅ Guardado y fecha actualizada"), bgcolor="#2563eb"); page.snack_bar.open=True; page.update()
+                        c=db.cursor(); c.execute("INSERT INTO inv (d, p, stock, proveedor, fecha_act) VALUES (%s,%s,0,'',%s) ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p, fecha_act=EXCLUDED.fecha_act", (e_desc.value.upper(), p_val, fh)); db.commit(); db.close(); e_desc.value=""; e_precio.value=""; b_bod(None); load_cat(None); mostrar_snack("✅ Guardado y fecha actualizada", "#2563eb")
 
                 def p_mas(evt):
                     if not e_mas.value.strip(): return
@@ -490,7 +511,7 @@ def main(page: ft.Page):
                             ag+=1
                         
                         db.commit(); db.close(); e_mas.value=""; b_bod(None); load_cat(None)
-                        page.snack_bar=ft.SnackBar(ft.Text(f"✅ {ag} ítems evaluados y actualizados con éxito."), bgcolor="#10b981"); page.snack_bar.open=True; page.update()
+                        mostrar_snack(f"✅ {ag} ítems evaluados y actualizados con éxito.")
 
                 def b_comp(evt):
                     txt = (c_item.value or "").upper().strip(); lst_comp.controls.clear()
@@ -524,7 +545,7 @@ def main(page: ft.Page):
                         fh = datetime.now().strftime("%Y-%m-%d")
                         c=db.cursor(); c.execute("INSERT INTO inv (d, p, stock, proveedor, fecha_act) VALUES (%s, %s, 0, %s, %s) ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p, proveedor=EXCLUDED.proveedor, fecha_act=EXCLUDED.fecha_act", (itm, gpr, gp, fh)); db.commit(); db.close()
                         c_item.value=""; c_p1.value=None; c_pr1.value=""; c_p2.value=None; c_pr2.value=""; c_p3.value=None; c_pr3.value=""; b_bod(None); load_cat(None)
-                        page.snack_bar=ft.SnackBar(ft.Text(f"🏆 GANADOR: {gp} (${int(gpr):,}). Ítem actualizado."), bgcolor="#8b5cf6"); page.snack_bar.open=True; page.update()
+                        mostrar_snack(f"🏆 GANADOR: {gp} (${int(gpr):,}). Ítem actualizado.", "#8b5cf6")
 
                 def load_cat(evt):
                     lst_cat.controls.clear(); txt = (filtro_cat.value or "").upper().strip(); db = conectar_db()
@@ -553,7 +574,7 @@ def main(page: ft.Page):
                 filtro_cat.on_change = load_cat
                 e_desc.on_change = b_bod
                 
-                dlg = ft.AlertDialog(
+                dlg_b = ft.AlertDialog(
                     title=ft.Text("📦 Gestión de Bodega / Catálogo"), 
                     content=ft.Container(width=750, height=550, content=ft.Tabs(
                         selected_index=0, tabs=[
@@ -575,9 +596,10 @@ def main(page: ft.Page):
                                 lst_provs
                             ], tight=True, scroll=ft.ScrollMode.AUTO))
                         ], expand=1
-                    )), actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))]
+                    ))
                 )
-                page.dialog = dlg; dlg.open = True; b_bod(None); load_provs(); load_cat(None)
+                dlg_b.actions = [ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg_b))]
+                page.overlay.append(dlg_b); dlg_b.open = True; b_bod(None); load_provs(); load_cat(None)
             except Exception as bug:
                 mostrar_alerta("Error abriendo Bodega", str(bug))
 
@@ -605,7 +627,7 @@ def main(page: ft.Page):
                 db=conectar_db()
                 if db:
                     c=db.cursor(); c.execute("INSERT INTO cli (n, i, dir, email, ciu, tel) VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT(n) DO UPDATE SET i=EXCLUDED.i, dir=EXCLUDED.dir, email=EXCLUDED.email, ciu=EXCLUDED.ciu, tel=EXCLUDED.tel", (cn.value.upper(), ci.value, cd.value, ce.value, cc.value, ct.value))
-                    db.commit(); db.close(); cn.value=""; ci.value=""; cd.value=""; ce.value=""; cc.value=""; ct.value=""; load_cli(); page.snack_bar=ft.SnackBar(ft.Text("✅ Guardado"), bgcolor="#10b981"); page.snack_bar.open=True; page.update()
+                    db.commit(); db.close(); cn.value=""; ci.value=""; cd.value=""; ce.value=""; cc.value=""; ct.value=""; load_cli(); mostrar_snack("✅ Guardado")
 
             def p_cli(ev):
                 if not cm.value.strip(): return
@@ -617,17 +639,19 @@ def main(page: ft.Page):
                         if len(p)>=1 and p[0].strip():
                             n=sanitizar_texto(p[0].strip().upper()); ni=sanitizar_texto(p[1].strip()) if len(p)>1 else ""; tl=sanitizar_texto(p[2].strip()) if len(p)>2 else ""; dr=sanitizar_texto(p[3].strip()) if len(p)>3 else ""; cu=sanitizar_texto(p[4].strip()) if len(p)>4 else ""; ml=sanitizar_texto(p[5].strip()) if len(p)>5 else ""
                             c.execute("INSERT INTO cli (n, i, tel, dir, ciu, email) VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT(n) DO UPDATE SET i=EXCLUDED.i, tel=EXCLUDED.tel, dir=EXCLUDED.dir, ciu=EXCLUDED.ciu, email=EXCLUDED.email", (n, ni, tl, dr, cu, ml)); ag+=1
-                    db.commit(); db.close(); cm.value=""; load_cli(); page.snack_bar=ft.SnackBar(ft.Text(f"✅ {ag} procesados"), bgcolor="#10b981"); page.snack_bar.open=True; page.update()
+                    db.commit(); db.close(); cm.value=""; load_cli(); mostrar_snack(f"✅ {ag} procesados")
 
-            dlg = ft.AlertDialog(
+            dlg_c = ft.AlertDialog(
                 title=ft.Text("👥 Gestión de Clientes"), 
                 content=ft.Container(width=750, height=500, content=ft.Tabs(
                     selected_index=0, tabs=[
                         ft.Tab(text="Edición", content=ft.Column([ft.Container(height=10), ft.ResponsiveRow([cn, ci, ct, cd, cc, ce]), ft.ElevatedButton("Guardar", bgcolor="#10b981", on_click=s_cli), r_cli], tight=True, scroll=ft.ScrollMode.AUTO)),
                         ft.Tab(text="Carga Masiva", content=ft.Column([ft.Container(height=10), cm, ft.ElevatedButton("Importar", bgcolor="#10b981", on_click=p_cli)], tight=True))
                     ], expand=1
-                )), actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))]
-            ); page.dialog = dlg; dlg.open = True; load_cli()
+                ))
+            )
+            dlg_c.actions = [ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg_c))]
+            page.overlay.append(dlg_c); dlg_c.open = True; load_cli()
 
         def abrir_modal_usuarios(e):
             pass_act = ft.TextField(label="Contraseña Actual", password=True, can_reveal_password=True)
@@ -642,7 +666,7 @@ def main(page: ft.Page):
                     if curr_pw != pass_act.value: db.close(); return mostrar_alerta("Error", "La contraseña actual es incorrecta.")
                     c.execute("UPDATE usuarios SET password=%s WHERE usuario=%s", (pass_new.value, sesion["usuario"])); db.commit(); db.close()
                     pass_act.value = ""; pass_new.value = ""; pass_conf.value = ""
-                    page.snack_bar = ft.SnackBar(ft.Text("✅ Contraseña actualizada correctamente"), bgcolor="#10b981"); page.snack_bar.open = True; page.update()
+                    mostrar_snack("✅ Contraseña actualizada correctamente")
 
             tab_clave = ft.Tab(text="🔑 Mi Clave", content=ft.Column([ft.Container(height=10), pass_act, pass_new, pass_conf, ft.ElevatedButton("Actualizar Contraseña", bgcolor="#f59e0b", color="black", on_click=guardar_clave)], tight=True))
             
@@ -677,8 +701,9 @@ def main(page: ft.Page):
             if sesion["usuario"] in ["OMERA", "PLEAL"]:
                 tabs_list.append(tab_gest)
             
-            dlg = ft.AlertDialog(title=ft.Text("🔐 Usuarios y Seguridad"), content=ft.Container(width=700, height=400, content=ft.Tabs(selected_index=0, tabs=tabs_list)), actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))])
-            page.dialog = dlg; dlg.open = True
+            dlg_u = ft.AlertDialog(title=ft.Text("🔐 Usuarios y Seguridad"), content=ft.Container(width=700, height=400, content=ft.Tabs(selected_index=0, tabs=tabs_list)))
+            dlg_u.actions = [ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg_u))]
+            page.overlay.append(dlg_u); dlg_u.open = True
             
             if sesion["usuario"] in ["OMERA", "PLEAL"]: load_u()
             else: page.update()
@@ -710,10 +735,10 @@ def main(page: ft.Page):
                                 lista_items.append({"desc": ds, "cant": ct, "und": ud, "precio": ut, "total": sb, "impuesto": im, "tipo": tp})
                             dbh.close()
                             estado["nro_edicion"]=nro; estado["creador_edicion"]=creador; estado["permitidos_edicion"] = perm_list
-                            actualizar_tabla_visual(); cerrar_dialogo(dlg)
+                            actualizar_tabla_visual(); cerrar_dialogo(dlg_h)
                             
                             if creador and creador not in ["SISTEMA", sesion["usuario"]] and sesion["usuario"] not in perm_list:
-                                page.snack_bar=ft.SnackBar(ft.Text(f"👁️ Solo lectura (creado por {creador}). Podrás generar un PDF pero sin alterar la BD."), bgcolor="#3b82f6"); page.snack_bar.open=True; page.update()
+                                mostrar_snack(f"👁️ Solo lectura (creado por {creador}). Podrás generar un PDF pero sin alterar la BD.", "#3b82f6")
                         
                         trail_btns = []
                         if cr == sesion["usuario"]:
@@ -725,6 +750,9 @@ def main(page: ft.Page):
                                     db_s.close()
                                 
                                 usr_drop = ft.Dropdown(label="Seleccionar Usuario a dar permiso", options=ops)
+                                
+                                dlg_share = ft.AlertDialog(title=ft.Text(f"🤝 Compartir Cotización {nro_val}"), content=ft.Column([ft.Text("Otorga permiso de edición a un compañero:"), usr_drop], tight=True))
+                                
                                 def grant_perm(ev2):
                                     if usr_drop.value:
                                         if usr_drop.value not in actual_perms:
@@ -734,19 +762,20 @@ def main(page: ft.Page):
                                             if db2:
                                                 c2 = db2.cursor(); c2.execute("UPDATE historial SET permitidos=%s WHERE nro=%s", (new_perms_str, nro_val)); db2.commit(); db2.close()
                                                 cerrar_dialogo(dlg_share); load_h()
-                                                page.snack_bar = ft.SnackBar(ft.Text(f"✅ Permiso concedido a {usr_drop.value}"), bgcolor="#10b981"); page.snack_bar.open=True; page.update()
+                                                mostrar_snack(f"✅ Permiso concedido a {usr_drop.value}")
                                         else: mostrar_alerta("Aviso", "El usuario ya tiene permisos.")
                                 
-                                dlg_share = ft.AlertDialog(title=ft.Text(f"🤝 Compartir Cotización {nro_val}"), content=ft.Column([ft.Text("Otorga permiso de edición a un compañero:"), usr_drop], tight=True), actions=[ft.ElevatedButton("Dar Permiso", bgcolor="#10b981", color="white", on_click=grant_perm), ft.TextButton("Cancelar", on_click=lambda ev: cerrar_dialogo(dlg_share))])
-                                page.dialog = dlg_share; dlg_share.open = True; page.update()
+                                dlg_share.actions = [ft.ElevatedButton("Dar Permiso", bgcolor="#10b981", color="white", on_click=grant_perm), ft.TextButton("Cancelar", on_click=lambda ev: cerrar_dialogo(dlg_share))]
+                                page.overlay.append(dlg_share); dlg_share.open = True; page.update()
                             
                             trail_btns.append(ft.IconButton(ft.icons.SHARE, icon_color="#3b82f6", tooltip="Compartir Permisos", on_click=share_cot))
 
                         res_h.controls.append(ft.ListTile(title=ft.Text(f"N° {nr} - {cl} (Por: {cr})", color="#fbbf24"), subtitle=ft.Text(f"{fc} | ${int(float(tt)):,}"), on_click=c_cot, trailing=ft.Row(trail_btns, tight=True) if trail_btns else None))
                 db.close(); page.update()
             bus_h.on_change = load_h
-            dlg = ft.AlertDialog(title=ft.Text("🔍 Historial"), content=ft.Container(width=700, content=ft.Column([bus_h, res_h], tight=True)), actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg))])
-            page.dialog = dlg; dlg.open = True; load_h()
+            dlg_h = ft.AlertDialog(title=ft.Text("🔍 Historial"), content=ft.Container(width=700, content=ft.Column([bus_h, res_h], tight=True)))
+            dlg_h.actions = [ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg_h))]
+            page.overlay.append(dlg_h); dlg_h.open = True; load_h()
 
         def abrir_modal_sistema(e):
             def generar_backup_json(evt):
@@ -770,7 +799,7 @@ def main(page: ft.Page):
                         zipf.write(f"assets/{nombre_base}.json", arcname=f"{nombre_base}.json")
                         
                     page.launch_url(f'/{nombre_base}.zip')
-                    page.snack_bar = ft.SnackBar(ft.Text(f"✅ Backup {nombre_base}.zip descargado."), bgcolor="#2563eb"); page.snack_bar.open = True; page.update()
+                    mostrar_snack(f"✅ Backup {nombre_base}.zip descargado.", "#2563eb")
 
             e_json = ft.TextField(multiline=True, min_lines=6, max_lines=10, label="Pega aquí el contenido de tu archivo backup_ingectec.json")
             
@@ -785,19 +814,20 @@ def main(page: ft.Page):
                             if cols and rows:
                                 col_names = ", ".join(cols); placeholders = ", ".join(["%s"] * len(cols))
                                 for row in rows: c.execute(f"INSERT INTO {t} ({col_names}) VALUES ({placeholders})", tuple(row))
-                        db.commit(); db.close(); page.snack_bar = ft.SnackBar(ft.Text("✅ Backup restaurado con éxito"), bgcolor="#10b981"); page.snack_bar.open = True; page.update(); e_json.value = ""
+                        db.commit(); db.close(); mostrar_snack("✅ Backup restaurado con éxito"); e_json.value = ""
                 except Exception as ex: mostrar_alerta("Error", f"Archivo JSON inválido o corrupto: {str(ex)}")
 
             def confirmar_reseteo(evt):
                 ic = ft.TextField(label="Contraseña Maestra", password=True)
+                dc = ft.AlertDialog(title=ft.Text("⚠️ ADVERTENCIA EXTREMA", color="#ef4444"), content=ft.Column([ft.Text("Se borrará TODO."), ic], tight=True))
                 def ex(e):
                     if ic.value.strip() == "7705178":
                         db=conectar_db()
                         if db:
                             c=db.cursor(); c.execute("DELETE FROM cli"); c.execute("DELETE FROM inv"); c.execute("DELETE FROM historial"); c.execute("DELETE FROM h_cab"); c.execute("DELETE FROM h_det"); c.execute("UPDATE n_cot SET num=100 WHERE id=1"); db.commit(); db.close()
-                        cerrar_dialogo(dc); cerrar_dialogo(dlg_sis); page.snack_bar=ft.SnackBar(ft.Text("✅ RESTAURADO"), bgcolor="#10b981"); page.snack_bar.open=True; page.update()
-                dc = ft.AlertDialog(title=ft.Text("⚠️ ADVERTENCIA EXTREMA", color="#ef4444"), content=ft.Column([ft.Text("Se borrará TODO."), ic], tight=True), actions=[ft.ElevatedButton("BORRAR", bgcolor="#ef4444", on_click=ex), ft.TextButton("Cancelar", on_click=lambda e: cerrar_dialogo(dc))])
-                page.dialog = dc; dc.open = True; page.update()
+                        cerrar_dialogo(dc); cerrar_dialogo(dlg_sis); mostrar_snack("✅ RESTAURADO")
+                dc.actions = [ft.ElevatedButton("BORRAR", bgcolor="#ef4444", on_click=ex), ft.TextButton("Cancelar", on_click=lambda e: cerrar_dialogo(dc))]
+                page.overlay.append(dc); dc.open = True; page.update()
 
             col_general = [
                 ft.Container(height=10), 
@@ -818,9 +848,10 @@ def main(page: ft.Page):
                         ft.Tab(text="General", content=ft.Column(col_general, tight=True)),
                         ft.Tab(text="Subir Backup", content=ft.Column([ft.Container(height=10), ft.Text("Abre tu archivo .json, copia todo el texto y pégalo aquí:", size=12, color="white54"), e_json, ft.ElevatedButton("RESTAURAR INFORMACIÓN", bgcolor="#10b981", color="white", on_click=subir_backup_json)], tight=True))
                     ]
-                )), actions=[ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg_sis))]
+                ))
             )
-            page.dialog = dlg_sis; dlg_sis.open = True; page.update()
+            dlg_sis.actions = [ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg_sis))]
+            page.overlay.append(dlg_sis); dlg_sis.open = True; page.update()
 
         def limpiar_todo(e):
             lista_items.clear(); estado["nro_edicion"] = None; estado["creador_edicion"] = None; estado["permitidos_edicion"] = []; actualizar_tabla_visual()
@@ -980,11 +1011,11 @@ def main(page: ft.Page):
                 except: pass
                 
                 if not puede_guardar:
-                    page.snack_bar = ft.SnackBar(ft.Text("⚠️ Modo Lectura: PDF de consulta generado. Original sin alterar.", color="black"), bgcolor="#f59e0b")
-                    page.snack_bar.open = True
+                    mostrar_snack("⚠️ Modo Lectura: PDF de consulta generado. Original sin alterar.", "#f59e0b", "black")
                 
-                dlg_d = ft.AlertDialog(title=ft.Text("✅ Generado", color="#10b981"), content=ft.Text(f"Archivo: {nom_arc}"), actions=[ft.ElevatedButton("📥 DESCARGAR", bgcolor="#2563eb", color="white", on_click=lambda ev: page.launch_url(f"/{nom_arc}")), ft.TextButton("Cerrar", on_click=lambda ev: cerrar_dialogo(dlg_d))])
-                page.dialog = dlg_d; dlg_d.open = True; page.update()
+                dlg_d = ft.AlertDialog(title=ft.Text("✅ Generado", color="#10b981"), content=ft.Text(f"Archivo: {nom_arc}"))
+                dlg_d.actions = [ft.ElevatedButton("📥 DESCARGAR", bgcolor="#2563eb", color="white", on_click=lambda ev: page.launch_url(f"/{nom_arc}")), ft.TextButton("Cerrar", on_click=lambda ev: cerrar_dialogo(dlg_d))]
+                page.overlay.append(dlg_d); dlg_d.open = True; page.update()
             except Exception as eFallo: mostrar_alerta("Error al generar PDF", f"Hubo un fallo: {str(eFallo)}")
 
         botones_lista = [
@@ -1032,13 +1063,7 @@ def main(page: ft.Page):
         )
         page.update()
 
-        page.snack_bar = ft.SnackBar(
-            ft.Text("🛡️ RECORDATORIO: Por favor, genere un Backup en 'SISTEMA' periódicamente para salvaguardar la información contra vulnerabilidades o ciberataques.", color="black", weight="bold"),
-            bgcolor="#fbbf24",
-            duration=10000
-        )
-        page.snack_bar.open = True
-        page.update()
+        mostrar_snack("🛡️ RECORDATORIO: Genere un Backup en 'SISTEMA' para salvaguardar la información contra vulnerabilidades o ciberataques.", "#fbbf24", "black")
 
     mostrar_login()
 
