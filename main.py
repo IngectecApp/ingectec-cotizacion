@@ -352,10 +352,9 @@ def main(page: ft.Page):
                 c_p2 = ft.Dropdown(label="Proveedor 2", col={"sm": 6}); c_pr2 = ft.TextField(label="Precio 2", col={"sm": 6})
                 c_p3 = ft.Dropdown(label="Proveedor 3", col={"sm": 6}); c_pr3 = ft.TextField(label="Precio 3", col={"sm": 6})
 
-                # --- CAMPOS REDISEÑADOS PARA PROVEEDORES ---
                 e_pnom = ft.TextField(label="Nombre Proveedor*", expand=2)
                 e_ptel = ft.TextField(label="Teléfono", expand=1)
-                e_pmas = ft.TextField(multiline=True, min_lines=4, max_lines=8, label="Pega tu lista aquí (El sistema separará el nombre del número de forma inteligente)")
+                e_pmas = ft.TextField(multiline=True, min_lines=4, max_lines=8, label="Pega tu lista aquí (Nombre y Teléfono separados)")
                 lst_provs = ft.ListView(height=200)
 
                 filtro_cat = ft.TextField(label="Filtrar catálogo completo...")
@@ -370,19 +369,20 @@ def main(page: ft.Page):
                             ops.append(ft.dropdown.Option(n))
                             def ed(ev, nom=n, tel=t): e_pnom.value=nom; e_ptel.value=tel; page.update()
                             
-                            # --- CORRECCIÓN ELIMINAR PROVEEDOR (TRIM PARA EVITAR ESPACIOS OCULTOS) ---
+                            # --- CORRECCIÓN ELIMINAR PROVEEDOR ---
                             def rm(ev, nom=n): 
                                 try:
                                     dbd=conectar_db(); cd=dbd.cursor()
-                                    cd.execute("DELETE FROM proveedores WHERE TRIM(nombre)=%s", (nom.strip(),))
+                                    cd.execute("DELETE FROM proveedores WHERE nombre=%s", (nom,))
                                     dbd.commit(); dbd.close()
-                                    page.snack_bar=ft.SnackBar(ft.Text(f"🗑️ Proveedor {nom.strip()} eliminado exitosamente"), bgcolor="#ef4444")
-                                    page.snack_bar.open=True
+                                    page.snack_bar = ft.SnackBar(ft.Text(f"🗑️ Proveedor eliminado exitosamente"), bgcolor="#ef4444")
+                                    page.snack_bar.open = True
                                     load_provs()
                                 except Exception as ex:
                                     mostrar_alerta("Error al eliminar", str(ex))
 
-                            lst_provs.controls.append(ft.ListTile(title=ft.Text(n, color="#fbbf24"), subtitle=ft.Text(f"Tel: {t}"), on_click=ed, trailing=ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=rm)))
+                            # Añadimos un texto que invita a dar clic para modificar
+                            lst_provs.controls.append(ft.ListTile(title=ft.Text(n, color="#fbbf24"), subtitle=ft.Text(f"Tel: {t} (Clic para editar)"), on_click=ed, trailing=ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=rm)))
                         db.close()
                     c_p1.options=ops; c_p2.options=ops; c_p3.options=ops; page.update()
 
@@ -392,38 +392,42 @@ def main(page: ft.Page):
                     if db:
                         nom_limpio = e_pnom.value.strip().upper()
                         c=db.cursor(); c.execute("INSERT INTO proveedores (nombre, telefono) VALUES (%s,%s) ON CONFLICT(nombre) DO UPDATE SET telefono=EXCLUDED.telefono", (nom_limpio, e_ptel.value.strip()))
-                        db.commit(); db.close(); e_pnom.value=""; e_ptel.value=""; load_provs()
-                        page.snack_bar=ft.SnackBar(ft.Text(f"✅ {nom_limpio} guardado"), bgcolor="#10b981"); page.snack_bar.open=True; page.update()
+                        db.commit(); db.close(); e_pnom.value=""; e_ptel.value=""
+                        page.snack_bar=ft.SnackBar(ft.Text(f"✅ Proveedor guardado"), bgcolor="#10b981"); page.snack_bar.open=True
+                        load_provs()
 
-                # --- CORRECCIÓN IMPORTACIÓN MASIVA INTELIGENTE (CON REGEX) ---
+                # --- CORRECCIÓN IMPORTACIÓN MASIVA INTELIGENTE ---
                 def p_mas_provs(evt):
                     if not e_pmas.value.strip(): return
-                    db=conectar_db()
-                    if db:
-                        c=db.cursor(); ag=0
-                        for l in e_pmas.value.strip().split('\n'):
-                            l = l.strip()
-                            if not l: continue
-                            if '\t' in l:
-                                p = l.split('\t')
-                                n = sanitizar_texto(p[0].strip().upper())
-                                t = sanitizar_texto(p[1].strip()) if len(p)>1 else ""
-                            else:
-                                # Magia con Expresiones Regulares para separar letras de números
-                                match = re.match(r"^(.*?)\s*([\d\s\-\+]+)$", l)
-                                if match:
-                                    n = sanitizar_texto(match.group(1).strip().upper())
-                                    t = sanitizar_texto(match.group(2).strip())
+                    try:
+                        db=conectar_db()
+                        if db:
+                            c=db.cursor(); ag=0
+                            for l in e_pmas.value.strip().split('\n'):
+                                l = l.strip()
+                                if not l: continue
+                                if '\t' in l:
+                                    p = l.split('\t')
+                                    n = sanitizar_texto(p[0].strip().upper())
+                                    t = sanitizar_texto(p[1].strip()) if len(p)>1 else ""
                                 else:
-                                    n = sanitizar_texto(l.upper())
-                                    t = ""
-                            if n:
-                                c.execute("INSERT INTO proveedores (nombre, telefono) VALUES (%s,%s) ON CONFLICT(nombre) DO UPDATE SET telefono=EXCLUDED.telefono", (n, t))
-                                ag+=1
-                        db.commit(); db.close(); e_pmas.value=""; load_provs()
-                        page.snack_bar=ft.SnackBar(ft.Text(f"✅ {ag} proveedores procesados y guardados exitosamente"), bgcolor="#10b981")
-                        page.snack_bar.open=True
-                        page.update()
+                                    parts = l.rsplit(' ', 1)
+                                    if len(parts) == 2 and re.match(r'^[\d\s\-\+]+$', parts[1]):
+                                        n = sanitizar_texto(parts[0].strip().upper())
+                                        t = sanitizar_texto(parts[1].strip())
+                                    else:
+                                        n = sanitizar_texto(l.upper())
+                                        t = ""
+                                if n:
+                                    c.execute("INSERT INTO proveedores (nombre, telefono) VALUES (%s,%s) ON CONFLICT(nombre) DO UPDATE SET telefono=EXCLUDED.telefono", (n, t))
+                                    ag+=1
+                            db.commit(); db.close()
+                            e_pmas.value = "" # Vacía la caja de texto tras la carga exitosa
+                            page.snack_bar = ft.SnackBar(ft.Text(f"✅ {ag} proveedores procesados y guardados exitosamente"), bgcolor="#10b981")
+                            page.snack_bar.open = True
+                            load_provs() # Refresca la lista visualmente
+                    except Exception as ex:
+                        mostrar_alerta("Error en Carga Masiva", str(ex))
 
                 def b_bod(evt):
                     resultados_bod.controls.clear(); db = conectar_db()
@@ -558,7 +562,6 @@ def main(page: ft.Page):
                             ft.Tab(text="⚖️ Comparador", content=ft.Column([ft.Container(height=10), ft.Text("Se elegirá el menor precio y se guardará en la BD principal con la Fecha de Hoy.", color="#10b981", size=12), c_item, lst_comp, ft.ResponsiveRow([c_p1, c_pr1]), ft.ResponsiveRow([c_p2, c_pr2]), ft.ResponsiveRow([c_p3, c_pr3]), ft.ElevatedButton("Analizar", bgcolor="#8b5cf6", color="white", on_click=run_comp)], tight=True, scroll=ft.ScrollMode.AUTO)),
                             ft.Tab(text="📜 Catálogo (Fechas)", content=ft.Column([ft.Container(height=10), ft.Text("Los ítems de más de 6 días se marcan como 'Antigua':", color="#fbbf24", size=12), filtro_cat, lst_cat], tight=True, scroll=ft.ScrollMode.AUTO)),
                             
-                            # --- PESTAÑA PROVEEDORES CORREGIDA ---
                             ft.Tab(text="🏢 Provs.", content=ft.Column([
                                 ft.Container(height=10), 
                                 ft.Text("Ingreso Manual:", weight="bold", color="#fbbf24"),
