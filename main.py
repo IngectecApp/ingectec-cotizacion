@@ -180,7 +180,6 @@ def main(page: ft.Page):
         input_notas = ft.TextField(label="Notas adicionales", value="Toda la actividad será coordinada por el ingeniero Edward Álvarez y/o John Paniagua", multiline=True)
         input_pct_a = ft.TextField(label="Admin %", value="10"); input_pct_i = ft.TextField(label="Imprev %", value="2")
         input_pct_u = ft.TextField(label="Util %", value="8"); input_pct_iva_u = ft.TextField(label="IVA s/U %", value="19")
-        
         input_pct_ganancia = ft.TextField(label="Ganancia Global %", value="0")
         
         lista_busqueda_cli = ft.ListView(height=150, visible=False, spacing=2)
@@ -210,7 +209,6 @@ def main(page: ft.Page):
             cont_i.visible = es_aiu
             cont_u.visible = es_aiu
             cont_iva_u.visible = es_aiu
-            
             cont_ganancia.visible = es_iva
             
             if es_aiu: 
@@ -305,7 +303,6 @@ def main(page: ft.Page):
                     def on_c(e):
                         if not verificar_permiso_edicion(): return
                         
-                        # --- NUEVO RASTREADOR DE ESTADO PARA NO CERRAR EL MODAL AL MOVER ---
                         estado_modal = {"idx": idx_r}
                         
                         ec = ft.TextField(label="Cant", value=str(lista_items[idx_r]['cant']))
@@ -391,7 +388,9 @@ def main(page: ft.Page):
                             i_desc.value=desc; i_pre.value=str(int(float(prec)))
                             i_und.value = "ML" if ("TUBO" in desc.upper() or "CABLE" in desc.upper()) else ("GLB" if "INSTALACION" in desc.upper() else "UNID")
                             i_und_c.visible=False; i_cant.col={"sm":3}; i_und.col={"sm":4}; i_pre.col={"sm":5}; page.update()
-                        subt = f"${int(float(p)):,}" + (f" (Prov: {prov})" if prov else "")
+                        
+                        # --- NOTA VISUAL DEL PROVEEDOR EN BÚSQUEDA ---
+                        subt = f"${int(float(p)):,}" + (f" ({prov})" if prov else "")
                         res_inv.controls.append(ft.ListTile(title=ft.Text(d, color="#fbbf24", size=14), subtitle=ft.Text(subt, color="#94a3b8"), on_click=sel))
                     db.close()
                 page.update()
@@ -528,7 +527,7 @@ def main(page: ft.Page):
                             def sel(ev, desc=d, prec=p): e_desc.value=desc; e_precio.value=str(int(float(prec))); page.update()
                             def rm(ev, desc=d): dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM inv WHERE d=%s", (desc,)); db.commit(); dbd.close(); b_bod(None); load_cat(None); mostrar_snack("🗑️ Ítem eliminado", "#ef4444")
                             
-                            subt = f"${int(float(p)):,}" + (f" (Prov: {prov})" if prov else "") + (f" - Act: {fa}")
+                            subt = f"${int(float(p)):,}" + (f" ({prov})" if prov else "") + (f" - Act: {fa}")
                             tile = ft.ListTile(title=ft.Text(d, size=13, color="#fbbf24", weight="bold"), subtitle=ft.Text(subt))
                             tile.on_click = sel
                             tile.trailing = ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=rm)
@@ -569,14 +568,25 @@ def main(page: ft.Page):
                                     pr_iva = pr * 1.19
                                     if item not in evaluados: evaluados[item] = {"prov": prov, "prec": pr_iva}
                                     else:
-                                        if pr_iva < evaluados[item]["prec"]: evaluados[item] = {"prov": prov, "prec": pr_iva}
+                                        # --- NUEVA LÓGICA DE MASIVO: GUARDA EL MÁS ALTO PERO ANOTA EL MÁS BARATO ---
+                                        precio_alto_existente = evaluados[item]["prec"]
+                                        if pr_iva > precio_alto_existente:
+                                            # Encontró uno más caro. Guardar este como el precio a cotizar.
+                                            # Guardar el barato en la nota del proveedor
+                                            prov_viejo = evaluados[item]["prov"]
+                                            evaluados[item] = {"prov": f"Cotizar con: {prov} | +Barato en: {prov_viejo}", "prec": pr_iva}
+                                        else:
+                                            # Encontró uno más barato. No actualiza el precio alto, pero anota el proveedor.
+                                            prov_caro_exist = evaluados[item]["prov"]
+                                            if "| +Barato en" not in prov_caro_exist:
+                                                evaluados[item]["prov"] = f"Cotizar con: {prov_caro_exist} | +Barato en: {prov}"
                         
                         for itm, data in evaluados.items():
                             c.execute("INSERT INTO inv (d, p, stock, proveedor, fecha_act) VALUES (%s,%s,0,%s,%s) ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p, proveedor=EXCLUDED.proveedor, fecha_act=EXCLUDED.fecha_act", (itm, data["prec"], data["prov"], fh))
                             ag+=1
                         
                         db.commit(); db.close(); e_mas.value=""; b_bod(None); load_cat(None)
-                        mostrar_snack(f"✅ {ag} ítems procesados con +19% de IVA.")
+                        mostrar_snack(f"✅ {ag} ítems procesados (+19% IVA y seleccionando el más costoso).")
 
                 def b_comp(evt):
                     txt = (c_item.value or "").upper().strip(); lst_comp.controls.clear()
@@ -591,6 +601,7 @@ def main(page: ft.Page):
                     else: lst_comp.visible = False
                     page.update()
 
+                # --- NUEVO ALGORITMO COMPARADOR: MAX PRICE & MIN SUPPLIER ---
                 def run_comp(evt):
                     itm = c_item.value.strip().upper()
                     if not itm: return mostrar_alerta("Aviso", "Ingresa ítem.")
@@ -605,15 +616,23 @@ def main(page: ft.Page):
                                     ofs.append((pr, p_iva))
                             except: pass
                     if not ofs: return mostrar_alerta("Aviso", "Ingresa al menos un proveedor con costo válido (mayor a 0).")
-                    gp, gpr = min(ofs, key=lambda x: x[1])
+                    
+                    # Lógica Inversa: Cotiza el más alto, anota el más bajo
+                    gp_caro, gpr_alto = max(ofs, key=lambda x: x[1])
+                    gp_barato, gpr_bajo = min(ofs, key=lambda x: x[1])
+                    
+                    # Si el caro y el barato son el mismo, no anota nota extra
+                    if gp_caro == gp_barato: string_prov = gp_caro
+                    else: string_prov = f"Cotiza con: {gp_caro} | +Barato en: {gp_barato}"
+
                     db = conectar_db()
                     if db:
                         fh = datetime.now().strftime("%Y-%m-%d")
-                        c=db.cursor(); c.execute("INSERT INTO inv (d, p, stock, proveedor, fecha_act) VALUES (%s, %s, 0, %s, %s) ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p, proveedor=EXCLUDED.proveedor, fecha_act=EXCLUDED.fecha_act", (itm, gpr, gp, fh)); db.commit(); db.close()
+                        c=db.cursor(); c.execute("INSERT INTO inv (d, p, stock, proveedor, fecha_act) VALUES (%s, %s, 0, %s, %s) ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p, proveedor=EXCLUDED.proveedor, fecha_act=EXCLUDED.fecha_act", (itm, gpr_alto, string_prov, fh)); db.commit(); db.close()
                         c_item.value=""; c_p1.value=None; c_pr1.value=""; c_p2.value=None; c_pr2.value=""; c_p3.value=None; c_pr3.value=""
                         c_p4.value=None; c_pr4.value=""; c_p5.value=None; c_pr5.value=""; c_p6.value=None; c_pr6.value=""
                         b_bod(None); load_cat(None)
-                        mostrar_snack(f"🏆 GANADOR: {gp} (${int(gpr):,}). Guardado con +19% IVA.", "#8b5cf6")
+                        mostrar_snack(f"🏆 Base: {gp_caro} (${int(gpr_alto):,}). Mejor compra: {gp_barato}.", "#8b5cf6")
 
                 def load_cat(evt):
                     lst_cat.controls.clear(); txt = (filtro_cat.value or "").upper().strip(); db = conectar_db()
@@ -647,10 +666,10 @@ def main(page: ft.Page):
                     content=ft.Container(width=750, height=550, content=ft.Tabs(
                         selected_index=0, tabs=[
                             ft.Tab(text="🔍 Buscar", content=ft.Column([ft.Container(height=10), ft.Text("Ingreso Manual (Se suma +19% IVA automáticamente al Costo):", weight="bold", color="#fbbf24", size=12), e_desc, e_precio, ft.ElevatedButton("Guardar Precio / Actualizar Fecha", bgcolor="#2563eb", on_click=s_bod), resultados_bod], tight=True)),
-                            ft.Tab(text="📥 Masivo / Comparar", content=ft.Column([ft.Container(height=10), ft.Text("Se suma +19% de IVA al costo ingresado de forma automática.", color="#fbbf24", size=12), e_mas, ft.ElevatedButton("Importar y Analizar Ganadores", bgcolor="#10b981", on_click=p_mas)], tight=True)),
+                            ft.Tab(text="📥 Masivo / Comparar", content=ft.Column([ft.Container(height=10), ft.Text("Guarda el valor MAYOR +19% de IVA y te avisa cuál era el más barato.", color="#fbbf24", size=12), e_mas, ft.ElevatedButton("Importar y Analizar Ganadores", bgcolor="#10b981", on_click=p_mas)], tight=True)),
                             ft.Tab(text="⚖️ Comparador", content=ft.Column([
                                 ft.Container(height=10), 
-                                ft.Text("Compite los COSTOS NETOS. El menor precio se guardará sumándole +19% IVA.", color="#10b981", size=12), 
+                                ft.Text("Compite COSTOS NETOS. Guarda el más ALTO (+19% IVA) y anota el más BARATO.", color="#10b981", size=12), 
                                 c_item, lst_comp, 
                                 ft.ResponsiveRow([c_p1, c_pr1]), ft.ResponsiveRow([c_p2, c_pr2]), ft.ResponsiveRow([c_p3, c_pr3]), 
                                 ft.ResponsiveRow([c_p4, c_pr4]), ft.ResponsiveRow([c_p5, c_pr5]), ft.ResponsiveRow([c_p6, c_pr6]), 
