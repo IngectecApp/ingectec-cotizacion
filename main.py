@@ -816,13 +816,13 @@ def main(page: ft.Page):
                 else:
                     if not nro_doc: nro_doc = f"{mes_act}-TEMP"
                     nom_limp = re.sub(r'[^\w\s-]', '', c_nom).strip(); nom_arc = f"{nom_limp}-{nro_doc}.pdf"
-                    # CORRECCIÓN EXACTA DE SINTAXIS PARA LA ALERTA DE MODO LECTURA
                     page.snack_bar = ft.SnackBar(ft.Text("⚠️ Modo Lectura: PDF generado, pero la base de datos no fue modificada.", color="black"), bgcolor="#f59e0b")
                     page.snack_bar.open = True
                 
                 db.close()
 
-                asesor_act = sesion["usuario"].upper()
+                # --- CORRECCIÓN EXACTA DE AUDITORÍA: SI LA COTIZACIÓN ES VIEJA, SALDRÁ A NOMBRE DE SU CREADOR ORIGINAL ---
+                asesor_act = (estado.get("creador_edicion") or sesion["usuario"]).upper()
                 numeros_whatsapp = {"OMERA": "573175046404", "YRESTREPO": "573002986963", "JCARDONA": "573225532559", "PLEAL": "573175046404"}
                 numero_asesor = numeros_whatsapp.get(asesor_act, "573175046404")
                 qr = qrcode.QRCode(box_size=10, border=2); qr.add_data(f"https://wa.me/{numero_asesor}"); qr.make(fit=True); qr.make_image(fill_color="black", back_color="white").save("assets/qr_temp.png")
