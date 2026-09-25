@@ -169,7 +169,6 @@ def main(page: ft.Page):
         cont_a = ft.Container(content=input_pct_a, col={"sm": 3, "md": 2, "lg": 2}); cont_i = ft.Container(content=input_pct_i, col={"sm": 3, "md": 2, "lg": 2})
         cont_u = ft.Container(content=input_pct_u, col={"sm": 3, "md": 2, "lg": 2}); cont_iva_u = ft.Container(content=input_pct_iva_u, col={"sm": 3, "md": 2, "lg": 2})
 
-        # --- VALIDACIÓN PROTEGIDA CON CONTROL DE VISUALIZACIÓN ---
         def verificar_permiso_edicion(mostrar_aviso=True):
             if estado.get("nro_edicion") and estado.get("creador_edicion"):
                 if estado["creador_edicion"] not in ["SISTEMA", sesion["usuario"]]:
@@ -675,6 +674,7 @@ def main(page: ft.Page):
             page.dialog = dlg; dlg.open = True; load_h()
 
         def abrir_modal_sistema(e):
+            # --- MODIFICADO: FUNCIÓN DE BACKUP CON NOMBRE DE USUARIO Y FECHA EN ZIP ---
             def generar_backup_json(evt):
                 db = conectar_db()
                 if db:
@@ -684,9 +684,19 @@ def main(page: ft.Page):
                             c.execute(f"SELECT * FROM {t}"); cols = [desc[0] for desc in c.description]; rows = c.fetchall(); b_data[t] = {"cols": cols, "rows": rows}
                         except: pass
                     db.close()
-                    with open("assets/backup_ingectec.json", "w", encoding="utf-8") as f: json.dump(b_data, f, default=str)
-                    page.launch_url('/backup_ingectec.json')
-                    page.snack_bar = ft.SnackBar(ft.Text("✅ Backup descargado correctamente. Guárdalo seguro."), bgcolor="#2563eb"); page.snack_bar.open = True; page.update()
+                    
+                    fecha_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    usr = sesion["usuario"]
+                    nombre_base = f"backup_ingectec_{usr}_{fecha_str}"
+                    
+                    with open(f"assets/{nombre_base}.json", "w", encoding="utf-8") as f: json.dump(b_data, f, default=str)
+                    
+                    import zipfile
+                    with zipfile.ZipFile(f"assets/{nombre_base}.zip", "w", zipfile.ZIP_DEFLATED) as zipf:
+                        zipf.write(f"assets/{nombre_base}.json", arcname=f"{nombre_base}.json")
+                        
+                    page.launch_url(f'/{nombre_base}.zip')
+                    page.snack_bar = ft.SnackBar(ft.Text(f"✅ Backup {nombre_base}.zip descargado."), bgcolor="#2563eb"); page.snack_bar.open = True; page.update()
 
             e_json = ft.TextField(multiline=True, min_lines=6, max_lines=10, label="Pega aquí el contenido de tu archivo backup_ingectec.json")
             
@@ -720,7 +730,6 @@ def main(page: ft.Page):
                 ft.ElevatedButton("📥 1. DESCARGAR BACKUP", bgcolor="#2563eb", color="white", width=350, on_click=generar_backup_json)
             ]
             
-            # --- SOLO LOS SUPER ADMINISTRADORES VEN EL RESETEO DE FÁBRICA ---
             if sesion["usuario"] in ["OMERA", "PLEAL"]:
                 col_general.extend([
                     ft.Container(height=20), 
@@ -747,7 +756,6 @@ def main(page: ft.Page):
             try:
                 if not lista_items or not input_cliente.value: return mostrar_alerta("Aviso", "Faltan datos.")
                 
-                # --- CONTROL DE PERMISOS PARA GUARDAR (Permite Generar PDF) ---
                 puede_guardar = verificar_permiso_edicion(mostrar_aviso=False)
 
                 c_nom = sanitizar_texto(input_cliente.value or "").upper().strip(); c_nit = sanitizar_texto(input_nit.value or "").strip(); c_ciu_origen = sanitizar_texto(input_ciudad.value or "Yumbo").strip(); c_atn = sanitizar_texto(input_atencion.value or "").strip(); c_ref = sanitizar_texto(input_ref.value or "").strip(); c_t_entrega = sanitizar_texto(input_tiempo_entrega.value or "").strip(); c_validez = sanitizar_texto(input_validez.value or "").strip(); c_pago = sanitizar_texto(input_pago.value or "").strip(); c_garantia = sanitizar_texto(input_garantia.value or "").strip(); c_notas = sanitizar_texto(input_notas.value or "").strip(); c_modo = dropdown_modo_cot.value or "AIU"
@@ -783,7 +791,6 @@ def main(page: ft.Page):
                 tot_fin = (subtotal + tot_aiu + val_iva_u) if c_modo == "AIU" else subtotal
                 for p_iva, b_amt in iva_bases.items(): tot_fin += b_amt * (p_iva / 100)
 
-                # --- GUARDADO EN BD O MODO LECTURA ---
                 if puede_guardar:
                     c_up = db.cursor()
                     if not nro_doc:
@@ -897,7 +904,7 @@ def main(page: ft.Page):
                 try: os.remove("assets/qr_temp.png")
                 except: pass
                 
-                dlg_d = ft.AlertDialog(title=ft.Text("✅ Guardado", color="#10b981"), content=ft.Text(f"Archivo: {nom_arc}"), actions=[ft.ElevatedButton("📥 DESCARGAR", bgcolor="#2563eb", color="white", on_click=lambda ev: page.launch_url(f"/{nom_arc}")), ft.TextButton("Cerrar", on_click=lambda ev: cerrar_dialogo(dlg_d))])
+                dlg_d = ft.AlertDialog(title=ft.Text("✅ Generado", color="#10b981"), content=ft.Text(f"Archivo: {nom_arc}"), actions=[ft.ElevatedButton("📥 DESCARGAR", bgcolor="#2563eb", color="white", on_click=lambda ev: page.launch_url(f"/{nom_arc}")), ft.TextButton("Cerrar", on_click=lambda ev: cerrar_dialogo(dlg_d))])
                 page.dialog = dlg_d; dlg_d.open = True; page.update()
             except Exception as eFallo: mostrar_alerta("Error al generar PDF", f"Hubo un fallo: {str(eFallo)}")
 
