@@ -180,6 +180,8 @@ def main(page: ft.Page):
         input_notas = ft.TextField(label="Notas adicionales", value="Toda la actividad será coordinada por el ingeniero Edward Álvarez y/o John Paniagua", multiline=True)
         input_pct_a = ft.TextField(label="Admin %", value="10"); input_pct_i = ft.TextField(label="Imprev %", value="2")
         input_pct_u = ft.TextField(label="Util %", value="8"); input_pct_iva_u = ft.TextField(label="IVA s/U %", value="19")
+        
+        # --- CASILLA DE RENTABILIDAD GLOBAL ---
         input_pct_ganancia = ft.TextField(label="Ganancia Global %", value="0")
         
         lista_busqueda_cli = ft.ListView(height=150, visible=False, spacing=2)
@@ -188,7 +190,9 @@ def main(page: ft.Page):
         container_texto_aiu = ft.Container(content=ft.Text("⚙️ Config. AIU:", weight="bold", color="#fbbf24"), col={"sm": 12, "md": 2, "lg": 2}, alignment=ft.alignment.center_left)
         cont_a = ft.Container(content=input_pct_a, col={"sm": 3, "md": 2, "lg": 2}); cont_i = ft.Container(content=input_pct_i, col={"sm": 3, "md": 2, "lg": 2})
         cont_u = ft.Container(content=input_pct_u, col={"sm": 3, "md": 2, "lg": 2}); cont_iva_u = ft.Container(content=input_pct_iva_u, col={"sm": 3, "md": 2, "lg": 2})
-        cont_ganancia = ft.Container(content=input_pct_ganancia, col={"sm": 6, "md": 2, "lg": 2})
+        
+        # Oculto por defecto ya que arranca en AIU
+        cont_ganancia = ft.Container(content=input_pct_ganancia, col={"sm": 6, "md": 2, "lg": 2}, visible=False)
 
         def verificar_permiso_edicion(mostrar_aviso=True):
             if estado.get("nro_edicion") and estado.get("creador_edicion"):
@@ -200,9 +204,25 @@ def main(page: ft.Page):
                         return False
             return True
 
+        # --- CORRECCIÓN: OCULTAR GANANCIA EN AIU ---
         def cambiar_modo_cot(e):
-            v = dropdown_modo_cot.value == "AIU"
-            container_texto_aiu.visible = v; cont_a.visible = v; cont_i.visible = v; cont_u.visible = v; cont_iva_u.visible = v; page.update()
+            es_aiu = dropdown_modo_cot.value == "AIU"
+            es_iva = dropdown_modo_cot.value == "IVA"
+            
+            container_texto_aiu.visible = es_aiu
+            cont_a.visible = es_aiu
+            cont_i.visible = es_aiu
+            cont_u.visible = es_aiu
+            cont_iva_u.visible = es_aiu
+            
+            cont_ganancia.visible = es_iva
+            
+            if es_aiu: 
+                input_pct_ganancia.value = "0"
+                actualizar_tabla_visual()
+                
+            page.update()
+            
         dropdown_modo_cot.on_change = cambiar_modo_cot
 
         def buscar_cliente_realtime(e):
@@ -787,7 +807,10 @@ def main(page: ft.Page):
                                 dropdown_modo_cot.value=cab[10] or "AIU"; input_pct_a.value=str(cab[11]) if cab[11] is not None else "10"; input_pct_i.value=str(cab[12]) if cab[12] is not None else "2"; input_pct_u.value=str(cab[13]) if cab[13] is not None else "8"; input_pct_iva_u.value=str(cab[14]) if cab[14] is not None else "19"
                                 input_pct_ganancia.value = str(cab[15]) if len(cab)>15 and cab[15] is not None else "0"
                                 
-                                es_aiu = dropdown_modo_cot.value=="AIU"; container_texto_aiu.visible=es_aiu; cont_a.visible=es_aiu; cont_i.visible=es_aiu; cont_u.visible=es_aiu; cont_iva_u.visible=es_aiu
+                                es_aiu = dropdown_modo_cot.value=="AIU"
+                                container_texto_aiu.visible=es_aiu; cont_a.visible=es_aiu; cont_i.visible=es_aiu; cont_u.visible=es_aiu; cont_iva_u.visible=es_aiu
+                                cont_ganancia.visible = not es_aiu
+                                
                             lista_items.clear()
                             ch.execute('SELECT "desc", cant, und, unit, sub, imp, tipo FROM h_det WHERE nro=%s', (nro,))
                             for d in ch.fetchall():
@@ -895,7 +918,6 @@ def main(page: ft.Page):
                 ft.ElevatedButton("📥 1. DESCARGAR BACKUP", bgcolor="#2563eb", color="white", width=350, on_click=generar_backup_json)
             ]
             
-            # El botón "Restaurar de fábrica" SÍ queda oculto para los asesores normales por seguridad
             if sesion["usuario"] in ["OMERA", "PLEAL"]:
                 col_general.extend([
                     ft.Container(height=20), 
@@ -916,8 +938,10 @@ def main(page: ft.Page):
             page.overlay.append(dlg_sis); page.update()
 
         def limpiar_todo(e):
-            lista_items.clear(); estado["nro_edicion"] = None; estado["creador_edicion"] = None; estado["permitidos_edicion"] = []; actualizar_tabla_visual()
-            input_cliente.value = ""; input_nit.value = ""; input_atencion.value = ""; input_ref.value = ""; input_ciudad.value = "Yumbo"; input_tiempo_entrega.value = "4 Días hábiles"; input_validez.value = "20 Días"; input_pago.value = "30 Días"; input_garantia.value = "6 meses en mano de obra"; input_notas.value = "Toda la actividad será coordinada por el ingeniero Edward Álvarez y/o John Paniagua"; dropdown_modo_cot.value = "AIU"; input_pct_a.value = "10"; input_pct_i.value = "2"; input_pct_u.value = "8"; input_pct_iva_u.value = "19"; input_pct_ganancia.value = "0"; lista_busqueda_cli.visible = False; cambiar_modo_cot(None); page.update()
+            lista_items.clear(); estado["nro_edicion"] = None; estado["creador_edicion"] = None; estado["permitidos_edicion"] = []
+            input_cliente.value = ""; input_nit.value = ""; input_atencion.value = ""; input_ref.value = ""; input_ciudad.value = "Yumbo"; input_tiempo_entrega.value = "4 Días hábiles"; input_validez.value = "20 Días"; input_pago.value = "30 Días"; input_garantia.value = "6 meses en mano de obra"; input_notas.value = "Toda la actividad será coordinada por el ingeniero Edward Álvarez y/o John Paniagua"; dropdown_modo_cot.value = "AIU"; input_pct_a.value = "10"; input_pct_i.value = "2"; input_pct_u.value = "8"; input_pct_iva_u.value = "19"; input_pct_ganancia.value = "0"
+            lista_busqueda_cli.visible = False
+            cambiar_modo_cot(None)
 
         def generar_pdf_web(e):
             try:
@@ -1029,7 +1053,6 @@ def main(page: ft.Page):
 
                 p.set_fill_color(194, 229, 194); p.set_text_color(0, 0, 0); p.set_font("helvetica", '', 8) 
                 
-                # --- NUEVA LÓGICA DE CABECERA Y COLUMNAS SEGÚN AIU O IVA ---
                 ancho_desc = 98 if c_modo == "AIU" else 78
                 
                 p.cell(10, 6, "ITEM", 1, fill=True, align='C')
@@ -1118,7 +1141,6 @@ def main(page: ft.Page):
             ft.ElevatedButton("USUARIOS", icon=ft.icons.SECURITY, bgcolor="#334155", color="white", on_click=abrir_modal_usuarios),
             ft.ElevatedButton("HISTORIAL", icon=ft.icons.HISTORY, bgcolor="#334155", color="white", on_click=abrir_modal_historial),
             ft.ElevatedButton("LIMPIAR", icon=ft.icons.DELETE_SWEEP, bgcolor="#475569", color="white", on_click=limpiar_todo),
-            # --- EL BOTÓN SISTEMA AHORA ES VISIBLE PARA TODOS LOS USUARIOS ---
             ft.ElevatedButton("SISTEMA", icon=ft.icons.SETTINGS, bgcolor="#475569", color="white", on_click=abrir_modal_sistema)
         ]
             
@@ -1155,7 +1177,6 @@ def main(page: ft.Page):
         )
         page.update()
 
-        # --- AVISO DE BACKUP RESTRINGIDO SOLO A LUNES (0) Y VIERNES (4) ---
         dia_actual = datetime.now().weekday()
         if dia_actual == 0 or dia_actual == 4:
             snack_recordatorio = ft.SnackBar(
