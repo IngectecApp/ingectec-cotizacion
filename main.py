@@ -674,11 +674,10 @@ def main(page: ft.Page):
             page.dialog = dlg; dlg.open = True; load_h()
 
         def abrir_modal_sistema(e):
-            # --- MODIFICADO: FUNCIÓN DE BACKUP CON NOMBRE DE USUARIO Y FECHA EN ZIP ---
             def generar_backup_json(evt):
                 db = conectar_db()
                 if db:
-                    c = db.cursor(); b_data = {}; tablas = ["cli", "inv", "proveedores", "historial", "h_cab", "h_det", "n_cot"]
+                    c = db.cursor(); b_data = {}; tablas = ["usuarios", "cli", "inv", "proveedores", "historial", "h_cab", "h_det", "n_cot"]
                     for t in tablas:
                         try:
                             c.execute(f"SELECT * FROM {t}"); cols = [desc[0] for desc in c.description]; rows = c.fetchall(); b_data[t] = {"cols": cols, "rows": rows}
@@ -817,7 +816,8 @@ def main(page: ft.Page):
                 else:
                     if not nro_doc: nro_doc = f"{mes_act}-TEMP"
                     nom_limp = re.sub(r'[^\w\s-]', '', c_nom).strip(); nom_arc = f"{nom_limp}-{nro_doc}.pdf"
-                    page.snack_bar = ft.SnackBar(ft.Text("⚠️ Modo Lectura: PDF generado, pero la base de datos no fue modificada."), bgcolor="#f59e0b", color="black")
+                    # CORRECCIÓN EXACTA DE SINTAXIS PARA LA ALERTA DE MODO LECTURA
+                    page.snack_bar = ft.SnackBar(ft.Text("⚠️ Modo Lectura: PDF generado, pero la base de datos no fue modificada.", color="black"), bgcolor="#f59e0b")
                     page.snack_bar.open = True
                 
                 db.close()
