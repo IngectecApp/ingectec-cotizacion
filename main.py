@@ -824,9 +824,6 @@ def main(page: ft.Page):
                     
                 db.close()
 
-                # --- CORRECCIÓN EXACTA DE AUDITORÍA: EL NOMBRE EN EL PDF SIEMPRE SERÁ EL DEL CREADOR DE LA FACTURA ---
-                # Si la factura ya existe en el estado, se imprime a nombre de quien la creó originalmente.
-                # Si es una factura totalmente nueva (estado vacío), se imprime a nombre del usuario activo.
                 asesor_impresion = (estado.get("creador_edicion") or sesion["usuario"]).upper()
                 
                 numeros_whatsapp = {"OMERA": "573175046404", "YRESTREPO": "573002986963", "JCARDONA": "573225532559", "PLEAL": "573175046404"}
@@ -911,7 +908,6 @@ def main(page: ft.Page):
                 try: os.remove("assets/qr_temp.png")
                 except: pass
                 
-                # --- AVISO VISUAL DE QUE SE ESTÁ GENERANDO UNA COPIA NO OFICIAL ---
                 if not puede_guardar:
                     page.snack_bar = ft.SnackBar(ft.Text("⚠️ Modo Lectura: PDF de consulta generado. Original sin alterar.", color="black"), bgcolor="#f59e0b")
                     page.snack_bar.open = True
@@ -963,6 +959,15 @@ def main(page: ft.Page):
             f_cli, 
             ft.Container(content=ft.ElevatedButton("GENERAR COTIZACIÓN PROFESIONAL", icon=ft.icons.BOLT, bgcolor="#f59e0b", color="black", height=50, on_click=generar_pdf_web), alignment=ft.alignment.center, padding=ft.padding.only(top=10, bottom=20))
         )
+        page.update()
+
+        # --- NUEVO: RECORDATORIO DE SEGURIDAD AL INICIAR SESIÓN ---
+        page.snack_bar = ft.SnackBar(
+            ft.Text("🛡️ RECORDATORIO: Por favor, genere un Backup en 'SISTEMA' periódicamente para salvaguardar la información contra vulnerabilidades o ciberataques.", color="black", weight="bold"),
+            bgcolor="#fbbf24",
+            duration=10000
+        )
+        page.snack_bar.open = True
         page.update()
 
     mostrar_login()
