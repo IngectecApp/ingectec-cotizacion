@@ -60,7 +60,6 @@ def init_db():
             nro TEXT PRIMARY KEY, cli TEXT, nit TEXT, atn TEXT, ref TEXT, ciu_origen TEXT, t_entrega TEXT, validez TEXT, pago TEXT, garantia TEXT, notas TEXT, modo TEXT, pct_a NUMERIC, pct_i NUMERIC, pct_u NUMERIC, pct_iva_u NUMERIC
         )""")
         
-        # Agregamos pct_ganancia a la base de datos
         for col, tipo in [("atn", "TEXT"), ("ref", "TEXT"), ("ciu_origen", "TEXT"), ("t_entrega", "TEXT"), ("validez", "TEXT"), ("pago", "TEXT"), ("garantia", "TEXT"), ("notas", "TEXT"), ("modo", "TEXT"), ("pct_a", "NUMERIC"), ("pct_i", "NUMERIC"), ("pct_u", "NUMERIC"), ("pct_iva_u", "NUMERIC"), ("pct_ganancia", "NUMERIC DEFAULT 0")]:
             try: c.execute(f"ALTER TABLE h_cab ADD COLUMN IF NOT EXISTS {col} {tipo}")
             except: pass
@@ -181,8 +180,6 @@ def main(page: ft.Page):
         input_notas = ft.TextField(label="Notas adicionales", value="Toda la actividad será coordinada por el ingeniero Edward Álvarez y/o John Paniagua", multiline=True)
         input_pct_a = ft.TextField(label="Admin %", value="10"); input_pct_i = ft.TextField(label="Imprev %", value="2")
         input_pct_u = ft.TextField(label="Util %", value="8"); input_pct_iva_u = ft.TextField(label="IVA s/U %", value="19")
-        
-        # --- NUEVO: CASILLA DE RENTABILIDAD GLOBAL ---
         input_pct_ganancia = ft.TextField(label="Ganancia Global %", value="0")
         
         lista_busqueda_cli = ft.ListView(height=150, visible=False, spacing=2)
@@ -228,7 +225,6 @@ def main(page: ft.Page):
             if res: nro_actual = f"{datetime.now().strftime('%m')}-{res[0]:03d}"
             db_num.close()
 
-        # --- APLICADOR DINÁMICO DE RENTABILIDAD ---
         def obtener_items_procesados(lista):
             try: g_pct = float(input_pct_ganancia.value or 0)
             except: g_pct = 0.0
@@ -259,7 +255,6 @@ def main(page: ft.Page):
                         disp[curr_p]['precio'] = disp[curr_p]['total'] / disp[curr_p]['cant']
             return disp
 
-        # Si cambias el porcentaje de ganancia, se actualiza la tabla matemáticamente
         input_pct_ganancia.on_change = lambda e: actualizar_tabla_visual()
 
         columna_tabla_items = ft.Column()
@@ -294,10 +289,8 @@ def main(page: ft.Page):
                     def on_c(e):
                         if not verificar_permiso_edicion(): return
                         ec = ft.TextField(label="Cant", value=str(lista_items[idx_r]['cant']))
-                        # Muestra siempre el costo original
                         ep = ft.TextField(label="Costo Proveedor (Sin ganancia)", value=str(int(lista_items[idx_r]['precio'])))
                         
-                        # --- NUEVO: FLECHAS PARA MOVER DE POSICIÓN ---
                         def move_up(ev):
                             if idx_r > 0:
                                 lista_items[idx_r], lista_items[idx_r-1] = lista_items[idx_r-1], lista_items[idx_r]
@@ -516,21 +509,19 @@ def main(page: ft.Page):
                             resultados_bod.controls.append(tile)
                         db.close(); page.update()
 
-                # --- AUTO IVA 19%: MULTIPLICAMOS * 1.19 AL GUARDAR ---
                 def s_bod(evt):
                     if not e_desc.value: return
                     try: p_val = float(e_precio.value or 0)
                     except: p_val = 0
                     if p_val <= 0: return mostrar_alerta("Error", "El precio debe ser mayor a 0.")
                     
-                    p_val_iva = p_val * 1.19 # AUTO IVA
+                    p_val_iva = p_val * 1.19
                     
                     db=conectar_db()
                     if db: 
                         fh = datetime.now().strftime("%Y-%m-%d")
                         c=db.cursor(); c.execute("INSERT INTO inv (d, p, stock, proveedor, fecha_act) VALUES (%s,%s,0,'',%s) ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p, fecha_act=EXCLUDED.fecha_act", (e_desc.value.upper(), p_val_iva, fh)); db.commit(); db.close(); e_desc.value=""; e_precio.value=""; b_bod(None); load_cat(None); mostrar_snack("✅ Guardado con IVA 19% aplicado", "#2563eb")
 
-                # --- AUTO IVA 19% MASIVO ---
                 def p_mas(evt):
                     if not e_mas.value.strip(): return
                     db=conectar_db()
@@ -549,7 +540,7 @@ def main(page: ft.Page):
                                 except: pr = 0.0
                                 
                                 if pr > 0: 
-                                    pr_iva = pr * 1.19 # AUTO IVA
+                                    pr_iva = pr * 1.19
                                     if item not in evaluados: evaluados[item] = {"prov": prov, "prec": pr_iva}
                                     else:
                                         if pr_iva < evaluados[item]["prec"]: evaluados[item] = {"prov": prov, "prec": pr_iva}
@@ -574,7 +565,6 @@ def main(page: ft.Page):
                     else: lst_comp.visible = False
                     page.update()
 
-                # --- AUTO IVA 19% COMPARADOR ---
                 def run_comp(evt):
                     itm = c_item.value.strip().upper()
                     if not itm: return mostrar_alerta("Aviso", "Ingresa ítem.")
@@ -585,7 +575,7 @@ def main(page: ft.Page):
                             try: 
                                 p_float = float(pc)
                                 if p_float > 0:
-                                    p_iva = p_float * 1.19 # AUTO IVA
+                                    p_iva = p_float * 1.19
                                     ofs.append((pr, p_iva))
                             except: pass
                     if not ofs: return mostrar_alerta("Aviso", "Ingresa al menos un proveedor con costo válido (mayor a 0).")
@@ -905,6 +895,7 @@ def main(page: ft.Page):
                 ft.ElevatedButton("📥 1. DESCARGAR BACKUP", bgcolor="#2563eb", color="white", width=350, on_click=generar_backup_json)
             ]
             
+            # El botón "Restaurar de fábrica" SÍ queda oculto para los asesores normales por seguridad
             if sesion["usuario"] in ["OMERA", "PLEAL"]:
                 col_general.extend([
                     ft.Container(height=20), 
@@ -961,7 +952,6 @@ def main(page: ft.Page):
                 
                 subtotal = 0; iva_bases = {}
                 for i in lista_items:
-                    # Las bases para el PDF ya vienen multiplicadas por el factor de rentabilidad
                     tot = float(i['total']) * factor
                     subtotal += tot
                     imps = i.get('impuesto', 'EXENTO')
@@ -1038,12 +1028,23 @@ def main(page: ft.Page):
                     p.set_font('helvetica', 'B', 11); p.set_text_color(31, 73, 125); p.write(5, "REFERENCIA: "); p.set_font('helvetica', '', 11); p.set_text_color(0, 0, 0); p.write(5, f"{c_ref}\n"); p.ln(5)
 
                 p.set_fill_color(194, 229, 194); p.set_text_color(0, 0, 0); p.set_font("helvetica", '', 8) 
-                p.cell(10, 6, "ITEM", 1, fill=True, align='C'); p.cell(78, 6, "DESCRIPCION", 1, fill=True, align='C'); p.cell(12, 6, "CANT", 1, fill=True, align='C'); p.cell(25, 6, "UND", 1, fill=True, align='C')
-                p.cell(20, 6, "V. UNIT", 1, fill=True, align='C'); p.cell(20, 6, "IMPUESTO", 1, fill=True, align='C'); p.cell(25, 6, "VALOR", 1, fill=True, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                
+                # --- NUEVA LÓGICA DE CABECERA Y COLUMNAS SEGÚN AIU O IVA ---
+                ancho_desc = 98 if c_modo == "AIU" else 78
+                
+                p.cell(10, 6, "ITEM", 1, fill=True, align='C')
+                p.cell(ancho_desc, 6, "DESCRIPCION", 1, fill=True, align='C')
+                p.cell(12, 6, "CANT", 1, fill=True, align='C')
+                p.cell(25, 6, "UND", 1, fill=True, align='C')
+                p.cell(20, 6, "V. UNIT", 1, fill=True, align='C')
+                if c_modo != "AIU":
+                    p.cell(20, 6, "IMPUESTO", 1, fill=True, align='C')
+                p.cell(25, 6, "VALOR", 1, fill=True, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
                 p.set_fill_color(255, 255, 255)
                 
-                # REEMPLAZAR LISTA POR ITEMS PROCESADOS CON GANANCIA PARA EL PDF
+                wrap_width = 55 if c_modo == "AIU" else 43
+                
                 for idx, i in enumerate(obtener_items_procesados(lista_items)):
                     is_title = bool(i['tipo'] == 'P' and i.get('has_subs', False))
                     
@@ -1060,13 +1061,27 @@ def main(page: ft.Page):
                         p.set_fill_color(255, 255, 255)
                         p.set_font('helvetica', '', 8)
 
-                    d_lin = textwrap.wrap(sanitizar_texto(i['desc']), width=43) or [""]
+                    d_lin = textwrap.wrap(sanitizar_texto(i['desc']), width=wrap_width) or [""]
                     for li, l_txt in enumerate(d_lin):
                         bs = 1 if len(d_lin)==1 else ('LTR' if li==0 else ('LBR' if li==len(d_lin)-1 else 'LR'))
                         if li == 0:
-                            p.cell(10, 6, i['num'], border=bs, align='C', fill=is_title); p.cell(78, 6, f" {l_txt}", border=bs, fill=is_title); p.cell(12, 6, c_s, border=bs, align='C', fill=is_title); p.cell(25, 6, u_s, border=bs, align='C', fill=is_title); p.cell(20, 6, pu, border=bs, align='R', fill=is_title); p.cell(20, 6, imps, border=bs, align='C', fill=is_title); p.cell(25, 6, tot_s, border=bs, align='R', fill=is_title, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                            p.cell(10, 6, i['num'], border=bs, align='C', fill=is_title)
+                            p.cell(ancho_desc, 6, f" {l_txt}", border=bs, fill=is_title)
+                            p.cell(12, 6, c_s, border=bs, align='C', fill=is_title)
+                            p.cell(25, 6, u_s, border=bs, align='C', fill=is_title)
+                            p.cell(20, 6, pu, border=bs, align='R', fill=is_title)
+                            if c_modo != "AIU":
+                                p.cell(20, 6, imps, border=bs, align='C', fill=is_title)
+                            p.cell(25, 6, tot_s, border=bs, align='R', fill=is_title, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                         else:
-                            p.cell(10, 6, "", border=bs, align='C', fill=is_title); p.cell(78, 6, f" {l_txt}", border=bs, fill=is_title); p.cell(12, 6, "", border=bs, align='C', fill=is_title); p.cell(25, 6, "", border=bs, align='C', fill=is_title); p.cell(20, 6, "", border=bs, align='R', fill=is_title); p.cell(20, 6, "", border=bs, align='C', fill=is_title); p.cell(25, 6, "", border=bs, align='R', fill=is_title, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                            p.cell(10, 6, "", border=bs, align='C', fill=is_title)
+                            p.cell(ancho_desc, 6, f" {l_txt}", border=bs, fill=is_title)
+                            p.cell(12, 6, "", border=bs, align='C', fill=is_title)
+                            p.cell(25, 6, "", border=bs, align='C', fill=is_title)
+                            p.cell(20, 6, "", border=bs, align='R', fill=is_title)
+                            if c_modo != "AIU":
+                                p.cell(20, 6, "", border=bs, align='C', fill=is_title)
+                            p.cell(25, 6, "", border=bs, align='R', fill=is_title, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
                 def p_tot(lbl, val, b=False):
                     if b: p.set_font('helvetica', 'B', 9)
@@ -1102,11 +1117,10 @@ def main(page: ft.Page):
             ft.ElevatedButton("CLIENTES", icon=ft.icons.GROUPS, bgcolor="#334155", color="white", on_click=abrir_modal_clientes),
             ft.ElevatedButton("USUARIOS", icon=ft.icons.SECURITY, bgcolor="#334155", color="white", on_click=abrir_modal_usuarios),
             ft.ElevatedButton("HISTORIAL", icon=ft.icons.HISTORY, bgcolor="#334155", color="white", on_click=abrir_modal_historial),
-            ft.ElevatedButton("LIMPIAR", icon=ft.icons.DELETE_SWEEP, bgcolor="#475569", color="white", on_click=limpiar_todo)
+            ft.ElevatedButton("LIMPIAR", icon=ft.icons.DELETE_SWEEP, bgcolor="#475569", color="white", on_click=limpiar_todo),
+            # --- EL BOTÓN SISTEMA AHORA ES VISIBLE PARA TODOS LOS USUARIOS ---
+            ft.ElevatedButton("SISTEMA", icon=ft.icons.SETTINGS, bgcolor="#475569", color="white", on_click=abrir_modal_sistema)
         ]
-        
-        if sesion["usuario"] in ["OMERA", "PLEAL"]: 
-            botones_lista.append(ft.ElevatedButton("SISTEMA", icon=ft.icons.SETTINGS, bgcolor="#475569", color="white", on_click=abrir_modal_sistema))
             
         botones_lista.append(ft.ElevatedButton("SALIR", icon=ft.icons.LOGOUT, bgcolor="#ef4444", color="white", on_click=lambda e: mostrar_login()))
 
@@ -1140,6 +1154,18 @@ def main(page: ft.Page):
             ft.Container(content=ft.ElevatedButton("GENERAR COTIZACIÓN PROFESIONAL", icon=ft.icons.BOLT, bgcolor="#f59e0b", color="black", height=50, on_click=generar_pdf_web), alignment=ft.alignment.center, padding=ft.padding.only(top=10, bottom=20))
         )
         page.update()
+
+        # --- AVISO DE BACKUP RESTRINGIDO SOLO A LUNES (0) Y VIERNES (4) ---
+        dia_actual = datetime.now().weekday()
+        if dia_actual == 0 or dia_actual == 4:
+            snack_recordatorio = ft.SnackBar(
+                ft.Text("🛡️ RECORDATORIO: Por favor, genere un Backup en 'SISTEMA' periódicamente para salvaguardar la información contra vulnerabilidades o ciberataques.", color="black", weight="bold"),
+                bgcolor="#fbbf24",
+                duration=10000,
+                open=True
+            )
+            page.overlay.append(snack_recordatorio)
+            page.update()
 
     mostrar_login()
 
