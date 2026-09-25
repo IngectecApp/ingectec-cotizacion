@@ -180,8 +180,6 @@ def main(page: ft.Page):
         input_notas = ft.TextField(label="Notas adicionales", value="Toda la actividad será coordinada por el ingeniero Edward Álvarez y/o John Paniagua", multiline=True)
         input_pct_a = ft.TextField(label="Admin %", value="10"); input_pct_i = ft.TextField(label="Imprev %", value="2")
         input_pct_u = ft.TextField(label="Util %", value="8"); input_pct_iva_u = ft.TextField(label="IVA s/U %", value="19")
-        
-        # --- NUEVO NOMBRE: UTILIDAD % ---
         input_pct_ganancia = ft.TextField(label="Utilidad %", value="0")
         
         lista_busqueda_cli = ft.ListView(height=150, visible=False, spacing=2)
@@ -211,7 +209,6 @@ def main(page: ft.Page):
             cont_i.visible = es_aiu
             cont_u.visible = es_aiu
             cont_iva_u.visible = es_aiu
-            
             cont_ganancia.visible = es_iva
             
             if es_aiu: 
@@ -391,7 +388,7 @@ def main(page: ft.Page):
                             i_desc.value=desc; i_pre.value=str(int(float(prec)))
                             i_und.value = "ML" if ("TUBO" in desc.upper() or "CABLE" in desc.upper()) else ("GLB" if "INSTALACION" in desc.upper() else "UNID")
                             i_und_c.visible=False; i_cant.col={"sm":3}; i_und.col={"sm":4}; i_pre.col={"sm":5}; page.update()
-                        subt = f"${int(float(p)):,}" + (f" (Prov: {prov})" if prov else "")
+                        subt = f"${int(float(p)):,}" + (f" ({prov})" if prov else "")
                         res_inv.controls.append(ft.ListTile(title=ft.Text(d, color="#fbbf24", size=14), subtitle=ft.Text(subt, color="#94a3b8"), on_click=sel))
                     db.close()
                 page.update()
@@ -548,6 +545,7 @@ def main(page: ft.Page):
                         fh = datetime.now().strftime("%Y-%m-%d")
                         c=db.cursor(); c.execute("INSERT INTO inv (d, p, stock, proveedor, fecha_act) VALUES (%s,%s,0,'',%s) ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p, fecha_act=EXCLUDED.fecha_act", (e_desc.value.upper(), p_val_iva, fh)); db.commit(); db.close(); e_desc.value=""; e_precio.value=""; b_bod(None); load_cat(None); mostrar_snack("✅ Guardado con IVA 19% aplicado", "#2563eb")
 
+                # --- NUEVA LÓGICA DE MASIVO (SOLO ANOTA EL MÁS BARATO, SIN REPETICIONES) ---
                 def p_mas(evt):
                     if not e_mas.value.strip(): return
                     db=conectar_db()
@@ -567,19 +565,23 @@ def main(page: ft.Page):
                                 
                                 if pr > 0: 
                                     pr_iva = pr * 1.19
-                                    if item not in evaluados: evaluados[item] = {"prov": prov, "prec": pr_iva}
+                                    if item not in evaluados: 
+                                        evaluados[item] = {"max_p": pr_iva, "max_prov": prov, "min_p": pr_iva, "min_prov": prov}
                                     else:
-                                        precio_alto_existente = evaluados[item]["prec"]
-                                        if pr_iva > precio_alto_existente:
-                                            prov_viejo = evaluados[item]["prov"]
-                                            evaluados[item] = {"prov": f"Cotizar con: {prov} | +Barato en: {prov_viejo}", "prec": pr_iva}
-                                        else:
-                                            prov_caro_exist = evaluados[item]["prov"]
-                                            if "| +Barato en" not in prov_caro_exist:
-                                                evaluados[item]["prov"] = f"Cotizar con: {prov_caro_exist} | +Barato en: {prov}"
+                                        if pr_iva > evaluados[item]["max_p"]:
+                                            evaluados[item]["max_p"] = pr_iva
+                                            evaluados[item]["max_prov"] = prov
+                                        if pr_iva < evaluados[item]["min_p"]:
+                                            evaluados[item]["min_p"] = pr_iva
+                                            evaluados[item]["min_prov"] = prov
                         
                         for itm, data in evaluados.items():
-                            c.execute("INSERT INTO inv (d, p, stock, proveedor, fecha_act) VALUES (%s,%s,0,%s,%s) ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p, proveedor=EXCLUDED.proveedor, fecha_act=EXCLUDED.fecha_act", (itm, data["prec"], data["prov"], fh))
+                            if data["max_prov"] == data["min_prov"]:
+                                final_prov = data["max_prov"]
+                            else:
+                                final_prov = f"Cotizar con: {data['max_prov']} | Comprar en: {data['min_prov']}"
+                            
+                            c.execute("INSERT INTO inv (d, p, stock, proveedor, fecha_act) VALUES (%s,%s,0,%s,%s) ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p, proveedor=EXCLUDED.proveedor, fecha_act=EXCLUDED.fecha_act", (itm, data["max_p"], final_prov, fh))
                             ag+=1
                         
                         db.commit(); db.close(); e_mas.value=""; b_bod(None); load_cat(None)
@@ -598,6 +600,7 @@ def main(page: ft.Page):
                     else: lst_comp.visible = False
                     page.update()
 
+                # --- NUEVA LÓGICA DE COMPARADOR (SOLO ANOTA EL MÁS BARATO, SIN REPETICIONES) ---
                 def run_comp(evt):
                     itm = c_item.value.strip().upper()
                     if not itm: return mostrar_alerta("Aviso", "Ingresa ítem.")
@@ -617,7 +620,7 @@ def main(page: ft.Page):
                     gp_barato, gpr_bajo = min(ofs, key=lambda x: x[1])
                     
                     if gp_caro == gp_barato: string_prov = gp_caro
-                    else: string_prov = f"Cotiza con: {gp_caro} | +Barato en: {gp_barato}"
+                    else: string_prov = f"Cotizar con: {gp_caro} | Comprar en: {gp_barato}"
 
                     db = conectar_db()
                     if db:
@@ -1007,7 +1010,6 @@ def main(page: ft.Page):
                 
                 # --- RESPALDO SEGURO DEL IVA PARA MODO 'IVA' ---
                 if c_modo == "IVA" and not iva_bases:
-                    # Si no hay ítems marcados con IVA explícito, el sistema fuerza 19% al total para que no desaparezca.
                     tot_fin += subtotal * 0.19
                 else:
                     for p_iva, b_amt in iva_bases.items(): tot_fin += b_amt * (p_iva / 100)
