@@ -112,7 +112,6 @@ def main(page: ft.Page):
     lista_items = []
     estado = {"nro_edicion": None, "creador_edicion": None, "permitidos_edicion": []}
 
-    # --- NUEVAS FUNCIONES DE NOTIFICACIÓN COMPATIBLES CON FLET 0.23+ ---
     def mostrar_alerta(titulo, mensaje):
         dlg = ft.AlertDialog(title=ft.Text(titulo, weight="bold", color="#fbbf24"), content=ft.Text(str(mensaje)), open=True)
         def cerrar(e):
@@ -371,9 +370,14 @@ def main(page: ft.Page):
                 
                 c_item = ft.TextField(label="Buscar Ítem para cotizar...")
                 lst_comp = ft.ListView(height=100, visible=False, spacing=2)
+                
+                # --- NUEVO: AHORA CON 6 PROVEEDORES PARA EL COMPARADOR ---
                 c_p1 = ft.Dropdown(label="Proveedor 1", col={"sm": 6}); c_pr1 = ft.TextField(label="Precio 1", col={"sm": 6})
                 c_p2 = ft.Dropdown(label="Proveedor 2", col={"sm": 6}); c_pr2 = ft.TextField(label="Precio 2", col={"sm": 6})
                 c_p3 = ft.Dropdown(label="Proveedor 3", col={"sm": 6}); c_pr3 = ft.TextField(label="Precio 3", col={"sm": 6})
+                c_p4 = ft.Dropdown(label="Proveedor 4", col={"sm": 6}); c_pr4 = ft.TextField(label="Precio 4", col={"sm": 6})
+                c_p5 = ft.Dropdown(label="Proveedor 5", col={"sm": 6}); c_pr5 = ft.TextField(label="Precio 5", col={"sm": 6})
+                c_p6 = ft.Dropdown(label="Proveedor 6", col={"sm": 6}); c_pr6 = ft.TextField(label="Precio 6", col={"sm": 6})
 
                 e_pnom = ft.TextField(label="Nombre Proveedor*", expand=2)
                 e_ptel = ft.TextField(label="Teléfono", expand=1)
@@ -390,30 +394,27 @@ def main(page: ft.Page):
                         c=db.cursor(); c.execute("SELECT nombre, telefono FROM proveedores ORDER BY nombre ASC")
                         for n, t in c.fetchall():
                             ops.append(ft.dropdown.Option(n))
-                            # --- CREACIÓN DE FILA SEGURA PARA BORRADO ---
-                            tile = ft.ListTile(title=ft.Text(n, color="#fbbf24"), subtitle=ft.Text(f"Tel: {t} (Clic para editar)"))
+                            def ed(ev, nom=n, tel=t): e_pnom.value=nom; e_ptel.value=tel; page.update()
                             
-                            def ed(ev, nom=n, tel=t): 
-                                e_pnom.value=nom; e_ptel.value=tel; e_pnom.update(); e_ptel.update()
-                            
-                            def rm(ev, nom=n, t_item=tile): 
+                            def rm(ev, nom=n): 
                                 try:
                                     dbd=conectar_db(); cd=dbd.cursor()
                                     cd.execute("DELETE FROM proveedores WHERE nombre = %s", (nom,))
                                     dbd.commit(); dbd.close()
-                                    # Eliminación quirúrgica: no recargamos toda la lista, solo borramos la fila seleccionada
-                                    if t_item in lst_provs.controls:
-                                        lst_provs.controls.remove(t_item)
-                                        lst_provs.update()
-                                    mostrar_snack(f"🗑️ Proveedor {nom} eliminado exitosamente", "#ef4444")
+                                    mostrar_snack(f"🗑️ Proveedor eliminado exitosamente", "#ef4444")
+                                    load_provs()
                                 except Exception as ex:
                                     mostrar_alerta("Error al eliminar", str(ex))
 
+                            tile = ft.ListTile(title=ft.Text(n, color="#fbbf24"), subtitle=ft.Text(f"Tel: {t} (Clic para editar)"))
                             tile.on_click = ed
                             tile.trailing = ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=rm)
                             lst_provs.controls.append(tile)
                         db.close()
+                    
+                    # ASIGNAR LOS PROVEEDORES A LOS 6 CAMPOS DEL COMPARADOR
                     c_p1.options=ops; c_p2.options=ops; c_p3.options=ops
+                    c_p4.options=ops; c_p5.options=ops; c_p6.options=ops
                     try: page.update()
                     except: pass
 
@@ -424,7 +425,7 @@ def main(page: ft.Page):
                         nom_limpio = e_pnom.value.strip().upper()
                         c=db.cursor(); c.execute("INSERT INTO proveedores (nombre, telefono) VALUES (%s,%s) ON CONFLICT(nombre) DO UPDATE SET telefono=EXCLUDED.telefono", (nom_limpio, e_ptel.value.strip()))
                         db.commit(); db.close(); e_pnom.value=""; e_ptel.value=""
-                        mostrar_snack(f"✅ Proveedor guardado exitosamente")
+                        mostrar_snack(f"✅ Proveedor guardado")
                         load_provs()
 
                 def p_mas_provs(evt):
@@ -453,7 +454,7 @@ def main(page: ft.Page):
                                     ag+=1
                             db.commit(); db.close()
                             e_pmas.value = ""
-                            mostrar_snack(f"✅ {ag} proveedores procesados y guardados exitosamente")
+                            mostrar_snack(f"✅ {ag} proveedores procesados exitosamente")
                             load_provs()
                     except Exception as ex:
                         mostrar_alerta("Error en Carga Masiva", str(ex))
@@ -475,26 +476,15 @@ def main(page: ft.Page):
                                     if (hoy_dt - datetime.strptime(fa_raw, "%Y-%m-%d")).days <= 5: fa = fa_raw
                                 except: pass
                             
+                            def sel(ev, desc=d, prec=p): e_desc.value=desc; e_precio.value=str(int(float(prec))); page.update()
+                            def rm(ev, desc=d): dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM inv WHERE d=%s", (desc,)); dbd.commit(); dbd.close(); b_bod(None); load_cat(None); mostrar_snack("🗑️ Ítem eliminado", "#ef4444")
+                            
                             subt = f"${int(float(p)):,}" + (f" (Prov: {prov})" if prov else "") + (f" - Act: {fa}")
                             tile = ft.ListTile(title=ft.Text(d, size=13, color="#fbbf24", weight="bold"), subtitle=ft.Text(subt))
-                            
-                            def sel(ev, desc=d, prec=p): 
-                                e_desc.value=desc; e_precio.value=str(int(float(prec)))
-                                e_desc.update(); e_precio.update()
-                            
-                            def rm(ev, desc=d, t_item=tile): 
-                                dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM inv WHERE d=%s", (desc,)); dbd.commit(); dbd.close()
-                                if t_item in resultados_bod.controls:
-                                    resultados_bod.controls.remove(t_item)
-                                    resultados_bod.update()
-                                mostrar_snack("🗑️ Ítem eliminado", "#ef4444")
-                                
                             tile.on_click = sel
                             tile.trailing = ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=rm)
                             resultados_bod.controls.append(tile)
-                        db.close()
-                    try: page.update()
-                    except: pass
+                        db.close(); page.update()
 
                 def s_bod(evt):
                     if not e_desc.value: return
@@ -554,7 +544,9 @@ def main(page: ft.Page):
                     itm = c_item.value.strip().upper()
                     if not itm: return mostrar_alerta("Aviso", "Ingresa ítem.")
                     ofs = []
-                    for pr, pc in [(c_p1.value, c_pr1.value), (c_p2.value, c_pr2.value), (c_p3.value, c_pr3.value)]:
+                    # EVALUANDO LOS 6 ESPACIOS DEL COMPARADOR
+                    for pr, pc in [(c_p1.value, c_pr1.value), (c_p2.value, c_pr2.value), (c_p3.value, c_pr3.value),
+                                   (c_p4.value, c_pr4.value), (c_p5.value, c_pr5.value), (c_p6.value, c_pr6.value)]:
                         if pr and pc:
                             try: 
                                 p_float = float(pc)
@@ -567,7 +559,9 @@ def main(page: ft.Page):
                     if db:
                         fh = datetime.now().strftime("%Y-%m-%d")
                         c=db.cursor(); c.execute("INSERT INTO inv (d, p, stock, proveedor, fecha_act) VALUES (%s, %s, 0, %s, %s) ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p, proveedor=EXCLUDED.proveedor, fecha_act=EXCLUDED.fecha_act", (itm, gpr, gp, fh)); db.commit(); db.close()
-                        c_item.value=""; c_p1.value=None; c_pr1.value=""; c_p2.value=None; c_pr2.value=""; c_p3.value=None; c_pr3.value=""; b_bod(None); load_cat(None)
+                        c_item.value=""; c_p1.value=None; c_pr1.value=""; c_p2.value=None; c_pr2.value=""; c_p3.value=None; c_pr3.value=""
+                        c_p4.value=None; c_pr4.value=""; c_p5.value=None; c_pr5.value=""; c_p6.value=None; c_pr6.value=""
+                        b_bod(None); load_cat(None)
                         mostrar_snack(f"🏆 GANADOR: {gp} (${int(gpr):,}). Ítem actualizado.", "#8b5cf6")
 
                 def load_cat(evt):
@@ -603,7 +597,21 @@ def main(page: ft.Page):
                         selected_index=0, tabs=[
                             ft.Tab(text="🔍 Buscar", content=ft.Column([ft.Container(height=10), e_desc, e_precio, ft.ElevatedButton("Guardar Precio / Actualizar Fecha", bgcolor="#2563eb", on_click=s_bod), resultados_bod], tight=True)),
                             ft.Tab(text="📥 Masivo / Comparar", content=ft.Column([ft.Container(height=10), ft.Text("Si un ítem se repite con diferentes proveedores, el sistema elegirá el precio más bajo automáticamente.", color="#fbbf24", size=12), e_mas, ft.ElevatedButton("Importar y Analizar Ganadores", bgcolor="#10b981", on_click=p_mas)], tight=True)),
-                            ft.Tab(text="⚖️ Comparador", content=ft.Column([ft.Container(height=10), ft.Text("Se elegirá el menor precio y se guardará en la BD principal con la Fecha de Hoy.", color="#10b981", size=12), c_item, lst_comp, ft.ResponsiveRow([c_p1, c_pr1]), ft.ResponsiveRow([c_p2, c_pr2]), ft.ResponsiveRow([c_p3, c_pr3]), ft.ElevatedButton("Analizar", bgcolor="#8b5cf6", color="white", on_click=run_comp)], tight=True, scroll=ft.ScrollMode.AUTO)),
+                            
+                            # --- PESTAÑA COMPARADOR REDISEÑADA PARA 6 PROVEEDORES ---
+                            ft.Tab(text="⚖️ Comparador", content=ft.Column([
+                                ft.Container(height=10), 
+                                ft.Text("Se elegirá el menor precio y se guardará en la BD principal con la Fecha de Hoy.", color="#10b981", size=12), 
+                                c_item, lst_comp, 
+                                ft.ResponsiveRow([c_p1, c_pr1]), 
+                                ft.ResponsiveRow([c_p2, c_pr2]), 
+                                ft.ResponsiveRow([c_p3, c_pr3]), 
+                                ft.ResponsiveRow([c_p4, c_pr4]), 
+                                ft.ResponsiveRow([c_p5, c_pr5]), 
+                                ft.ResponsiveRow([c_p6, c_pr6]), 
+                                ft.ElevatedButton("Analizar", bgcolor="#8b5cf6", color="white", on_click=run_comp)
+                            ], tight=True, scroll=ft.ScrollMode.AUTO)),
+                            
                             ft.Tab(text="📜 Catálogo (Fechas)", content=ft.Column([ft.Container(height=10), ft.Text("Los ítems de más de 6 días se marcan como 'Antigua':", color="#fbbf24", size=12), filtro_cat, lst_cat], tight=True, scroll=ft.ScrollMode.AUTO)),
                             
                             ft.Tab(text="🏢 Provs.", content=ft.Column([
@@ -637,19 +645,12 @@ def main(page: ft.Page):
                 if db:
                     c=db.cursor(); c.execute("SELECT n, i, ciu, tel FROM cli ORDER BY n ASC")
                     for n, i, ciu, tel in c.fetchall():
-                        tile = ft.ListTile(title=ft.Text(n, color="#fbbf24"), subtitle=ft.Text(f"NIT:{i} | Ciu:{ciu} | Tel:{tel}"))
-                        
                         def ed(ev, nom=n): 
                             dbi=conectar_db(); ci=dbi.cursor(); ci.execute("SELECT n, i, dir, email, ciu, tel FROM cli WHERE n=%s", (nom,)); cd = ci.fetchone(); dbi.close()
                             if cd: cn.value, ci.value, cd.value, ce.value, cc.value, ct.value = cd; page.update()
+                        def rm(ev, nom=n): dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM cli WHERE n=%s", (nom,)); dbd.commit(); dbd.close(); load_cli(); mostrar_snack("🗑️ Cliente eliminado", "#ef4444")
                         
-                        def rm(ev, nom=n, t_item=tile): 
-                            dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM cli WHERE n=%s", (nom,)); dbd.commit(); dbd.close()
-                            if t_item in r_cli.controls:
-                                r_cli.controls.remove(t_item)
-                                r_cli.update()
-                            mostrar_snack("🗑️ Cliente eliminado", "#ef4444")
-                            
+                        tile = ft.ListTile(title=ft.Text(n, color="#fbbf24"), subtitle=ft.Text(f"NIT:{i} | Ciu:{ciu} | Tel:{tel}"))
                         tile.on_click = ed
                         tile.trailing = ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=rm)
                         r_cli.controls.append(tile)
@@ -712,23 +713,14 @@ def main(page: ft.Page):
                 if db:
                     c=db.cursor(); c.execute("SELECT usuario, rol, bloqueado FROM usuarios ORDER BY usuario ASC")
                     for u, r, b in c.fetchall():
-                        tile = ft.ListTile(title=ft.Text(f"{u}{' (Bloqueado)' if b==1 else ''}", color="#ef4444" if b==1 else "#fbbf24"), subtitle=ft.Text(r))
-                        
                         def ed(ev, us=u, ro=r): un.value=us; ur.value=ro; up.value=""; page.update()
+                        def rm(ev, us=u): dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM usuarios WHERE usuario=%s", (us,)); dbd.commit(); dbd.close(); load_u(); mostrar_snack("🗑️ Usuario eliminado", "#ef4444")
+                        def dbq(ev, us=u): dbu=conectar_db(); cu=dbu.cursor(); cu.execute("UPDATE usuarios SET intentos=0, bloqueado=0 WHERE usuario=%s", (us,)); dbu.commit(); dbu.close(); load_u()
                         
-                        def rm(ev, us=u, t_item=tile): 
-                            dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM usuarios WHERE usuario=%s", (us,)); dbd.commit(); dbd.close()
-                            if t_item in res_u.controls:
-                                res_u.controls.remove(t_item)
-                                res_u.update()
-                            mostrar_snack("🗑️ Usuario eliminado", "#ef4444")
-                            
-                        def dbq(ev, us=u): 
-                            dbu=conectar_db(); cu=dbu.cursor(); cu.execute("UPDATE usuarios SET intentos=0, bloqueado=0 WHERE usuario=%s", (us,)); dbu.commit(); dbu.close(); load_u()
-                            
                         bts = [ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=rm)]
                         if b==1: bts.insert(0, ft.IconButton(ft.icons.LOCK_OPEN, icon_color="#10b981", on_click=dbq))
                         
+                        tile = ft.ListTile(title=ft.Text(f"{u}{' (Bloqueado)' if b==1 else ''}", color="#ef4444" if b==1 else "#fbbf24"), subtitle=ft.Text(r))
                         tile.on_click = ed
                         tile.trailing = ft.Row(bts, tight=True)
                         res_u.controls.append(tile)
@@ -1111,6 +1103,15 @@ def main(page: ft.Page):
             f_cli, 
             ft.Container(content=ft.ElevatedButton("GENERAR COTIZACIÓN PROFESIONAL", icon=ft.icons.BOLT, bgcolor="#f59e0b", color="black", height=50, on_click=generar_pdf_web), alignment=ft.alignment.center, padding=ft.padding.only(top=10, bottom=20))
         )
+        page.update()
+
+        snack_recordatorio = ft.SnackBar(
+            ft.Text("🛡️ RECORDATORIO: Por favor, genere un Backup en 'SISTEMA' periódicamente para salvaguardar la información contra vulnerabilidades o ciberataques.", color="black", weight="bold"),
+            bgcolor="#fbbf24",
+            duration=10000,
+            open=True
+        )
+        page.overlay.append(snack_recordatorio)
         page.update()
 
     mostrar_login()
