@@ -60,7 +60,8 @@ def init_db():
             nro TEXT PRIMARY KEY, cli TEXT, nit TEXT, atn TEXT, ref TEXT, ciu_origen TEXT, t_entrega TEXT, validez TEXT, pago TEXT, garantia TEXT, notas TEXT, modo TEXT, pct_a NUMERIC, pct_i NUMERIC, pct_u NUMERIC, pct_iva_u NUMERIC
         )""")
         
-        for col, tipo in [("atn", "TEXT"), ("ref", "TEXT"), ("ciu_origen", "TEXT"), ("t_entrega", "TEXT"), ("validez", "TEXT"), ("pago", "TEXT"), ("garantia", "TEXT"), ("notas", "TEXT"), ("modo", "TEXT"), ("pct_a", "NUMERIC"), ("pct_i", "NUMERIC"), ("pct_u", "NUMERIC"), ("pct_iva_u", "NUMERIC")]:
+        # Agregamos pct_ganancia a la base de datos
+        for col, tipo in [("atn", "TEXT"), ("ref", "TEXT"), ("ciu_origen", "TEXT"), ("t_entrega", "TEXT"), ("validez", "TEXT"), ("pago", "TEXT"), ("garantia", "TEXT"), ("notas", "TEXT"), ("modo", "TEXT"), ("pct_a", "NUMERIC"), ("pct_i", "NUMERIC"), ("pct_u", "NUMERIC"), ("pct_iva_u", "NUMERIC"), ("pct_ganancia", "NUMERIC DEFAULT 0")]:
             try: c.execute(f"ALTER TABLE h_cab ADD COLUMN IF NOT EXISTS {col} {tipo}")
             except: pass
 
@@ -180,12 +181,17 @@ def main(page: ft.Page):
         input_notas = ft.TextField(label="Notas adicionales", value="Toda la actividad será coordinada por el ingeniero Edward Álvarez y/o John Paniagua", multiline=True)
         input_pct_a = ft.TextField(label="Admin %", value="10"); input_pct_i = ft.TextField(label="Imprev %", value="2")
         input_pct_u = ft.TextField(label="Util %", value="8"); input_pct_iva_u = ft.TextField(label="IVA s/U %", value="19")
+        
+        # --- NUEVO: CASILLA DE RENTABILIDAD GLOBAL ---
+        input_pct_ganancia = ft.TextField(label="Ganancia Global %", value="0")
+        
         lista_busqueda_cli = ft.ListView(height=150, visible=False, spacing=2)
 
         dropdown_modo_cot = ft.Dropdown(label="Tipo Cotización", options=[ft.dropdown.Option("AIU"), ft.dropdown.Option("IVA")], value="AIU")
         container_texto_aiu = ft.Container(content=ft.Text("⚙️ Config. AIU:", weight="bold", color="#fbbf24"), col={"sm": 12, "md": 2, "lg": 2}, alignment=ft.alignment.center_left)
         cont_a = ft.Container(content=input_pct_a, col={"sm": 3, "md": 2, "lg": 2}); cont_i = ft.Container(content=input_pct_i, col={"sm": 3, "md": 2, "lg": 2})
         cont_u = ft.Container(content=input_pct_u, col={"sm": 3, "md": 2, "lg": 2}); cont_iva_u = ft.Container(content=input_pct_iva_u, col={"sm": 3, "md": 2, "lg": 2})
+        cont_ganancia = ft.Container(content=input_pct_ganancia, col={"sm": 6, "md": 2, "lg": 2})
 
         def verificar_permiso_edicion(mostrar_aviso=True):
             if estado.get("nro_edicion") and estado.get("creador_edicion"):
@@ -222,29 +228,39 @@ def main(page: ft.Page):
             if res: nro_actual = f"{datetime.now().strftime('%m')}-{res[0]:03d}"
             db_num.close()
 
+        # --- APLICADOR DINÁMICO DE RENTABILIDAD ---
         def obtener_items_procesados(lista):
+            try: g_pct = float(input_pct_ganancia.value or 0)
+            except: g_pct = 0.0
+            factor_ganancia = 1 + (g_pct / 100.0)
+
             disp = []; curr_p = -1; np, ns = 0, 0
             for i, it in enumerate(lista):
+                precio_con_ganancia = float(it['precio']) * factor_ganancia
                 if it.get('tipo', 'P') == 'P':
                     np += 1; ns = 0; curr_p = len(disp)
                     disp.append({
                         "raw_idx": i, "desc": it['desc'], "cant": float(it['cant']), "und": it.get('und', ''),
-                        "precio": float(it['precio']), "total": float(it['total']), 
+                        "precio": precio_con_ganancia, "total": precio_con_ganancia * float(it['cant']), 
                         "impuesto": it.get('impuesto', ''), "tipo": 'P', "num": str(np), "has_subs": False
                     })
                 else:
                     ns += 1
+                    total_sub = precio_con_ganancia * float(it['cant'])
                     disp.append({
                         "raw_idx": i, "desc": it['desc'], "cant": float(it['cant']), "und": it.get('und', ''),
-                        "precio": float(it['precio']), "total": float(it['total']), 
+                        "precio": precio_con_ganancia, "total": total_sub, 
                         "impuesto": it.get('impuesto', ''), "tipo": 'S', "num": f"{np}.{ns}"
                     })
                     if curr_p != -1:
                         disp[curr_p]['has_subs'] = True
-                        disp[curr_p]['total'] += float(it['total'])
+                        disp[curr_p]['total'] += total_sub
                         if disp[curr_p]['cant'] == 0: disp[curr_p]['cant'] = 1
                         disp[curr_p]['precio'] = disp[curr_p]['total'] / disp[curr_p]['cant']
             return disp
+
+        # Si cambias el porcentaje de ganancia, se actualiza la tabla matemáticamente
+        input_pct_ganancia.on_change = lambda e: actualizar_tabla_visual()
 
         columna_tabla_items = ft.Column()
         def actualizar_tabla_visual():
@@ -278,9 +294,25 @@ def main(page: ft.Page):
                     def on_c(e):
                         if not verificar_permiso_edicion(): return
                         ec = ft.TextField(label="Cant", value=str(lista_items[idx_r]['cant']))
-                        ep = ft.TextField(label="Precio (Uso Interno)", value=str(int(lista_items[idx_r]['precio'])))
+                        # Muestra siempre el costo original
+                        ep = ft.TextField(label="Costo Proveedor (Sin ganancia)", value=str(int(lista_items[idx_r]['precio'])))
                         
-                        dlg_e = ft.AlertDialog(title=ft.Text(f"Editar: {lista_items[idx_r]['desc']}"), content=ft.Column([ec, ep], tight=True), open=True)
+                        # --- NUEVO: FLECHAS PARA MOVER DE POSICIÓN ---
+                        def move_up(ev):
+                            if idx_r > 0:
+                                lista_items[idx_r], lista_items[idx_r-1] = lista_items[idx_r-1], lista_items[idx_r]
+                                actualizar_tabla_visual(); cerrar_dialogo(dlg_e)
+                        
+                        def move_down(ev):
+                            if idx_r < len(lista_items) - 1:
+                                lista_items[idx_r], lista_items[idx_r+1] = lista_items[idx_r+1], lista_items[idx_r]
+                                actualizar_tabla_visual(); cerrar_dialogo(dlg_e)
+                        
+                        btn_up = ft.IconButton(ft.icons.ARROW_UPWARD, on_click=move_up, tooltip="Subir posición", icon_color="#3b82f6")
+                        btn_down = ft.IconButton(ft.icons.ARROW_DOWNWARD, on_click=move_down, tooltip="Bajar posición", icon_color="#3b82f6")
+                        row_arrows = ft.Row([ft.Text("Mover de posición:", size=12, color="#94a3b8"), btn_up, btn_down], alignment=ft.MainAxisAlignment.CENTER)
+
+                        dlg_e = ft.AlertDialog(title=ft.Text(f"Editar: {lista_items[idx_r]['desc']}"), content=ft.Column([ec, ep, row_arrows], tight=True), open=True)
                         
                         def s(ev):
                             try: 
@@ -365,19 +397,18 @@ def main(page: ft.Page):
             try:
                 resultados_bod = ft.ListView(height=180)
                 e_desc = ft.TextField(label="Nombre Producto")
-                e_precio = ft.TextField(label="Precio Producto")
-                e_mas = ft.TextField(multiline=True, min_lines=6, max_lines=10, label="Pega Excel (Col 1: Ítem | Col 2: Proveedor | Col 3: Precio)")
+                e_precio = ft.TextField(label="Costo Producto (Se sumará 19% de IVA auto)")
+                e_mas = ft.TextField(multiline=True, min_lines=6, max_lines=10, label="Pega Excel (Col 1: Ítem | Col 2: Prov | Col 3: Costo Neto)")
                 
                 c_item = ft.TextField(label="Buscar Ítem para cotizar...")
                 lst_comp = ft.ListView(height=100, visible=False, spacing=2)
                 
-                # --- NUEVO: AHORA CON 6 PROVEEDORES PARA EL COMPARADOR ---
-                c_p1 = ft.Dropdown(label="Proveedor 1", col={"sm": 6}); c_pr1 = ft.TextField(label="Precio 1", col={"sm": 6})
-                c_p2 = ft.Dropdown(label="Proveedor 2", col={"sm": 6}); c_pr2 = ft.TextField(label="Precio 2", col={"sm": 6})
-                c_p3 = ft.Dropdown(label="Proveedor 3", col={"sm": 6}); c_pr3 = ft.TextField(label="Precio 3", col={"sm": 6})
-                c_p4 = ft.Dropdown(label="Proveedor 4", col={"sm": 6}); c_pr4 = ft.TextField(label="Precio 4", col={"sm": 6})
-                c_p5 = ft.Dropdown(label="Proveedor 5", col={"sm": 6}); c_pr5 = ft.TextField(label="Precio 5", col={"sm": 6})
-                c_p6 = ft.Dropdown(label="Proveedor 6", col={"sm": 6}); c_pr6 = ft.TextField(label="Precio 6", col={"sm": 6})
+                c_p1 = ft.Dropdown(label="Proveedor 1", col={"sm": 6}); c_pr1 = ft.TextField(label="Costo Neto", col={"sm": 6})
+                c_p2 = ft.Dropdown(label="Proveedor 2", col={"sm": 6}); c_pr2 = ft.TextField(label="Costo Neto", col={"sm": 6})
+                c_p3 = ft.Dropdown(label="Proveedor 3", col={"sm": 6}); c_pr3 = ft.TextField(label="Costo Neto", col={"sm": 6})
+                c_p4 = ft.Dropdown(label="Proveedor 4", col={"sm": 6}); c_pr4 = ft.TextField(label="Costo Neto", col={"sm": 6})
+                c_p5 = ft.Dropdown(label="Proveedor 5", col={"sm": 6}); c_pr5 = ft.TextField(label="Costo Neto", col={"sm": 6})
+                c_p6 = ft.Dropdown(label="Proveedor 6", col={"sm": 6}); c_pr6 = ft.TextField(label="Costo Neto", col={"sm": 6})
 
                 e_pnom = ft.TextField(label="Nombre Proveedor*", expand=2)
                 e_ptel = ft.TextField(label="Teléfono", expand=1)
@@ -412,7 +443,6 @@ def main(page: ft.Page):
                             lst_provs.controls.append(tile)
                         db.close()
                     
-                    # ASIGNAR LOS PROVEEDORES A LOS 6 CAMPOS DEL COMPARADOR
                     c_p1.options=ops; c_p2.options=ops; c_p3.options=ops
                     c_p4.options=ops; c_p5.options=ops; c_p6.options=ops
                     try: page.update()
@@ -486,17 +516,21 @@ def main(page: ft.Page):
                             resultados_bod.controls.append(tile)
                         db.close(); page.update()
 
+                # --- AUTO IVA 19%: MULTIPLICAMOS * 1.19 AL GUARDAR ---
                 def s_bod(evt):
                     if not e_desc.value: return
                     try: p_val = float(e_precio.value or 0)
                     except: p_val = 0
                     if p_val <= 0: return mostrar_alerta("Error", "El precio debe ser mayor a 0.")
                     
+                    p_val_iva = p_val * 1.19 # AUTO IVA
+                    
                     db=conectar_db()
                     if db: 
                         fh = datetime.now().strftime("%Y-%m-%d")
-                        c=db.cursor(); c.execute("INSERT INTO inv (d, p, stock, proveedor, fecha_act) VALUES (%s,%s,0,'',%s) ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p, fecha_act=EXCLUDED.fecha_act", (e_desc.value.upper(), p_val, fh)); db.commit(); db.close(); e_desc.value=""; e_precio.value=""; b_bod(None); load_cat(None); mostrar_snack("✅ Guardado y fecha actualizada", "#2563eb")
+                        c=db.cursor(); c.execute("INSERT INTO inv (d, p, stock, proveedor, fecha_act) VALUES (%s,%s,0,'',%s) ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p, fecha_act=EXCLUDED.fecha_act", (e_desc.value.upper(), p_val_iva, fh)); db.commit(); db.close(); e_desc.value=""; e_precio.value=""; b_bod(None); load_cat(None); mostrar_snack("✅ Guardado con IVA 19% aplicado", "#2563eb")
 
+                # --- AUTO IVA 19% MASIVO ---
                 def p_mas(evt):
                     if not e_mas.value.strip(): return
                     db=conectar_db()
@@ -515,16 +549,17 @@ def main(page: ft.Page):
                                 except: pr = 0.0
                                 
                                 if pr > 0: 
-                                    if item not in evaluados: evaluados[item] = {"prov": prov, "prec": pr}
+                                    pr_iva = pr * 1.19 # AUTO IVA
+                                    if item not in evaluados: evaluados[item] = {"prov": prov, "prec": pr_iva}
                                     else:
-                                        if pr < evaluados[item]["prec"]: evaluados[item] = {"prov": prov, "prec": pr}
+                                        if pr_iva < evaluados[item]["prec"]: evaluados[item] = {"prov": prov, "prec": pr_iva}
                         
                         for itm, data in evaluados.items():
                             c.execute("INSERT INTO inv (d, p, stock, proveedor, fecha_act) VALUES (%s,%s,0,%s,%s) ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p, proveedor=EXCLUDED.proveedor, fecha_act=EXCLUDED.fecha_act", (itm, data["prec"], data["prov"], fh))
                             ag+=1
                         
                         db.commit(); db.close(); e_mas.value=""; b_bod(None); load_cat(None)
-                        mostrar_snack(f"✅ {ag} ítems evaluados y actualizados con éxito.")
+                        mostrar_snack(f"✅ {ag} ítems procesados con +19% de IVA.")
 
                 def b_comp(evt):
                     txt = (c_item.value or "").upper().strip(); lst_comp.controls.clear()
@@ -538,22 +573,22 @@ def main(page: ft.Page):
                             db.close(); lst_comp.visible = len(lst_comp.controls)>0
                     else: lst_comp.visible = False
                     page.update()
-                c_item.on_change = b_comp
 
+                # --- AUTO IVA 19% COMPARADOR ---
                 def run_comp(evt):
                     itm = c_item.value.strip().upper()
                     if not itm: return mostrar_alerta("Aviso", "Ingresa ítem.")
                     ofs = []
-                    # EVALUANDO LOS 6 ESPACIOS DEL COMPARADOR
                     for pr, pc in [(c_p1.value, c_pr1.value), (c_p2.value, c_pr2.value), (c_p3.value, c_pr3.value),
                                    (c_p4.value, c_pr4.value), (c_p5.value, c_pr5.value), (c_p6.value, c_pr6.value)]:
                         if pr and pc:
                             try: 
                                 p_float = float(pc)
                                 if p_float > 0:
-                                    ofs.append((pr, p_float))
+                                    p_iva = p_float * 1.19 # AUTO IVA
+                                    ofs.append((pr, p_iva))
                             except: pass
-                    if not ofs: return mostrar_alerta("Aviso", "Ingresa al menos un proveedor con precio válido (mayor a 0).")
+                    if not ofs: return mostrar_alerta("Aviso", "Ingresa al menos un proveedor con costo válido (mayor a 0).")
                     gp, gpr = min(ofs, key=lambda x: x[1])
                     db = conectar_db()
                     if db:
@@ -562,7 +597,7 @@ def main(page: ft.Page):
                         c_item.value=""; c_p1.value=None; c_pr1.value=""; c_p2.value=None; c_pr2.value=""; c_p3.value=None; c_pr3.value=""
                         c_p4.value=None; c_pr4.value=""; c_p5.value=None; c_pr5.value=""; c_p6.value=None; c_pr6.value=""
                         b_bod(None); load_cat(None)
-                        mostrar_snack(f"🏆 GANADOR: {gp} (${int(gpr):,}). Ítem actualizado.", "#8b5cf6")
+                        mostrar_snack(f"🏆 GANADOR: {gp} (${int(gpr):,}). Guardado con +19% IVA.", "#8b5cf6")
 
                 def load_cat(evt):
                     lst_cat.controls.clear(); txt = (filtro_cat.value or "").upper().strip(); db = conectar_db()
@@ -595,25 +630,17 @@ def main(page: ft.Page):
                     title=ft.Text("📦 Gestión de Bodega / Catálogo"), 
                     content=ft.Container(width=750, height=550, content=ft.Tabs(
                         selected_index=0, tabs=[
-                            ft.Tab(text="🔍 Buscar", content=ft.Column([ft.Container(height=10), e_desc, e_precio, ft.ElevatedButton("Guardar Precio / Actualizar Fecha", bgcolor="#2563eb", on_click=s_bod), resultados_bod], tight=True)),
-                            ft.Tab(text="📥 Masivo / Comparar", content=ft.Column([ft.Container(height=10), ft.Text("Si un ítem se repite con diferentes proveedores, el sistema elegirá el precio más bajo automáticamente.", color="#fbbf24", size=12), e_mas, ft.ElevatedButton("Importar y Analizar Ganadores", bgcolor="#10b981", on_click=p_mas)], tight=True)),
-                            
-                            # --- PESTAÑA COMPARADOR REDISEÑADA PARA 6 PROVEEDORES ---
+                            ft.Tab(text="🔍 Buscar", content=ft.Column([ft.Container(height=10), ft.Text("Ingreso Manual (Se suma +19% IVA automáticamente al Costo):", weight="bold", color="#fbbf24", size=12), e_desc, e_precio, ft.ElevatedButton("Guardar Precio / Actualizar Fecha", bgcolor="#2563eb", on_click=s_bod), resultados_bod], tight=True)),
+                            ft.Tab(text="📥 Masivo / Comparar", content=ft.Column([ft.Container(height=10), ft.Text("Se suma +19% de IVA al costo ingresado de forma automática.", color="#fbbf24", size=12), e_mas, ft.ElevatedButton("Importar y Analizar Ganadores", bgcolor="#10b981", on_click=p_mas)], tight=True)),
                             ft.Tab(text="⚖️ Comparador", content=ft.Column([
                                 ft.Container(height=10), 
-                                ft.Text("Se elegirá el menor precio y se guardará en la BD principal con la Fecha de Hoy.", color="#10b981", size=12), 
+                                ft.Text("Compite los COSTOS NETOS. El menor precio se guardará sumándole +19% IVA.", color="#10b981", size=12), 
                                 c_item, lst_comp, 
-                                ft.ResponsiveRow([c_p1, c_pr1]), 
-                                ft.ResponsiveRow([c_p2, c_pr2]), 
-                                ft.ResponsiveRow([c_p3, c_pr3]), 
-                                ft.ResponsiveRow([c_p4, c_pr4]), 
-                                ft.ResponsiveRow([c_p5, c_pr5]), 
-                                ft.ResponsiveRow([c_p6, c_pr6]), 
+                                ft.ResponsiveRow([c_p1, c_pr1]), ft.ResponsiveRow([c_p2, c_pr2]), ft.ResponsiveRow([c_p3, c_pr3]), 
+                                ft.ResponsiveRow([c_p4, c_pr4]), ft.ResponsiveRow([c_p5, c_pr5]), ft.ResponsiveRow([c_p6, c_pr6]), 
                                 ft.ElevatedButton("Analizar", bgcolor="#8b5cf6", color="white", on_click=run_comp)
                             ], tight=True, scroll=ft.ScrollMode.AUTO)),
-                            
                             ft.Tab(text="📜 Catálogo (Fechas)", content=ft.Column([ft.Container(height=10), ft.Text("Los ítems de más de 6 días se marcan como 'Antigua':", color="#fbbf24", size=12), filtro_cat, lst_cat], tight=True, scroll=ft.ScrollMode.AUTO)),
-                            
                             ft.Tab(text="🏢 Provs.", content=ft.Column([
                                 ft.Container(height=10), 
                                 ft.Text("Ingreso Manual:", weight="bold", color="#fbbf24"),
@@ -763,11 +790,13 @@ def main(page: ft.Page):
                         
                         def c_cot(ev, nro=nr, creador=cr, perm_list=permitidos_list):
                             dbh=conectar_db(); ch=dbh.cursor()
-                            ch.execute("SELECT cli, nit, atn, ref, ciu_origen, t_entrega, validez, pago, garantia, notas, modo, pct_a, pct_i, pct_u, pct_iva_u FROM h_cab WHERE nro=%s", (nro,))
+                            ch.execute("SELECT cli, nit, atn, ref, ciu_origen, t_entrega, validez, pago, garantia, notas, modo, pct_a, pct_i, pct_u, pct_iva_u, pct_ganancia FROM h_cab WHERE nro=%s", (nro,))
                             cab = ch.fetchone()
                             if cab:
                                 input_cliente.value=cab[0] or ""; input_nit.value=cab[1] or ""; input_atencion.value=cab[2] or ""; input_ref.value=cab[3] or ""; input_ciudad.value=cab[4] or "Yumbo"; input_tiempo_entrega.value=cab[5] or "4 Días hábiles"; input_validez.value=cab[6] or "20 Días"; input_pago.value=cab[7] or "30 Días"; input_garantia.value=cab[8] or "6 meses en mano de obra"; input_notas.value=cab[9] or ""
                                 dropdown_modo_cot.value=cab[10] or "AIU"; input_pct_a.value=str(cab[11]) if cab[11] is not None else "10"; input_pct_i.value=str(cab[12]) if cab[12] is not None else "2"; input_pct_u.value=str(cab[13]) if cab[13] is not None else "8"; input_pct_iva_u.value=str(cab[14]) if cab[14] is not None else "19"
+                                input_pct_ganancia.value = str(cab[15]) if len(cab)>15 and cab[15] is not None else "0"
+                                
                                 es_aiu = dropdown_modo_cot.value=="AIU"; container_texto_aiu.visible=es_aiu; cont_a.visible=es_aiu; cont_i.visible=es_aiu; cont_u.visible=es_aiu; cont_iva_u.visible=es_aiu
                             lista_items.clear()
                             ch.execute('SELECT "desc", cant, und, unit, sub, imp, tipo FROM h_det WHERE nro=%s', (nro,))
@@ -897,7 +926,7 @@ def main(page: ft.Page):
 
         def limpiar_todo(e):
             lista_items.clear(); estado["nro_edicion"] = None; estado["creador_edicion"] = None; estado["permitidos_edicion"] = []; actualizar_tabla_visual()
-            input_cliente.value = ""; input_nit.value = ""; input_atencion.value = ""; input_ref.value = ""; input_ciudad.value = "Yumbo"; input_tiempo_entrega.value = "4 Días hábiles"; input_validez.value = "20 Días"; input_pago.value = "30 Días"; input_garantia.value = "6 meses en mano de obra"; input_notas.value = "Toda la actividad será coordinada por el ingeniero Edward Álvarez y/o John Paniagua"; dropdown_modo_cot.value = "AIU"; input_pct_a.value = "10"; input_pct_i.value = "2"; input_pct_u.value = "8"; input_pct_iva_u.value = "19"; lista_busqueda_cli.visible = False; cambiar_modo_cot(None); page.update()
+            input_cliente.value = ""; input_nit.value = ""; input_atencion.value = ""; input_ref.value = ""; input_ciudad.value = "Yumbo"; input_tiempo_entrega.value = "4 Días hábiles"; input_validez.value = "20 Días"; input_pago.value = "30 Días"; input_garantia.value = "6 meses en mano de obra"; input_notas.value = "Toda la actividad será coordinada por el ingeniero Edward Álvarez y/o John Paniagua"; dropdown_modo_cot.value = "AIU"; input_pct_a.value = "10"; input_pct_i.value = "2"; input_pct_u.value = "8"; input_pct_iva_u.value = "19"; input_pct_ganancia.value = "0"; lista_busqueda_cli.visible = False; cambiar_modo_cot(None); page.update()
 
         def generar_pdf_web(e):
             try:
@@ -914,6 +943,10 @@ def main(page: ft.Page):
                 except: pct_u = 0.0
                 try: pct_iva_u = float(input_pct_iva_u.value)
                 except: pct_iva_u = 0.0
+                try: pct_ganancia_val = float(input_pct_ganancia.value)
+                except: pct_ganancia_val = 0.0
+                
+                factor = 1 + (pct_ganancia_val / 100.0)
 
                 c_dir = ""; c_email = ""; c_ciu_cli = ""; c_tel = ""
                 db = conectar_db()
@@ -928,8 +961,10 @@ def main(page: ft.Page):
                 
                 subtotal = 0; iva_bases = {}
                 for i in lista_items:
-                    cn=float(i['cant']); un=float(i['precio']); tot=float(i['total']); imps=i.get('impuesto', 'EXENTO'); u_s=i.get('und', 'UNID'); t_v=i.get('tipo', 'P')
+                    # Las bases para el PDF ya vienen multiplicadas por el factor de rentabilidad
+                    tot = float(i['total']) * factor
                     subtotal += tot
+                    imps = i.get('impuesto', 'EXENTO')
                     if "IVA" in imps.upper():
                         try: pct = float(re.findall(r"[\d.]+", imps)[0]); iva_bases[pct] = iva_bases.get(pct, 0) + tot
                         except: pass
@@ -948,7 +983,7 @@ def main(page: ft.Page):
                         c_up.execute("DELETE FROM h_cab WHERE nro=%s", (nro_doc,)); c_up.execute("DELETE FROM h_det WHERE nro=%s", (nro_doc,)); c_up.execute("DELETE FROM historial WHERE nro=%s", (nro_doc,))
                         
                     c_up.execute("INSERT INTO cli (n, i) VALUES (%s, %s) ON CONFLICT(n) DO NOTHING", (c_nom, c_nit))
-                    c_up.execute("""INSERT INTO h_cab (nro, cli, nit, atn, ref, ciu_origen, t_entrega, validez, pago, garantia, notas, modo, pct_a, pct_i, pct_u, pct_iva_u) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", (nro_doc, c_nom, c_nit, c_atn, c_ref, c_ciu_origen, c_t_entrega, c_validez, c_pago, c_garantia, c_notas, c_modo, pct_a, pct_i, pct_u, pct_iva_u))
+                    c_up.execute("""INSERT INTO h_cab (nro, cli, nit, atn, ref, ciu_origen, t_entrega, validez, pago, garantia, notas, modo, pct_a, pct_i, pct_u, pct_iva_u, pct_ganancia) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", (nro_doc, c_nom, c_nit, c_atn, c_ref, c_ciu_origen, c_t_entrega, c_validez, c_pago, c_garantia, c_notas, c_modo, pct_a, pct_i, pct_u, pct_iva_u, pct_ganancia_val))
                     
                     for i in lista_items:
                         cn=float(i['cant']); un=float(i['precio']); tot=float(i['total']); imps=i.get('impuesto', 'EXENTO'); u_s=i.get('und', 'UNID'); t_v=i.get('tipo', 'P')
@@ -1008,6 +1043,7 @@ def main(page: ft.Page):
 
                 p.set_fill_color(255, 255, 255)
                 
+                # REEMPLAZAR LISTA POR ITEMS PROCESADOS CON GANANCIA PARA EL PDF
                 for idx, i in enumerate(obtener_items_procesados(lista_items)):
                     is_title = bool(i['tipo'] == 'P' and i.get('has_subs', False))
                     
@@ -1092,7 +1128,7 @@ def main(page: ft.Page):
             ft.ResponsiveRow([ft.Container(content=input_atencion, col={"sm": 12, "md": 4, "lg": 4}), ft.Container(content=input_ref, col={"sm": 12, "md": 8, "lg": 8})]),
             ft.ResponsiveRow([ft.Container(content=input_tiempo_entrega, col={"sm": 6, "md": 3, "lg": 3}), ft.Container(content=input_validez, col={"sm": 6, "md": 3, "lg": 3}), ft.Container(content=input_pago, col={"sm": 6, "md": 3, "lg": 3}), ft.Container(content=input_garantia, col={"sm": 6, "md": 3, "lg": 3})]),
             ft.ResponsiveRow([ft.Container(content=input_notas, col={"sm": 12, "md": 12, "lg": 12})]),
-            ft.ResponsiveRow([ft.Container(content=dropdown_modo_cot, col={"sm": 6, "md": 2, "lg": 2}), container_texto_aiu, cont_a, cont_i, cont_u, cont_iva_u], vertical_alignment=ft.CrossAxisAlignment.CENTER)
+            ft.ResponsiveRow([ft.Container(content=dropdown_modo_cot, col={"sm": 6, "md": 2, "lg": 2}), cont_ganancia, container_texto_aiu, cont_a, cont_i, cont_u, cont_iva_u], vertical_alignment=ft.CrossAxisAlignment.CENTER)
         ], spacing=10), bgcolor="#0f172a", padding=15, border_radius=8, border=ft.border.all(1, "white12"))
 
         page.add(
@@ -1103,15 +1139,6 @@ def main(page: ft.Page):
             f_cli, 
             ft.Container(content=ft.ElevatedButton("GENERAR COTIZACIÓN PROFESIONAL", icon=ft.icons.BOLT, bgcolor="#f59e0b", color="black", height=50, on_click=generar_pdf_web), alignment=ft.alignment.center, padding=ft.padding.only(top=10, bottom=20))
         )
-        page.update()
-
-        snack_recordatorio = ft.SnackBar(
-            ft.Text("🛡️ RECORDATORIO: Por favor, genere un Backup en 'SISTEMA' periódicamente para salvaguardar la información contra vulnerabilidades o ciberataques.", color="black", weight="bold"),
-            bgcolor="#fbbf24",
-            duration=10000,
-            open=True
-        )
-        page.overlay.append(snack_recordatorio)
         page.update()
 
     mostrar_login()
