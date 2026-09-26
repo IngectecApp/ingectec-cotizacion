@@ -567,8 +567,6 @@ def main(page: ft.Page):
                                 except: pass
                             
                             def sel(ev, desc=d, prec=p): e_desc.value=desc; e_precio.value=str(int(float(prec))); page.update()
-                            
-                            # --- ERROR SOLUCIONADO: BORRADO SEGURO SIN ARGUMENTOS TRAMPOSOS ---
                             def rm(ev, desc=d): 
                                 try:
                                     dbd=conectar_db(); cd=dbd.cursor()
@@ -1209,7 +1207,14 @@ def main(page: ft.Page):
 
                 def p_tot(lbl, val, b=False):
                     if b: p.set_font('helvetica', 'B', 9)
-                    p.set_x(135); p.cell(40, 5, sanitizar_texto(lbl), 1, align='C'); p.cell(25, 5, f"$ {int(val):,}", 1, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT) 
+                    
+                    # --- ALINEACIÓN PERFECTA: Calculamos dinámicamente el inicio de los totales ---
+                    inicio_x = 130 if c_modo == "AIU" else 110
+                    ancho_lbl = 45 if c_modo == "AIU" else 65
+                    
+                    p.set_x(inicio_x)
+                    p.cell(ancho_lbl, 5, sanitizar_texto(lbl), 1, align='C')
+                    p.cell(25, 5, f"$ {int(val):,}", 1, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT) 
                     if b: p.set_font('helvetica', '', 9)
 
                 p.set_font('helvetica', '', 9); p_tot("SUBTOTAL", subtotal)
