@@ -180,7 +180,6 @@ def main(page: ft.Page):
         input_notas = ft.TextField(label="Notas adicionales", value="Toda la actividad será coordinada por el ingeniero Edward Álvarez y/o John Paniagua", multiline=True)
         input_pct_a = ft.TextField(label="Admin %", value="10"); input_pct_i = ft.TextField(label="Imprev %", value="2")
         input_pct_u = ft.TextField(label="Util %", value="8"); input_pct_iva_u = ft.TextField(label="IVA s/U %", value="19")
-        
         input_pct_ganancia = ft.TextField(label="Utilidad %", value="0")
         
         lista_busqueda_cli = ft.ListView(height=150, visible=False, spacing=2)
@@ -412,7 +411,6 @@ def main(page: ft.Page):
 
         def abrir_modal_bodega(e):
             try:
-                # --- NUEVAS FUNCIONES DE VACIADO MASIVO ---
                 def vaciar_bodega(evt):
                     def confirmar(ev):
                         db = conectar_db()
@@ -488,18 +486,18 @@ def main(page: ft.Page):
                             ops.append(ft.dropdown.Option(n))
                             def ed(ev, nom=n, tel=t): e_pnom.value=nom; e_ptel.value=tel; page.update()
                             
-                            def rm(ev, nom=n): 
+                            tile = ft.ListTile(title=ft.Text(n, color="#fbbf24"), subtitle=ft.Text(f"Tel: {t} (Clic para editar)"))
+                            
+                            def rm(ev, nom=n, t_item=tile): 
                                 try:
                                     dbd=conectar_db(); cd=dbd.cursor()
                                     cd.execute("DELETE FROM proveedores WHERE nombre = %s", (nom,))
                                     dbd.commit(); dbd.close()
-                                    mostrar_snack(f"🗑️ Proveedor eliminado", "#ef4444")
-                                    # --- RECARGA OBLIGATORIA PARA SINCRONIZAR DB Y PANTALLA ---
+                                    mostrar_snack(f"🗑️ Proveedor eliminado exitosamente", "#ef4444")
                                     load_provs()
                                 except Exception as ex:
                                     mostrar_alerta("Error al eliminar", str(ex))
 
-                            tile = ft.ListTile(title=ft.Text(n, color="#fbbf24"), subtitle=ft.Text(f"Tel: {t} (Clic para editar)"))
                             tile.on_click = ed
                             tile.trailing = ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=rm)
                             lst_provs.controls.append(tile)
@@ -569,13 +567,14 @@ def main(page: ft.Page):
                                 except: pass
                             
                             def sel(ev, desc=d, prec=p): e_desc.value=desc; e_precio.value=str(int(float(prec))); page.update()
-                            def rm(ev, desc=d): 
+                            
+                            # --- ERROR DE SINTAXIS CORREGIDO (db.commit() por dbd.commit()) ---
+                            def rm(ev, desc=d, t_item=tile): 
                                 try:
                                     dbd=conectar_db(); cd=dbd.cursor()
                                     cd.execute("DELETE FROM inv WHERE d=%s", (desc,))
                                     dbd.commit(); dbd.close()
                                     mostrar_snack("🗑️ Ítem eliminado", "#ef4444")
-                                    # --- RECARGA OBLIGATORIA PARA SINCRONIZAR DB Y PANTALLA ---
                                     b_bod(None); load_cat(None)
                                 except Exception as ex:
                                     mostrar_alerta("Error al eliminar", str(ex))
@@ -615,7 +614,9 @@ def main(page: ft.Page):
                                 pr_str = "0"
                                 if len(pts) >= 3: pr_str = pts[2]
                                 elif len(pts) == 2: pr_str = pts[1]; prov = ""
-                                try: pr = float(pr_str.replace("$","").replace(".","").replace(",","replace(" ","").strip())
+                                
+                                # --- ERROR DE SINTAXIS (COMILLAS Y PARENTESIS) CORREGIDO AQUÍ ---
+                                try: pr = float(pr_str.replace("$","").replace(".","").replace(",", "").replace(" ","").strip())
                                 except: pr = 0.0
                                 
                                 if pr > 0: 
@@ -773,16 +774,16 @@ def main(page: ft.Page):
                 if db:
                     c=db.cursor(); c.execute("SELECT n, i, ciu, tel FROM cli ORDER BY n ASC")
                     for n, i, ciu, tel in c.fetchall():
+                        tile = ft.ListTile(title=ft.Text(n, color="#fbbf24"), subtitle=ft.Text(f"NIT:{i} | Ciu:{ciu} | Tel:{tel}"))
                         def ed(ev, nom=n): 
                             dbi=conectar_db(); ci=dbi.cursor(); ci.execute("SELECT n, i, dir, email, ciu, tel FROM cli WHERE n=%s", (nom,)); cd = ci.fetchone(); dbi.close()
                             if cd: cn.value, ci.value, cd.value, ce.value, cc.value, ct.value = cd; page.update()
-                        def rm(ev, nom=n): 
+                        
+                        def rm(ev, nom=n, t_item=tile): 
                             dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM cli WHERE n=%s", (nom,)); dbd.commit(); dbd.close()
                             mostrar_snack("🗑️ Cliente eliminado", "#ef4444")
-                            # --- RECARGA OBLIGATORIA PARA SINCRONIZAR DB Y PANTALLA ---
                             load_cli()
                         
-                        tile = ft.ListTile(title=ft.Text(n, color="#fbbf24"), subtitle=ft.Text(f"NIT:{i} | Ciu:{ciu} | Tel:{tel}"))
                         tile.on_click = ed
                         tile.trailing = ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=rm)
                         r_cli.controls.append(tile)
