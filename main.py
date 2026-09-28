@@ -252,7 +252,6 @@ def main(page: ft.Page):
                         disp[curr_p]['has_subs'] = True
                         disp[curr_p]['total'] += total_sub
                         
-                        # --- MEJORA: Evitar que el título sume cantidad visual al fondo, se mantiene en 0 para evitar errores matematicos ---
                         if disp[curr_p]['cant'] == 0: 
                             disp[curr_p]['cant'] = 1 
                         
@@ -270,7 +269,6 @@ def main(page: ft.Page):
                 
                 if is_title:
                     tot_s = f"${int(item['total']):,}" if item['total'] > 0 else ""
-                    # --- EL TITULO NO MUESTRA CANTIDAD NI UNIDAD EN PANTALLA ---
                     c_s = ""
                     imp_l = ""
                     txt_col = "#fbbf24"
@@ -278,7 +276,6 @@ def main(page: ft.Page):
                 elif is_p:
                     tot_s = f"${int(item['total']):,}" if item['total'] > 0 else ""
                     
-                    # --- SI ES P PRINCIPAL SIN HIJOS PERO SE MARCÓ COMO TITULO (P), LO MOSTRAMOS LIMPIO IGUAL ---
                     if item['cant'] == 0:
                         c_s = ""
                     else:
@@ -294,7 +291,6 @@ def main(page: ft.Page):
                     txt_col = "white"
                     txt_wgt = "normal"
                 
-                # REGLA: Si la persona en el modal marcó que era Título (P), pintémoslo AMARILLO desde el inicio
                 if is_p:
                     txt_col = "#fbbf24"
                     txt_wgt = "bold"
@@ -409,7 +405,7 @@ def main(page: ft.Page):
                             
                             if float(prec) == 0:
                                 tipo_it.value = "P"
-                                i_cant.value = "0" # Ocultamos cantidad visual al clickear un $0 en bodega
+                                i_cant.value = "0"
                             else:
                                 tipo_it.value = "S"
                                 i_cant.value = "1"
@@ -429,8 +425,6 @@ def main(page: ft.Page):
                     try: u_pct = float(i_utilidad.value or 0)
                     except: u_pct = 0.0
                     
-                    # --- LÓGICA INTELIGENTE DE TÍTULOS ---
-                    # Si el usuario selecciona "P" (Título Principal), la cantidad interna se vuelve 0 para que no se vea el 1 UNID
                     if tipo_it.value == "P":
                         c = 0
                     
@@ -535,8 +529,8 @@ def main(page: ft.Page):
                             
                             def rm(ev, nom=n): 
                                 try:
-                                    dbd=conectar_db(); cd=dbd.cursor()
-                                    cd.execute("DELETE FROM proveedores WHERE nombre = %s", (nom,))
+                                    dbd=conectar_db(); cur_d=dbd.cursor()
+                                    cur_d.execute("DELETE FROM proveedores WHERE nombre = %s", (nom,))
                                     dbd.commit(); dbd.close()
                                     mostrar_snack(f"🗑️ Proveedor eliminado exitosamente", "#ef4444")
                                     load_provs()
@@ -615,8 +609,8 @@ def main(page: ft.Page):
                             def sel(ev, desc=d, prec=p): e_desc.value=desc; e_precio.value=str(int(float(prec))); page.update()
                             def rm(ev, desc=d): 
                                 try:
-                                    dbd=conectar_db(); cd=dbd.cursor()
-                                    cd.execute("DELETE FROM inv WHERE d=%s", (desc,))
+                                    dbd=conectar_db(); cur_d=dbd.cursor()
+                                    cur_d.execute("DELETE FROM inv WHERE d=%s", (desc,))
                                     dbd.commit(); dbd.close()
                                     mostrar_snack("🗑️ Ítem eliminado", "#ef4444")
                                     b_bod(None); load_cat(None)
@@ -816,16 +810,23 @@ def main(page: ft.Page):
                 if db:
                     c=db.cursor(); c.execute("SELECT n, i, ciu, tel FROM cli ORDER BY n ASC")
                     for n, i, ciu, tel in c.fetchall():
+                        tile = ft.ListTile(title=ft.Text(n, color="#fbbf24"), subtitle=ft.Text(f"NIT:{i} | Ciu:{ciu} | Tel:{tel}"))
                         def ed(ev, nom=n): 
-                            dbi=conectar_db(); ci=dbi.cursor(); ci.execute("SELECT n, i, dir, email, ciu, tel FROM cli WHERE n=%s", (nom,)); cd = ci.fetchone(); dbi.close()
-                            if cd: cn.value, ci.value, cd.value, ce.value, cc.value, ct.value = cd; page.update()
+                            dbi=conectar_db(); cur_i=dbi.cursor(); cur_i.execute("SELECT n, i, dir, email, ciu, tel FROM cli WHERE n=%s", (nom,)); res_cli = cur_i.fetchone(); dbi.close()
+                            if res_cli: 
+                                cn.value = res_cli[0] or ""
+                                ci.value = res_cli[1] or ""
+                                cd.value = res_cli[2] or ""
+                                ce.value = res_cli[3] or ""
+                                cc.value = res_cli[4] or ""
+                                ct.value = res_cli[5] or ""
+                                page.update()
                         
                         def rm(ev, nom=n): 
-                            dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM cli WHERE n=%s", (nom,)); dbd.commit(); dbd.close()
+                            dbd=conectar_db(); cur_d=dbd.cursor(); cur_d.execute("DELETE FROM cli WHERE n=%s", (nom,)); dbd.commit(); dbd.close()
                             mostrar_snack("🗑️ Cliente eliminado", "#ef4444")
                             load_cli()
                         
-                        tile = ft.ListTile(title=ft.Text(n, color="#fbbf24"), subtitle=ft.Text(f"NIT:{i} | Ciu:{ciu} | Tel:{tel}"))
                         tile.on_click = ed
                         tile.trailing = ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=rm)
                         r_cli.controls.append(tile)
@@ -890,7 +891,7 @@ def main(page: ft.Page):
                     for u, r, b in c.fetchall():
                         def ed(ev, us=u, ro=r): un.value=us; ur.value=ro; up.value=""; page.update()
                         def rm(ev, us=u): 
-                            dbd=conectar_db(); cd=dbd.cursor(); cd.execute("DELETE FROM usuarios WHERE usuario=%s", (us,)); dbd.commit(); dbd.close()
+                            dbd=conectar_db(); cur_d=dbd.cursor(); cur_d.execute("DELETE FROM usuarios WHERE usuario=%s", (us,)); dbd.commit(); dbd.close()
                             mostrar_snack("🗑️ Usuario eliminado", "#ef4444")
                             load_u()
                         def dbq(ev, us=u): dbu=conectar_db(); cu=dbu.cursor(); cu.execute("UPDATE usuarios SET intentos=0, bloqueado=0 WHERE usuario=%s", (us,)); dbu.commit(); dbu.close(); load_u()
@@ -1215,7 +1216,6 @@ def main(page: ft.Page):
                         p.set_fill_color(255, 248, 204) 
                         p.set_font('helvetica', 'B', 8)
                     elif i['tipo'] == 'P': 
-                        # --- SI ES P (TITULO) ENTONCES NO IMPRIME CANTIDAD NI UNIDAD EN EL PDF ---
                         c_s = "" if i['cant'] == 0 else f"{i['cant']:g}"
                         u_s = "" if i['cant'] == 0 else sanitizar_texto(i['und'])
                         pu=f"${int(i['precio']):,}" if i['total']>0 else ""; imps=sanitizar_texto(i['impuesto']) if i['total']>0 else ""; tot_s=f"${int(i['total']):,}" if i['total']>0 else ""
