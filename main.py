@@ -232,7 +232,6 @@ def main(page: ft.Page):
         def obtener_items_procesados(lista):
             disp = []; curr_p = -1; np, ns = 0, 0
             for i, it in enumerate(lista):
-                # El precio ya viene multiplicado por la utilidad desde que se agregó/editó
                 precio_final = float(it['precio'])
                 if it.get('tipo', 'P') == 'P':
                     np += 1; ns = 0; curr_p = len(disp)
@@ -390,7 +389,16 @@ def main(page: ft.Page):
                         def sel(ev, desc=d, prec=p): 
                             i_desc.value=desc; i_pre.value=str(int(float(prec)))
                             i_und.value = "ML" if ("TUBO" in desc.upper() or "CABLE" in desc.upper()) else ("GLB" if "INSTALACION" in desc.upper() else "UNID")
-                            i_und_c.visible=False; i_cant.col={"sm":3}; i_und.col={"sm":3}; i_pre.col={"sm":3}; i_utilidad.col={"sm":3}; i_utilidad.value="0"; page.update()
+                            i_und_c.visible=False; i_cant.col={"sm":3}; i_und.col={"sm":3}; i_pre.col={"sm":3}; i_utilidad.col={"sm":3}; i_utilidad.value="0"
+                            
+                            # --- MAGIA UX: ASIGNACIÓN AUTOMÁTICA DE TÍTULOS ---
+                            if float(prec) == 0:
+                                tipo_it.value = "P"
+                            else:
+                                tipo_it.value = "S"
+                                
+                            page.update()
+                            
                         subt = f"${int(float(p)):,}" + (f" ({prov})" if prov else "")
                         res_inv.controls.append(ft.ListTile(title=ft.Text(d, color="#fbbf24", size=14), subtitle=ft.Text(subt, color="#94a3b8"), on_click=sel))
                     db.close()
@@ -604,7 +612,7 @@ def main(page: ft.Page):
                     if not e_desc.value: return
                     try: p_val = float(e_precio.value or 0)
                     except: p_val = 0
-                    if p_val <= 0: return mostrar_alerta("Error", "El precio debe ser mayor a 0.")
+                    if p_val < 0: return mostrar_alerta("Error", "El precio no puede ser negativo.")
                     
                     multiplicador = 1.19 if e_bodega_iva.value == "+19% IVA" else 1.0
                     p_val_final = p_val * multiplicador
@@ -631,7 +639,7 @@ def main(page: ft.Page):
                                 try: pr = float(pr_str.replace("$","").replace(".","").replace(",", "").replace(" ","").strip())
                                 except: pr = 0.0
                                 
-                                if pr > 0: 
+                                if pr >= 0: 
                                     multiplicador = 1.0 if "EXENTO" in item else 1.19
                                     pr_final = pr * multiplicador
                                     
@@ -786,7 +794,6 @@ def main(page: ft.Page):
                 if db:
                     c=db.cursor(); c.execute("SELECT n, i, ciu, tel FROM cli ORDER BY n ASC")
                     for n, i, ciu, tel in c.fetchall():
-                        tile = ft.ListTile(title=ft.Text(n, color="#fbbf24"), subtitle=ft.Text(f"NIT:{i} | Ciu:{ciu} | Tel:{tel}"))
                         def ed(ev, nom=n): 
                             dbi=conectar_db(); ci=dbi.cursor(); ci.execute("SELECT n, i, dir, email, ciu, tel FROM cli WHERE n=%s", (nom,)); cd = ci.fetchone(); dbi.close()
                             if cd: cn.value, ci.value, cd.value, ce.value, cc.value, ct.value = cd; page.update()
@@ -796,6 +803,7 @@ def main(page: ft.Page):
                             mostrar_snack("🗑️ Cliente eliminado", "#ef4444")
                             load_cli()
                         
+                        tile = ft.ListTile(title=ft.Text(n, color="#fbbf24"), subtitle=ft.Text(f"NIT:{i} | Ciu:{ciu} | Tel:{tel}"))
                         tile.on_click = ed
                         tile.trailing = ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=rm)
                         r_cli.controls.append(tile)
@@ -925,7 +933,7 @@ def main(page: ft.Page):
                             for d in ch.fetchall():
                                 ds=d[0] or ""; ct=float(d[1] or 0); ud=str(d[2] or "UNID"); ut=float(d[3] or 0); sb=float(d[4] or (ct*ut)); im=str(d[5] or "EXENTO"); tp=str(d[6] or "P")
                                 if "AIU" in ud or "IVA" in ud or "EXENTO" in ud: t=im; im=ud; ud=t if t not in ["EXENTO", ""] else "UNID"
-                                lista_items.append({"desc": ds, "cant": ct, "und": ud, "precio": ut, "precio_base": ut, "utilidad": 0, "total": sb, "impuesto": im, "tipo": tp})
+                                lista_items.append({"desc": ds, "cant": ct, "und": ud, "precio_base": ut, "utilidad": 0, "precio": ut, "total": sb, "impuesto": im, "tipo": tp})
                             dbh.close()
                             estado["nro_edicion"]=nro; estado["creador_edicion"]=creador; estado["permitidos_edicion"] = perm_list
                             actualizar_tabla_visual(); cerrar_dialogo(dlg_h)
