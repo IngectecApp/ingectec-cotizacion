@@ -181,12 +181,60 @@ def main(page: ft.Page):
         input_pct_a = ft.TextField(label="Admin %", value="10"); input_pct_i = ft.TextField(label="Imprev %", value="2")
         input_pct_u = ft.TextField(label="Util %", value="8"); input_pct_iva_u = ft.TextField(label="IVA s/U %", value="19")
         
+        input_pct_ganancia = ft.TextField(label="Utilidad %", value="0")
+        
         lista_busqueda_cli = ft.ListView(height=150, visible=False, spacing=2)
 
         dropdown_modo_cot = ft.Dropdown(label="Tipo Cotización", options=[ft.dropdown.Option("AIU"), ft.dropdown.Option("IVA")], value="AIU")
         container_texto_aiu = ft.Container(content=ft.Text("⚙️ Config. AIU:", weight="bold", color="#fbbf24"), col={"sm": 12, "md": 2, "lg": 2}, alignment=ft.alignment.center_left)
         cont_a = ft.Container(content=input_pct_a, col={"sm": 3, "md": 2, "lg": 2}); cont_i = ft.Container(content=input_pct_i, col={"sm": 3, "md": 2, "lg": 2})
         cont_u = ft.Container(content=input_pct_u, col={"sm": 3, "md": 2, "lg": 2}); cont_iva_u = ft.Container(content=input_pct_iva_u, col={"sm": 3, "md": 2, "lg": 2})
+        cont_ganancia = ft.Container(content=input_pct_ganancia, col={"sm": 6, "md": 2, "lg": 2}, visible=False)
+
+        # --- SISTEMA DE AUTOGUARDADO EN CACHÉ (NUEVO) ---
+        def guardar_borrador(e=None):
+            try:
+                borrador = {
+                    "lista_items": lista_items,
+                    "estado": estado,
+                    "cabecera": {
+                        "cliente": input_cliente.value,
+                        "nit": input_nit.value,
+                        "ciudad": input_ciudad.value,
+                        "atencion": input_atencion.value,
+                        "ref": input_ref.value,
+                        "tiempo_entrega": input_tiempo_entrega.value,
+                        "validez": input_validez.value,
+                        "pago": input_pago.value,
+                        "garantia": input_garantia.value,
+                        "notas": input_notas.value,
+                        "modo": dropdown_modo_cot.value,
+                        "pct_a": input_pct_a.value,
+                        "pct_i": input_pct_i.value,
+                        "pct_u": input_pct_u.value,
+                        "pct_iva_u": input_pct_iva_u.value,
+                        "pct_ganancia": input_pct_ganancia.value
+                    }
+                }
+                if sesion["usuario"]:
+                    page.client_storage.set(f"draft_{sesion['usuario']}", json.dumps(borrador))
+            except:
+                pass
+
+        # Atar el guardado automático a los campos de texto
+        input_nit.on_change = guardar_borrador
+        input_ciudad.on_change = guardar_borrador
+        input_atencion.on_change = guardar_borrador
+        input_ref.on_change = guardar_borrador
+        input_tiempo_entrega.on_change = guardar_borrador
+        input_validez.on_change = guardar_borrador
+        input_pago.on_change = guardar_borrador
+        input_garantia.on_change = guardar_borrador
+        input_notas.on_change = guardar_borrador
+        input_pct_a.on_change = guardar_borrador
+        input_pct_i.on_change = guardar_borrador
+        input_pct_u.on_change = guardar_borrador
+        input_pct_iva_u.on_change = guardar_borrador
 
         def verificar_permiso_edicion(mostrar_aviso=True):
             if estado.get("nro_edicion") and estado.get("creador_edicion"):
@@ -205,7 +253,9 @@ def main(page: ft.Page):
             cont_i.visible = es_aiu
             cont_u.visible = es_aiu
             cont_iva_u.visible = es_aiu
+            
             page.update()
+            guardar_borrador()
             
         dropdown_modo_cot.on_change = cambiar_modo_cot
 
@@ -216,11 +266,13 @@ def main(page: ft.Page):
                 if db:
                     c = db.cursor(); c.execute("SELECT n, i FROM cli WHERE UPPER(n) LIKE %s LIMIT 10", ('%'+txt+'%',))
                     for r in c.fetchall():
-                        def sel(evt, nom=r[0], nit=r[1]): input_cliente.value = nom; input_nit.value = nit or ""; lista_busqueda_cli.visible = False; page.update()
+                        def sel(evt, nom=r[0], nit=r[1]): input_cliente.value = nom; input_nit.value = nit or ""; lista_busqueda_cli.visible = False; page.update(); guardar_borrador()
                         lista_busqueda_cli.controls.append(ft.ListTile(title=ft.Text(r[0], color="#fbbf24", size=13), on_click=sel))
                     db.close(); lista_busqueda_cli.visible = len(lista_busqueda_cli.controls) > 0
             else: lista_busqueda_cli.visible = False
             page.update()
+            guardar_borrador()
+            
         input_cliente.on_change = buscar_cliente_realtime
 
         db_num = conectar_db(); nro_actual = "100"
@@ -359,6 +411,9 @@ def main(page: ft.Page):
                     )
                 )
             page.update()
+            
+            # Guardamos copia local tras cada cambio en la tabla
+            guardar_borrador()
 
         def abrir_modal_item(e):
             if not verificar_permiso_edicion(): return
@@ -956,7 +1011,7 @@ def main(page: ft.Page):
                             for d in ch.fetchall():
                                 ds=d[0] or ""; ct=float(d[1] or 0); ud=str(d[2] or "UNID"); ut=float(d[3] or 0); sb=float(d[4] or (ct*ut)); im=str(d[5] or "EXENTO"); tp=str(d[6] or "P")
                                 if "AIU" in ud or "IVA" in ud or "EXENTO" in ud: t=im; im=ud; ud=t if t not in ["EXENTO", ""] else "UNID"
-                                lista_items.append({"desc": ds, "cant": ct, "und": ud, "precio": ut, "precio_base": ut, "utilidad": 0, "total": sb, "impuesto": im, "tipo": tp})
+                                lista_items.append({"desc": ds, "cant": ct, "und": ud, "precio_base": ut, "utilidad": 0, "precio": ut, "total": sb, "impuesto": im, "tipo": tp})
                             dbh.close()
                             estado["nro_edicion"]=nro; estado["creador_edicion"]=creador; estado["permitidos_edicion"] = perm_list
                             actualizar_tabla_visual(); cerrar_dialogo(dlg_h)
@@ -1082,6 +1137,8 @@ def main(page: ft.Page):
             input_cliente.value = ""; input_nit.value = ""; input_atencion.value = ""; input_ref.value = ""; input_ciudad.value = "Yumbo"; input_tiempo_entrega.value = "4 Días hábiles"; input_validez.value = "20 Días"; input_pago.value = "30 Días"; input_garantia.value = "6 meses en mano de obra"; input_notas.value = "Toda la actividad será coordinada por el ingeniero Edward Álvarez y/o John Paniagua"; dropdown_modo_cot.value = "AIU"; input_pct_a.value = "10"; input_pct_i.value = "2"; input_pct_u.value = "8"; input_pct_iva_u.value = "19"
             lista_busqueda_cli.visible = False
             cambiar_modo_cot(None)
+            try: page.client_storage.remove(f"draft_{sesion['usuario']}")
+            except: pass
 
         def generar_pdf_web(e):
             try:
@@ -1156,6 +1213,9 @@ def main(page: ft.Page):
                     nom_limp = re.sub(r'[^\w\s-]', '', c_nom).strip(); nom_arc = f"{nom_limp}-{nro_doc}.pdf"
                     
                 db.close()
+                
+                try: page.client_storage.remove(f"draft_{sesion['usuario']}")
+                except: pass
 
                 asesor_impresion = (estado.get("creador_edicion") or sesion["usuario"]).upper()
                 
@@ -1335,6 +1395,62 @@ def main(page: ft.Page):
             ft.Container(content=ft.ElevatedButton("GENERAR COTIZACIÓN PROFESIONAL", icon=ft.icons.BOLT, bgcolor="#f59e0b", color="black", height=50, on_click=generar_pdf_web), alignment=ft.alignment.center, padding=ft.padding.only(top=10, bottom=20))
         )
         page.update()
+
+        # --- SISTEMA DE VERIFICACIÓN DE BORRADOR AL INICIAR SESIÓN ---
+        def verificar_borrador():
+            if page.client_storage.contains_key(f"draft_{sesion['usuario']}"):
+                draft_str = page.client_storage.get(f"draft_{sesion['usuario']}")
+                if draft_str:
+                    try:
+                        draft = json.loads(draft_str)
+                        if not draft.get("lista_items") and not draft.get("cabecera", {}).get("cliente"):
+                            return
+                        
+                        def si_recuperar(e):
+                            lista_items.clear()
+                            lista_items.extend(draft.get("lista_items", []))
+                            estado.update(draft.get("estado", {}))
+                            cab = draft.get("cabecera", {})
+                            
+                            input_cliente.value = cab.get("cliente", "")
+                            input_nit.value = cab.get("nit", "")
+                            input_ciudad.value = cab.get("ciudad", "Yumbo")
+                            input_atencion.value = cab.get("atencion", "")
+                            input_ref.value = cab.get("ref", "")
+                            input_tiempo_entrega.value = cab.get("tiempo_entrega", "4 Días hábiles")
+                            input_validez.value = cab.get("validez", "20 Días")
+                            input_pago.value = cab.get("pago", "30 Días")
+                            input_garantia.value = cab.get("garantia", "6 meses en mano de obra")
+                            input_notas.value = cab.get("notas", "")
+                            dropdown_modo_cot.value = cab.get("modo", "AIU")
+                            input_pct_a.value = cab.get("pct_a", "10")
+                            input_pct_i.value = cab.get("pct_i", "2")
+                            input_pct_u.value = cab.get("pct_u", "8")
+                            input_pct_iva_u.value = cab.get("pct_iva_u", "19")
+                            
+                            cambiar_modo_cot(None)
+                            actualizar_tabla_visual()
+                            cerrar_dialogo(dlg_b)
+                            mostrar_snack("✅ Borrador recuperado con éxito", "#2563eb")
+
+                        def no_recuperar(e):
+                            page.client_storage.remove(f"draft_{sesion['usuario']}")
+                            cerrar_dialogo(dlg_b)
+                            
+                        dlg_b = ft.AlertDialog(
+                            title=ft.Text("🔄 Borrador Encontrado", color="#f59e0b", weight="bold"),
+                            content=ft.Text("El sistema detectó una cotización pendiente que no se guardó.\n\n¿Deseas recuperarla para continuar donde la dejaste?"),
+                            actions=[
+                                ft.ElevatedButton("Sí, Recuperar", bgcolor="#10b981", color="white", on_click=si_recuperar),
+                                ft.TextButton("No, Descartar", on_click=no_recuperar)
+                            ],
+                            open=True
+                        )
+                        page.overlay.append(dlg_b)
+                        page.update()
+                    except Exception as e:
+                        pass
+        verificar_borrador()
 
         dia_actual = datetime.now().weekday()
         if dia_actual == 0 or dia_actual == 4:
