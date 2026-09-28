@@ -251,7 +251,11 @@ def main(page: ft.Page):
                     if curr_p != -1:
                         disp[curr_p]['has_subs'] = True
                         disp[curr_p]['total'] += total_sub
-                        if disp[curr_p]['cant'] == 0: disp[curr_p]['cant'] = 1
+                        
+                        # --- MEJORA: Evitar que el título sume cantidad visual al fondo, se mantiene en 0 para evitar errores matematicos ---
+                        if disp[curr_p]['cant'] == 0: 
+                            disp[curr_p]['cant'] = 1 
+                        
                         disp[curr_p]['precio'] = disp[curr_p]['total'] / disp[curr_p]['cant']
             return disp
 
@@ -266,13 +270,20 @@ def main(page: ft.Page):
                 
                 if is_title:
                     tot_s = f"${int(item['total']):,}" if item['total'] > 0 else ""
+                    # --- EL TITULO NO MUESTRA CANTIDAD NI UNIDAD EN PANTALLA ---
                     c_s = ""
                     imp_l = ""
                     txt_col = "#fbbf24"
                     txt_wgt = "bold"
                 elif is_p:
                     tot_s = f"${int(item['total']):,}" if item['total'] > 0 else ""
-                    c_s = f"{item['cant']:g} {item['und']}" if item['cant'] > 0 else ""
+                    
+                    # --- SI ES P PRINCIPAL SIN HIJOS PERO SE MARCÓ COMO TITULO (P), LO MOSTRAMOS LIMPIO IGUAL ---
+                    if item['cant'] == 0:
+                        c_s = ""
+                    else:
+                        c_s = f"{item['cant']:g} {item['und']}"
+                        
                     imp_l = f" ({item['impuesto']})" if item['total'] > 0 else ""
                     txt_col = "white"
                     txt_wgt = "normal"
@@ -282,6 +293,11 @@ def main(page: ft.Page):
                     imp_l = ""
                     txt_col = "white"
                     txt_wgt = "normal"
+                
+                # REGLA: Si la persona en el modal marcó que era Título (P), pintémoslo AMARILLO desde el inicio
+                if is_p:
+                    txt_col = "#fbbf24"
+                    txt_wgt = "bold"
                 
                 def evt_edit(idx_r):
                     def on_c(e):
@@ -391,11 +407,12 @@ def main(page: ft.Page):
                             i_und.value = "ML" if ("TUBO" in desc.upper() or "CABLE" in desc.upper()) else ("GLB" if "INSTALACION" in desc.upper() else "UNID")
                             i_und_c.visible=False; i_cant.col={"sm":3}; i_und.col={"sm":3}; i_pre.col={"sm":3}; i_utilidad.col={"sm":3}; i_utilidad.value="0"
                             
-                            # --- MAGIA UX: ASIGNACIÓN AUTOMÁTICA DE TÍTULOS ---
                             if float(prec) == 0:
                                 tipo_it.value = "P"
+                                i_cant.value = "0" # Ocultamos cantidad visual al clickear un $0 en bodega
                             else:
                                 tipo_it.value = "S"
+                                i_cant.value = "1"
                                 
                             page.update()
                             
@@ -411,6 +428,11 @@ def main(page: ft.Page):
                     p_base = float(i_pre.value or 0)
                     try: u_pct = float(i_utilidad.value or 0)
                     except: u_pct = 0.0
+                    
+                    # --- LÓGICA INTELIGENTE DE TÍTULOS ---
+                    # Si el usuario selecciona "P" (Título Principal), la cantidad interna se vuelve 0 para que no se vea el 1 UNID
+                    if tipo_it.value == "P":
+                        c = 0
                     
                     p_final = p_base * (1 + u_pct / 100.0)
                     
@@ -933,7 +955,7 @@ def main(page: ft.Page):
                             for d in ch.fetchall():
                                 ds=d[0] or ""; ct=float(d[1] or 0); ud=str(d[2] or "UNID"); ut=float(d[3] or 0); sb=float(d[4] or (ct*ut)); im=str(d[5] or "EXENTO"); tp=str(d[6] or "P")
                                 if "AIU" in ud or "IVA" in ud or "EXENTO" in ud: t=im; im=ud; ud=t if t not in ["EXENTO", ""] else "UNID"
-                                lista_items.append({"desc": ds, "cant": ct, "und": ud, "precio_base": ut, "utilidad": 0, "precio": ut, "total": sb, "impuesto": im, "tipo": tp})
+                                lista_items.append({"desc": ds, "cant": ct, "und": ud, "precio": ut, "precio_base": ut, "utilidad": 0, "total": sb, "impuesto": im, "tipo": tp})
                             dbh.close()
                             estado["nro_edicion"]=nro; estado["creador_edicion"]=creador; estado["permitidos_edicion"] = perm_list
                             actualizar_tabla_visual(); cerrar_dialogo(dlg_h)
@@ -1193,7 +1215,10 @@ def main(page: ft.Page):
                         p.set_fill_color(255, 248, 204) 
                         p.set_font('helvetica', 'B', 8)
                     elif i['tipo'] == 'P': 
-                        c_s=f"{i['cant']:g}" if i['cant']>0 else ""; u_s=sanitizar_texto(i['und']) if i['cant']>0 else ""; pu=f"${int(i['precio']):,}" if i['total']>0 else ""; imps=sanitizar_texto(i['impuesto']) if i['total']>0 else ""; tot_s=f"${int(i['total']):,}" if i['total']>0 else ""
+                        # --- SI ES P (TITULO) ENTONCES NO IMPRIME CANTIDAD NI UNIDAD EN EL PDF ---
+                        c_s = "" if i['cant'] == 0 else f"{i['cant']:g}"
+                        u_s = "" if i['cant'] == 0 else sanitizar_texto(i['und'])
+                        pu=f"${int(i['precio']):,}" if i['total']>0 else ""; imps=sanitizar_texto(i['impuesto']) if i['total']>0 else ""; tot_s=f"${int(i['total']):,}" if i['total']>0 else ""
                         p.set_fill_color(255, 255, 255)
                         p.set_font('helvetica', '', 8)
                     else: 
