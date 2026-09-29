@@ -25,7 +25,7 @@ def conectar_db():
         return conn
     except: return None
 
-# --- INICIALIZADOR AUTOMÁTICO DE TABLAS ---
+# --- INICIALIZADOR AUTOMÁTICO DE TABLAS Y REINICIO DE SESIONES ---
 def init_db():
     conn = conectar_db()
     if conn:
@@ -33,7 +33,13 @@ def init_db():
         c.execute("CREATE TABLE IF NOT EXISTS usuarios (usuario TEXT PRIMARY KEY, password TEXT, rol TEXT, intentos INTEGER DEFAULT 0, bloqueado INTEGER DEFAULT 0)")
         
         # Agregar columna para control de sesiones concurrentes
-        try: c.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS sesion_activa INTEGER DEFAULT 0")
+        try: 
+            c.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS sesion_activa INTEGER DEFAULT 0")
+        except: pass
+        
+        # 🔥 SOLUCIÓN DE EMERGENCIA: Desbloquea a todos los usuarios cuando el servidor web se reinicia o actualiza el código
+        try:
+            c.execute("UPDATE usuarios SET sesion_activa = 0")
         except: pass
         
         c.execute("DELETE FROM usuarios WHERE usuario IN ('OSCAR', 'YEISON', 'PAULO', 'JOHN', 'JHON')")
@@ -129,10 +135,8 @@ class PDF(FPDF):
         self.set_y(-10); self.cell(0, 4, f'Página {self.page_no()}', border=0, align='R')
 
 def main(page: ft.Page):
-    # --- CAMBIO DE TÍTULO A L34L ---
-    page.title = "⚡ INGECTEC L34L - PREMIUM (LOCAL)"
+    page.title = "⚡ INGECTEC L34L - PREMIUM"
     
-    # --- CAMBIO DE ICONO DE LA VENTANA (NUEVA VERSIÓN 0.23) ---
     for ruta in ["assets/logo pl.png", "assets/logopl.png", "assets/logo.png", "assets/logo1.png"]:
         if os.path.exists(ruta):
             try: page.window.icon = ruta; break 
@@ -146,18 +150,30 @@ def main(page: ft.Page):
     lista_items = []
     estado = {"nro_edicion": None, "creador_edicion": None, "permitidos_edicion": []}
 
-    # --- INTERCEPTOR DE CIERRE DE VENTANA (DESBLOQUEA SESIÓN) ---
+    # --- FUNCIÓN UNIFICADA PARA LIBERAR SESIÓN ---
+    def liberar_sesion_actual():
+        if sesion.get("usuario"):
+            try:
+                db_x = conectar_db()
+                if db_x:
+                    c_x = db_x.cursor()
+                    c_x.execute("UPDATE usuarios SET sesion_activa=0 WHERE usuario=%s", (sesion["usuario"],))
+                    db_x.commit()
+                    db_x.close()
+            except: pass
+
+    # --- INTERCEPTOR: CUANDO CIERRAN LA VENTANA EN WINDOWS ---
     page.window.prevent_close = True
     def on_window_event(e):
         if e.data == "close":
-            if sesion.get("usuario"):
-                try:
-                    db_x = conectar_db()
-                    if db_x:
-                        c_x = db_x.cursor(); c_x.execute("UPDATE usuarios SET sesion_activa=0 WHERE usuario=%s", (sesion["usuario"],)); db_x.commit(); db_x.close()
-                except: pass
+            liberar_sesion_actual()
             page.window.destroy()
     page.window.on_event = on_window_event
+
+    # --- INTERCEPTOR: CUANDO CIERRAN LA PESTAÑA EN LA WEB ---
+    def on_disconnect(e):
+        liberar_sesion_actual()
+    page.on_disconnect = on_disconnect
 
     def mostrar_alerta(titulo, mensaje):
         dlg = ft.AlertDialog(title=ft.Text(titulo, weight="bold", color="#fbbf24"), content=ft.Text(str(mensaje)), open=True)
@@ -192,7 +208,7 @@ def main(page: ft.Page):
                 
                 # --- VALIDACIÓN DE SESIÓN CONCURRENTE ---
                 if sesion_activa == 1:
-                    mostrar_alerta("Sesión en Uso 🚫", f"El usuario {u} ya tiene una sesión abierta en otro dispositivo.\n\nSi cerraste el programa bruscamente y se quedó pegada, pide a un Administrador que te la cierre desde el panel de Usuarios.")
+                    mostrar_alerta("Sesión en Uso 🚫", f"El usuario {u} ya tiene una sesión abierta en otro dispositivo.\n\nSi cerraste el navegador de golpe, espera un par de minutos para que el servidor detecte la desconexión o pide a un Administrador que te libere la sesión remotamente.")
                     db.close()
                     return
 
@@ -214,13 +230,7 @@ def main(page: ft.Page):
     ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15), alignment=ft.alignment.center, expand=True)
 
     def mostrar_login():
-        # --- DESBLOQUEA LA SESIÓN AL SALIR ---
-        if sesion.get("usuario"):
-            try:
-                db_l = conectar_db()
-                if db_l:
-                    c_l = db_l.cursor(); c_l.execute("UPDATE usuarios SET sesion_activa=0 WHERE usuario=%s", (sesion["usuario"],)); db_l.commit(); db_l.close()
-            except: pass
+        liberar_sesion_actual()
             
         sesion["usuario"] = None; sesion["rol"] = None; lista_items.clear()
         estado["nro_edicion"] = None; estado["creador_edicion"] = None; estado["permitidos_edicion"] = []
@@ -543,7 +553,6 @@ def main(page: ft.Page):
                     imp = "EXENTO" if i_imp_t.value=="EXENTO" else f"{i_imp_t.value} {i_imp_p.value}%"
                     uf = str(i_und_c.value).upper().strip() if i_und.value=="✍️ ESCRIBIR..." else i_und.value; uf = uf or "UNID"
                     
-                    # AQUÍ SE APLICA EL AUTOCORRECTOR AL AÑADIR EL ÍTEM
                     lista_items.append({
                         "desc": sanitizar_texto(i_desc.value), "cant": c, "precio_base": p_base, "utilidad": u_pct,
                         "precio": p_final, "total": c*p_final, "impuesto": imp, "und": uf, "tipo": tipo_it.value
@@ -1416,7 +1425,6 @@ def main(page: ft.Page):
                 if not puede_guardar:
                     mostrar_snack("⚠ Modo Lectura: PDF de consulta generado. Original sin alterar.", "#f59e0b", "black")
                 
-                # --- NUEVA FUNCIÓN PARA ABRIR EL PDF LOCALMENTE ---
                 def descargar_pdf_abrir(ev):
                     if page.web:
                         page.launch_url(f"/{nom_arc}")
