@@ -6,6 +6,8 @@ import re
 import json
 import qrcode
 import textwrap
+import platform
+import subprocess
 from fpdf import FPDF
 from fpdf.enums import XPos, YPos
 from datetime import datetime
@@ -29,6 +31,10 @@ def init_db():
     if conn:
         c = conn.cursor()
         c.execute("CREATE TABLE IF NOT EXISTS usuarios (usuario TEXT PRIMARY KEY, password TEXT, rol TEXT, intentos INTEGER DEFAULT 0, bloqueado INTEGER DEFAULT 0)")
+        
+        # Agregar columna para control de sesiones concurrentes
+        try: c.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS sesion_activa INTEGER DEFAULT 0")
+        except: pass
         
         c.execute("DELETE FROM usuarios WHERE usuario IN ('OSCAR', 'YEISON', 'PAULO', 'JOHN', 'JHON')")
         c.execute("INSERT INTO usuarios (usuario, password, rol, intentos, bloqueado) VALUES ('OMERA', '1234', 'ADMIN', 0, 0) ON CONFLICT DO NOTHING")
@@ -74,6 +80,26 @@ def sanitizar_texto(texto):
     s = str(texto)
     for orig, nuevo in {"•": "-", "·": "-", "–": "-", "—": "-", "“": '"', "”": '"', "‘": "'", "’": "'", "…": "...", "€": "EUR"}.items(): 
         s = s.replace(orig, nuevo)
+        
+    # --- DICCIONARIO AUTOCORRECTOR ---
+    correcciones = {
+        r"\bBALVULA\b": "VÁLVULA",
+        r"\bBALVULAS\b": "VÁLVULAS",
+        r"\bTAVLERO\b": "TABLERO",
+        r"\bTAVLEROS\b": "TABLEROS",
+        r"\bBOLTIOS\b": "VOLTIOS",
+        r"\bBOLTAJE\b": "VOLTAJE",
+        r"\bTUBERIA\b": "TUBERÍA",
+        r"\bGAVINETE\b": "GABINETE",
+        r"\bINTERUPTOR\b": "INTERRUPTOR",
+        r"\bCONECCION\b": "CONEXIÓN",
+        r"\bINSTALACION\b": "INSTALACIÓN",
+        r"\bMANTENIMIENTO\b": "MANTENIMIENTO"
+    }
+    
+    for mal, bien in correcciones.items():
+        s = re.sub(mal, bien, s, flags=re.IGNORECASE)
+
     return s.encode("latin-1", "replace").decode("latin-1")
 
 class PDF(FPDF):
@@ -84,7 +110,7 @@ class PDF(FPDF):
             self.ellipse(x, y + h - 2 * r, 2 * r, 2 * r, style='F'); self.ellipse(x + w - 2 * r, y + h - 2 * r, 2 * r, 2 * r, style='F')
 
     def header(self):
-        for ruta in ["logo pl.png", "logopl.png", "logo.png", "logo1.png"]:
+        for ruta in ["assets/logo pl.png", "assets/logopl.png", "assets/logo.png", "assets/logo1.png"]:
             if os.path.exists(ruta):
                 try: self.image(ruta, x=10, y=8, w=190); break 
                 except: pass
@@ -103,14 +129,35 @@ class PDF(FPDF):
         self.set_y(-10); self.cell(0, 4, f'Página {self.page_no()}', border=0, align='R')
 
 def main(page: ft.Page):
-    page.title = "INGECTEC V300 - PREMIUM"
+    # --- CAMBIO DE TÍTULO A L34L ---
+    page.title = "⚡ INGECTEC L34L - PREMIUM (LOCAL)"
+    
+    # --- CAMBIO DE ICONO DE LA VENTANA (NUEVA VERSIÓN 0.23) ---
+    for ruta in ["assets/logo pl.png", "assets/logopl.png", "assets/logo.png", "assets/logo1.png"]:
+        if os.path.exists(ruta):
+            try: page.window.icon = ruta; break 
+            except: pass
+
     page.theme_mode = ft.ThemeMode.DARK
     page.bgcolor = "#1e293b"
     page.padding = 15
-
+    
     sesion = {"usuario": None, "rol": None}
     lista_items = []
     estado = {"nro_edicion": None, "creador_edicion": None, "permitidos_edicion": []}
+
+    # --- INTERCEPTOR DE CIERRE DE VENTANA (DESBLOQUEA SESIÓN) ---
+    page.window.prevent_close = True
+    def on_window_event(e):
+        if e.data == "close":
+            if sesion.get("usuario"):
+                try:
+                    db_x = conectar_db()
+                    if db_x:
+                        c_x = db_x.cursor(); c_x.execute("UPDATE usuarios SET sesion_activa=0 WHERE usuario=%s", (sesion["usuario"],)); db_x.commit(); db_x.close()
+                except: pass
+            page.window.destroy()
+    page.window.on_event = on_window_event
 
     def mostrar_alerta(titulo, mensaje):
         dlg = ft.AlertDialog(title=ft.Text(titulo, weight="bold", color="#fbbf24"), content=ft.Text(str(mensaje)), open=True)
@@ -137,13 +184,20 @@ def main(page: ft.Page):
         u = input_usr.value.upper().strip(); p = input_pwd.value.strip()
         db = conectar_db()
         if db:
-            c = db.cursor(); c.execute("SELECT password, rol, bloqueado, intentos FROM usuarios WHERE usuario=%s", (u,))
+            c = db.cursor(); c.execute("SELECT password, rol, bloqueado, intentos, sesion_activa FROM usuarios WHERE usuario=%s", (u,))
             user_row = c.fetchone()
             if user_row:
-                db_pwd, rol, bloqueado, intentos = user_row
+                db_pwd, rol, bloqueado, intentos, sesion_activa = user_row
                 if bloqueado == 1: mostrar_alerta("Bloqueado 🔒", "Usuario bloqueado. Contacta a un Super Administrador (OMERA o PLEAL)."); db.close(); return
+                
+                # --- VALIDACIÓN DE SESIÓN CONCURRENTE ---
+                if sesion_activa == 1:
+                    mostrar_alerta("Sesión en Uso 🚫", f"El usuario {u} ya tiene una sesión abierta en otro dispositivo.\n\nSi cerraste el programa bruscamente y se quedó pegada, pide a un Administrador que te la cierre desde el panel de Usuarios.")
+                    db.close()
+                    return
+
                 if db_pwd == p:
-                    c.execute("UPDATE usuarios SET intentos=0, bloqueado=0 WHERE usuario=%s", (u,))
+                    c.execute("UPDATE usuarios SET intentos=0, bloqueado=0, sesion_activa=1 WHERE usuario=%s", (u,))
                     db.close(); sesion["usuario"] = u; sesion["rol"] = rol; iniciar_app_principal()
                 else:
                     intentos += 1
@@ -153,13 +207,21 @@ def main(page: ft.Page):
             else: db.close(); mostrar_snack("❌ Usuario no existe", "#ef4444"); page.update()
 
     pantalla_login = ft.Container(content=ft.Column([
-        ft.Icon(ft.icons.BOLT, size=70, color="#f59e0b"), 
+        ft.Icon("bolt", size=70, color="#f59e0b"), 
         ft.Text("INGECTEC - Acceso Seguro", size=20, weight="bold", color="white"), 
         input_usr, input_pwd, 
         ft.ElevatedButton("INICIAR SESIÓN", bgcolor="#f59e0b", color="black", width=300, height=45, on_click=procesar_login)
     ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15), alignment=ft.alignment.center, expand=True)
 
     def mostrar_login():
+        # --- DESBLOQUEA LA SESIÓN AL SALIR ---
+        if sesion.get("usuario"):
+            try:
+                db_l = conectar_db()
+                if db_l:
+                    c_l = db_l.cursor(); c_l.execute("UPDATE usuarios SET sesion_activa=0 WHERE usuario=%s", (sesion["usuario"],)); db_l.commit(); db_l.close()
+            except: pass
+            
         sesion["usuario"] = None; sesion["rol"] = None; lista_items.clear()
         estado["nro_edicion"] = None; estado["creador_edicion"] = None; estado["permitidos_edicion"] = []
         input_usr.value = ""; input_pwd.value = ""
@@ -181,17 +243,13 @@ def main(page: ft.Page):
         input_pct_a = ft.TextField(label="Admin %", value="10"); input_pct_i = ft.TextField(label="Imprev %", value="2")
         input_pct_u = ft.TextField(label="Util %", value="8"); input_pct_iva_u = ft.TextField(label="IVA s/U %", value="19")
         
-        input_pct_ganancia = ft.TextField(label="Utilidad %", value="0")
-        
         lista_busqueda_cli = ft.ListView(height=150, visible=False, spacing=2)
 
         dropdown_modo_cot = ft.Dropdown(label="Tipo Cotización", options=[ft.dropdown.Option("AIU"), ft.dropdown.Option("IVA")], value="AIU")
-        container_texto_aiu = ft.Container(content=ft.Text("⚙️ Config. AIU:", weight="bold", color="#fbbf24"), col={"sm": 12, "md": 2, "lg": 2}, alignment=ft.alignment.center_left)
+        container_texto_aiu = ft.Container(content=ft.Text("⚙ Config. AIU:", weight="bold", color="#fbbf24"), col={"sm": 12, "md": 2, "lg": 2}, alignment=ft.alignment.center_left)
         cont_a = ft.Container(content=input_pct_a, col={"sm": 3, "md": 2, "lg": 2}); cont_i = ft.Container(content=input_pct_i, col={"sm": 3, "md": 2, "lg": 2})
         cont_u = ft.Container(content=input_pct_u, col={"sm": 3, "md": 2, "lg": 2}); cont_iva_u = ft.Container(content=input_pct_iva_u, col={"sm": 3, "md": 2, "lg": 2})
-        cont_ganancia = ft.Container(content=input_pct_ganancia, col={"sm": 6, "md": 2, "lg": 2}, visible=False)
 
-        # --- SISTEMA DE AUTOGUARDADO EN CACHÉ (NUEVO) ---
         def guardar_borrador(e=None):
             try:
                 borrador = {
@@ -212,8 +270,7 @@ def main(page: ft.Page):
                         "pct_a": input_pct_a.value,
                         "pct_i": input_pct_i.value,
                         "pct_u": input_pct_u.value,
-                        "pct_iva_u": input_pct_iva_u.value,
-                        "pct_ganancia": input_pct_ganancia.value
+                        "pct_iva_u": input_pct_iva_u.value
                     }
                 }
                 if sesion["usuario"]:
@@ -221,7 +278,6 @@ def main(page: ft.Page):
             except:
                 pass
 
-        # Atar el guardado automático a los campos de texto
         input_nit.on_change = guardar_borrador
         input_ciudad.on_change = guardar_borrador
         input_atencion.on_change = guardar_borrador
@@ -371,8 +427,8 @@ def main(page: ft.Page):
                                 estado_modal["idx"] = curr + 1
                                 actualizar_tabla_visual()
                         
-                        btn_up = ft.IconButton(ft.icons.ARROW_UPWARD, on_click=move_up, tooltip="Subir posición", icon_color="#3b82f6")
-                        btn_down = ft.IconButton(ft.icons.ARROW_DOWNWARD, on_click=move_down, tooltip="Bajar posición", icon_color="#3b82f6")
+                        btn_up = ft.IconButton("arrow_upward", on_click=move_up, tooltip="Subir posición", icon_color="#3b82f6")
+                        btn_down = ft.IconButton("arrow_downward", on_click=move_down, tooltip="Bajar posición", icon_color="#3b82f6")
                         row_arrows = ft.Row([ft.Text("Mover de posición:", size=12, color="#94a3b8"), btn_up, btn_down], alignment=ft.MainAxisAlignment.CENTER)
 
                         dlg_e = ft.AlertDialog(title=ft.Text(f"Editar: {lista_items[idx_r]['desc']}"), content=ft.Column([ec, ep, eu, row_arrows], tight=True), open=True)
@@ -412,7 +468,6 @@ def main(page: ft.Page):
                 )
             page.update()
             
-            # Guardamos copia local tras cada cambio en la tabla
             guardar_borrador()
 
         def abrir_modal_item(e):
@@ -488,8 +543,9 @@ def main(page: ft.Page):
                     imp = "EXENTO" if i_imp_t.value=="EXENTO" else f"{i_imp_t.value} {i_imp_p.value}%"
                     uf = str(i_und_c.value).upper().strip() if i_und.value=="✍️ ESCRIBIR..." else i_und.value; uf = uf or "UNID"
                     
+                    # AQUÍ SE APLICA EL AUTOCORRECTOR AL AÑADIR EL ÍTEM
                     lista_items.append({
-                        "desc": i_desc.value, "cant": c, "precio_base": p_base, "utilidad": u_pct,
+                        "desc": sanitizar_texto(i_desc.value), "cant": c, "precio_base": p_base, "utilidad": u_pct,
                         "precio": p_final, "total": c*p_final, "impuesto": imp, "und": uf, "tipo": tipo_it.value
                     })
                     actualizar_tabla_visual()
@@ -594,7 +650,7 @@ def main(page: ft.Page):
 
                             tile = ft.ListTile(title=ft.Text(n, color="#fbbf24"), subtitle=ft.Text(f"Tel: {t} (Clic para editar)"))
                             tile.on_click = ed
-                            tile.trailing = ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=rm)
+                            tile.trailing = ft.IconButton("delete", icon_color="#ef4444", on_click=rm)
                             lst_provs.controls.append(tile)
                         db.close()
                     
@@ -675,7 +731,7 @@ def main(page: ft.Page):
                             subt = f"${int(float(p)):,}" + (f" ({prov})" if prov else "") + (f" - Act: {fa}")
                             tile = ft.ListTile(title=ft.Text(d, size=13, color="#fbbf24", weight="bold"), subtitle=ft.Text(subt))
                             tile.on_click = sel
-                            tile.trailing = ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=rm)
+                            tile.trailing = ft.IconButton("delete", icon_color="#ef4444", on_click=rm)
                             resultados_bod.controls.append(tile)
                         db.close(); page.update()
 
@@ -691,7 +747,8 @@ def main(page: ft.Page):
                     db=conectar_db()
                     if db: 
                         fh = datetime.now().strftime("%Y-%m-%d")
-                        c=db.cursor(); c.execute("INSERT INTO inv (d, p, stock, proveedor, fecha_act) VALUES (%s,%s,0,'',%s) ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p, fecha_act=EXCLUDED.fecha_act", (e_desc.value.upper(), p_val_final, fh)); db.commit(); db.close(); e_desc.value=""; e_precio.value=""; b_bod(None); load_cat(None); mostrar_snack("✅ Guardado con éxito", "#2563eb")
+                        desc_corregida = sanitizar_texto(e_desc.value.upper())
+                        c=db.cursor(); c.execute("INSERT INTO inv (d, p, stock, proveedor, fecha_act) VALUES (%s,%s,0,'',%s) ON CONFLICT(d) DO UPDATE SET p=EXCLUDED.p, fecha_act=EXCLUDED.fecha_act", (desc_corregida, p_val_final, fh)); db.commit(); db.close(); e_desc.value=""; e_precio.value=""; b_bod(None); load_cat(None); mostrar_snack("✅ Guardado con éxito", "#2563eb")
 
                 def p_mas(evt):
                     if not e_mas.value.strip(): return
@@ -702,7 +759,7 @@ def main(page: ft.Page):
                         for l in e_mas.value.strip().split('\n'):
                             pts = l.split('\t')
                             if len(pts)>=1 and pts[0].strip():
-                                item = pts[0].strip().upper()
+                                item = sanitizar_texto(pts[0].strip().upper())
                                 prov = sanitizar_texto(pts[1].strip().upper()) if len(pts)>=3 else ""
                                 pr_str = "0"
                                 if len(pts) >= 3: pr_str = pts[2]
@@ -722,7 +779,7 @@ def main(page: ft.Page):
                                             evaluados[item]["max_prov"] = prov
                                         if pr_final < evaluados[item]["min_p"]:
                                             evaluados[item]["min_p"] = pr_final
-                                            evaluados[item]["min_prov"] = prov
+                                            evaluados[item]["min_prov"] = pr_final
                         
                         for itm, data in evaluados.items():
                             if data["max_prov"] == data["min_prov"]:
@@ -750,7 +807,7 @@ def main(page: ft.Page):
                     page.update()
 
                 def run_comp(evt):
-                    itm = c_item.value.strip().upper()
+                    itm = sanitizar_texto(c_item.value.strip().upper())
                     if not itm: return mostrar_alerta("Aviso", "Ingresa ítem.")
                     ofs = []
                     
@@ -883,7 +940,7 @@ def main(page: ft.Page):
                             load_cli()
                         
                         tile.on_click = ed
-                        tile.trailing = ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=rm)
+                        tile.trailing = ft.IconButton("delete", icon_color="#ef4444", on_click=rm)
                         r_cli.controls.append(tile)
                     db.close()
                 try: page.update()
@@ -942,8 +999,8 @@ def main(page: ft.Page):
             def load_u():
                 res_u.controls.clear(); db=conectar_db()
                 if db:
-                    c=db.cursor(); c.execute("SELECT usuario, rol, bloqueado FROM usuarios ORDER BY usuario ASC")
-                    for u, r, b in c.fetchall():
+                    c=db.cursor(); c.execute("SELECT usuario, rol, bloqueado, sesion_activa FROM usuarios ORDER BY usuario ASC")
+                    for u, r, b, sa in c.fetchall():
                         def ed(ev, us=u, ro=r): un.value=us; ur.value=ro; up.value=""; page.update()
                         def rm(ev, us=u): 
                             dbd=conectar_db(); cur_d=dbd.cursor(); cur_d.execute("DELETE FROM usuarios WHERE usuario=%s", (us,)); dbd.commit(); dbd.close()
@@ -951,10 +1008,21 @@ def main(page: ft.Page):
                             load_u()
                         def dbq(ev, us=u): dbu=conectar_db(); cu=dbu.cursor(); cu.execute("UPDATE usuarios SET intentos=0, bloqueado=0 WHERE usuario=%s", (us,)); dbu.commit(); dbu.close(); load_u()
                         
-                        bts = [ft.IconButton(ft.icons.DELETE, icon_color="#ef4444", on_click=rm)]
-                        if b==1: bts.insert(0, ft.IconButton(ft.icons.LOCK_OPEN, icon_color="#10b981", on_click=dbq))
+                        # --- BOTÓN PARA CERRAR SESIONES REMOTAS ---
+                        def force_out(ev, us=u): 
+                            dbf=conectar_db(); cf=dbf.cursor(); cf.execute("UPDATE usuarios SET sesion_activa=0 WHERE usuario=%s", (us,)); dbf.commit(); dbf.close(); load_u(); mostrar_snack(f"🔌 Sesión de {us} cerrada remotamente.", "#3b82f6")
                         
-                        tile = ft.ListTile(title=ft.Text(f"{u}{' (Bloqueado)' if b==1 else ''}", color="#ef4444" if b==1 else "#fbbf24"), subtitle=ft.Text(r))
+                        bts = [ft.IconButton("delete", icon_color="#ef4444", on_click=rm)]
+                        
+                        if sa == 1:
+                            bts.insert(0, ft.IconButton("power_settings_new", icon_color="#f59e0b", tooltip="Cerrar sesión remota", on_click=force_out))
+                        if b == 1: 
+                            bts.insert(0, ft.IconButton("lock_open", icon_color="#10b981", on_click=dbq))
+                        
+                        est_txt = " (Bloqueado)" if b==1 else (" (🟢 En línea)" if sa==1 else "")
+                        col_txt = "#ef4444" if b==1 else ("#10b981" if sa==1 else "#fbbf24")
+                        
+                        tile = ft.ListTile(title=ft.Text(f"{u}{est_txt}", color=col_txt), subtitle=ft.Text(r))
                         tile.on_click = ed
                         tile.trailing = ft.Row(bts, tight=True)
                         res_u.controls.append(tile)
@@ -1011,7 +1079,7 @@ def main(page: ft.Page):
                             for d in ch.fetchall():
                                 ds=d[0] or ""; ct=float(d[1] or 0); ud=str(d[2] or "UNID"); ut=float(d[3] or 0); sb=float(d[4] or (ct*ut)); im=str(d[5] or "EXENTO"); tp=str(d[6] or "P")
                                 if "AIU" in ud or "IVA" in ud or "EXENTO" in ud: t=im; im=ud; ud=t if t not in ["EXENTO", ""] else "UNID"
-                                lista_items.append({"desc": ds, "cant": ct, "und": ud, "precio_base": ut, "utilidad": 0, "precio": ut, "total": sb, "impuesto": im, "tipo": tp})
+                                lista_items.append({"desc": ds, "cant": ct, "und": ud, "precio": ut, "precio_base": ut, "utilidad": 0, "total": sb, "impuesto": im, "tipo": tp})
                             dbh.close()
                             estado["nro_edicion"]=nro; estado["creador_edicion"]=creador; estado["permitidos_edicion"] = perm_list
                             actualizar_tabla_visual(); cerrar_dialogo(dlg_h)
@@ -1047,7 +1115,7 @@ def main(page: ft.Page):
                                 dlg_share.actions = [ft.ElevatedButton("Dar Permiso", bgcolor="#10b981", color="white", on_click=grant_perm), ft.TextButton("Cancelar", on_click=lambda ev: cerrar_dialogo(dlg_share))]
                                 page.overlay.append(dlg_share); page.update()
                             
-                            trail_btns.append(ft.IconButton(ft.icons.SHARE, icon_color="#3b82f6", tooltip="Compartir Permisos", on_click=share_cot))
+                            trail_btns.append(ft.IconButton("share", icon_color="#3b82f6", tooltip="Compartir Permisos", on_click=share_cot))
 
                         res_h.controls.append(ft.ListTile(title=ft.Text(f"N° {nr} - {cl} (Por: {cr})", color="#fbbf24"), subtitle=ft.Text(f"{fc} | ${int(float(tt)):,}"), on_click=c_cot, trailing=ft.Row(trail_btns, tight=True) if trail_btns else None))
                 db.close(); page.update()
@@ -1242,7 +1310,7 @@ def main(page: ft.Page):
                 if c_nit: p.cell(110, 5, f"NIT / CC: {c_nit}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                 if lin_dir: p.cell(110, 5, lin_dir, border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                 if c_tel: p.cell(110, 5, f"Tel: {c_tel}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                if c_email: p.cell(110, 5, f"Email: {c_email}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                if c_email: p.cell(110, 5, c_email, border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                 
                 y_ed = p.get_y(); p.set_xy(120, y_st + 2); p.set_font('helvetica', 'B', 12); p.set_text_color(31, 73, 125); p.cell(80, 5, f"COTIZACIÓN ING {nro_doc}", border=0, align='C'); p.set_text_color(0, 0, 0) 
                 p.set_y(max(y_ed, y_st + 10) + 5)
@@ -1346,24 +1414,40 @@ def main(page: ft.Page):
                 except: pass
                 
                 if not puede_guardar:
-                    mostrar_snack("⚠️ Modo Lectura: PDF de consulta generado. Original sin alterar.", "#f59e0b", "black")
+                    mostrar_snack("⚠ Modo Lectura: PDF de consulta generado. Original sin alterar.", "#f59e0b", "black")
                 
+                # --- NUEVA FUNCIÓN PARA ABRIR EL PDF LOCALMENTE ---
+                def descargar_pdf_abrir(ev):
+                    if page.web:
+                        page.launch_url(f"/{nom_arc}")
+                    else:
+                        ruta_abs = os.path.abspath(f"assets/{nom_arc}")
+                        try:
+                            if platform.system() == "Windows":
+                                os.startfile(ruta_abs)
+                            elif platform.system() == "Darwin":
+                                subprocess.call(["open", ruta_abs])
+                            else:
+                                subprocess.call(["xdg-open", ruta_abs])
+                        except Exception as ex:
+                            mostrar_alerta("Error", f"No se pudo abrir el archivo localmente: {ex}")
+
                 dlg_d = ft.AlertDialog(title=ft.Text("✅ Generado", color="#10b981"), content=ft.Text(f"Archivo: {nom_arc}"), open=True)
-                dlg_d.actions = [ft.ElevatedButton("📥 DESCARGAR", bgcolor="#2563eb", color="white", on_click=lambda ev: page.launch_url(f"/{nom_arc}")), ft.TextButton("Cerrar", on_click=lambda ev: cerrar_dialogo(dlg_d))]
+                dlg_d.actions = [ft.ElevatedButton("📥 ABRIR PDF", bgcolor="#2563eb", color="white", on_click=descargar_pdf_abrir), ft.TextButton("Cerrar", on_click=lambda ev: cerrar_dialogo(dlg_d))]
                 page.overlay.append(dlg_d); page.update()
             except Exception as eFallo: mostrar_alerta("Error al generar PDF", f"Hubo un fallo: {str(eFallo)}")
 
         botones_lista = [
-            ft.ElevatedButton("AÑADIR ÍTEM", icon=ft.icons.ADD, bgcolor="#f59e0b", color="black", on_click=abrir_modal_item),
-            ft.ElevatedButton("BODEGA", icon=ft.icons.INVENTORY_2, bgcolor="#334155", color="white", on_click=abrir_modal_bodega),
-            ft.ElevatedButton("CLIENTES", icon=ft.icons.GROUPS, bgcolor="#334155", color="white", on_click=abrir_modal_clientes),
-            ft.ElevatedButton("USUARIOS", icon=ft.icons.SECURITY, bgcolor="#334155", color="white", on_click=abrir_modal_usuarios),
-            ft.ElevatedButton("HISTORIAL", icon=ft.icons.HISTORY, bgcolor="#334155", color="white", on_click=abrir_modal_historial),
-            ft.ElevatedButton("LIMPIAR", icon=ft.icons.DELETE_SWEEP, bgcolor="#475569", color="white", on_click=limpiar_todo),
-            ft.ElevatedButton("SISTEMA", icon=ft.icons.SETTINGS, bgcolor="#475569", color="white", on_click=abrir_modal_sistema)
+            ft.ElevatedButton("AÑADIR ÍTEM", icon="add", bgcolor="#f59e0b", color="black", on_click=abrir_modal_item),
+            ft.ElevatedButton("BODEGA", icon="inventory_2", bgcolor="#334155", color="white", on_click=abrir_modal_bodega),
+            ft.ElevatedButton("CLIENTES", icon="groups", bgcolor="#334155", color="white", on_click=abrir_modal_clientes),
+            ft.ElevatedButton("USUARIOS", icon="security", bgcolor="#334155", color="white", on_click=abrir_modal_usuarios),
+            ft.ElevatedButton("HISTORIAL", icon="history", bgcolor="#334155", color="white", on_click=abrir_modal_historial),
+            ft.ElevatedButton("LIMPIAR", icon="delete_sweep", bgcolor="#475569", color="white", on_click=limpiar_todo),
+            ft.ElevatedButton("SISTEMA", icon="settings", bgcolor="#475569", color="white", on_click=abrir_modal_sistema)
         ]
             
-        botones_lista.append(ft.ElevatedButton("SALIR", icon=ft.icons.LOGOUT, bgcolor="#ef4444", color="white", on_click=lambda e: mostrar_login()))
+        botones_lista.append(ft.ElevatedButton("SALIR", icon="logout", bgcolor="#ef4444", color="white", on_click=lambda e: mostrar_login()))
 
         contenedor_botones = ft.Container(
             content=ft.Row(
@@ -1387,16 +1471,15 @@ def main(page: ft.Page):
         ], spacing=10), bgcolor="#0f172a", padding=15, border_radius=8, border=ft.border.all(1, "white12"))
 
         page.add(
-            ft.Container(content=ft.Row([ft.Icon(ft.icons.BOLT, color="#fbbf24", size=30), ft.Text(f"INGECTEC SAS", size=22, weight="bold", color="#fbbf24")], alignment=ft.MainAxisAlignment.CENTER), padding=5), 
+            ft.Container(content=ft.Row([ft.Icon("bolt", color="#fbbf24", size=30), ft.Text(f"INGECTEC SAS", size=22, weight="bold", color="#fbbf24")], alignment=ft.MainAxisAlignment.CENTER), padding=5), 
             ft.Container(content=ft.Text(f"👤 Conectado: {sesion['usuario']} ({sesion['rol']})", size=12, color="#94a3b8"), alignment=ft.alignment.center_right), 
             contenedor_botones, 
             tabla, 
             f_cli, 
-            ft.Container(content=ft.ElevatedButton("GENERAR COTIZACIÓN PROFESIONAL", icon=ft.icons.BOLT, bgcolor="#f59e0b", color="black", height=50, on_click=generar_pdf_web), alignment=ft.alignment.center, padding=ft.padding.only(top=10, bottom=20))
+            ft.Container(content=ft.ElevatedButton("GENERAR COTIZACIÓN PROFESIONAL", icon="bolt", bgcolor="#f59e0b", color="black", height=50, on_click=generar_pdf_web), alignment=ft.alignment.center, padding=ft.padding.only(top=10, bottom=20))
         )
         page.update()
 
-        # --- SISTEMA DE VERIFICACIÓN DE BORRADOR AL INICIAR SESIÓN ---
         def verificar_borrador():
             if page.client_storage.contains_key(f"draft_{sesion['usuario']}"):
                 draft_str = page.client_storage.get(f"draft_{sesion['usuario']}")
@@ -1455,7 +1538,7 @@ def main(page: ft.Page):
         dia_actual = datetime.now().weekday()
         if dia_actual == 0 or dia_actual == 4:
             snack_recordatorio = ft.SnackBar(
-                ft.Text("🛡️ RECORDATORIO: Por favor, genere un Backup en 'SISTEMA' periódicamente para salvaguardar la información contra vulnerabilidades o ciberataques.", color="black", weight="bold"),
+                ft.Text("🛡 RECORDATORIO: Por favor, genere un Backup en 'SISTEMA' periódicamente para salvaguardar la información contra vulnerabilidades o ciberataques.", color="black", weight="bold"),
                 bgcolor="#fbbf24",
                 duration=10000,
                 open=True
@@ -1465,4 +1548,7 @@ def main(page: ft.Page):
 
     mostrar_login()
 
-ft.app(target=main, view=ft.AppView.WEB_BROWSER, port=PORT, host="0.0.0.0", assets_dir="assets")
+if hasattr(ft, 'app'):
+    ft.app(target=main, assets_dir="assets")
+else:
+    ft.run(main, assets_dir="assets")
