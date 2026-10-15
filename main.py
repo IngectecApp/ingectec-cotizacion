@@ -91,18 +91,31 @@ class PDF(FPDF):
         except:
             base_dir = os.getcwd()
 
-        # Todas las combinaciones de rutas absolutas para el logo web/local
+        # Rutas de búsqueda ampliadas para cubrir el entorno de Flet Web en Render
         rutas_logos = [
-            os.path.join(base_dir, "logopl.jpg"),
             os.path.join(base_dir, "assets", "logopl.jpg"),
-            os.path.join(base_dir, "logopl.png"),
+            os.path.join(base_dir, "logopl.jpg"),
             os.path.join(base_dir, "assets", "logopl.png"),
-            os.path.join(base_dir, "logo pl.png"),
+            os.path.join(base_dir, "logopl.png"),
             os.path.join(base_dir, "assets", "logo pl.png"),
-            os.path.join(base_dir, "logo.png"),
+            os.path.join(base_dir, "logo pl.png"),
             os.path.join(base_dir, "assets", "logo.png"),
+            os.path.join(base_dir, "logo.png"),
+            # Búsqueda desde el directorio actual de ejecución de Flet
             "assets/logopl.png", 
-            "logopl.png"
+            "assets/logopl.jpg",
+            "logopl.png",
+            "logopl.jpg",
+            # Búsqueda asumiendo que Flet está un nivel arriba
+            "../assets/logopl.png",
+            "../assets/logopl.jpg",
+            "../logopl.png",
+            "../logopl.jpg",
+             # Búsqueda asumiendo que el código está en /src en Render
+             "/opt/render/project/src/logopl.png",
+             "/opt/render/project/src/logopl.jpg",
+             "/opt/render/project/src/assets/logopl.png",
+             "/opt/render/project/src/assets/logopl.jpg"
         ]
         
         logo_cargado = False
