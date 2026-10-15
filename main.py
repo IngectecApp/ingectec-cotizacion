@@ -192,7 +192,7 @@ def main(page: ft.Page):
         page.update()  
   
     def mostrar_snack(mensaje, color_fondo="#10b981", color_texto="white"):  
-        snack = ft.SnackBar(content=ft.Text(mensaje, color=color_texto), bgcolor=color_fondo, open=True)
+        snack = ft.SnackBar(content=ft.Text(mensaje, color_texto), bgcolor=color_fondo, open=True)
         page.overlay.append(snack)
         page.update()  
   
@@ -1417,6 +1417,6 @@ def main(page: ft.Page):
     mostrar_login()  
   
 if hasattr(ft, 'app'):
-    ft.app(target=main, port=PORT, view=ft.AppView.WEB_BROWSER)
+    ft.app(target=main, host="0.0.0.0", port=PORT, view=ft.AppView.WEB_BROWSER)
 else:
-    ft.app(target=main, port=PORT)
+    ft.app(target=main, host="0.0.0.0", port=PORT)
