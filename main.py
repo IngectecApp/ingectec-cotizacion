@@ -86,55 +86,14 @@ class PDF(FPDF):
             self.ellipse(x+w-2*r, y+h-2*r, 2*r, 2*r, style='F')  
             
     def header(self):
-        try:
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-        except:
-            base_dir = os.getcwd()
-
-        # Rutas de búsqueda ampliadas para cubrir el entorno de Flet Web en Render
-        rutas_logos = [
-            os.path.join(base_dir, "assets", "logopl.jpg"),
-            os.path.join(base_dir, "logopl.jpg"),
-            os.path.join(base_dir, "assets", "logopl.png"),
-            os.path.join(base_dir, "logopl.png"),
-            os.path.join(base_dir, "assets", "logo pl.png"),
-            os.path.join(base_dir, "logo pl.png"),
-            os.path.join(base_dir, "assets", "logo.png"),
-            os.path.join(base_dir, "logo.png"),
-            # Búsqueda desde el directorio actual de ejecución de Flet
-            "assets/logopl.png", 
-            "assets/logopl.jpg",
-            "logopl.png",
-            "logopl.jpg",
-            # Búsqueda asumiendo que Flet está un nivel arriba
-            "../assets/logopl.png",
-            "../assets/logopl.jpg",
-            "../logopl.png",
-            "../logopl.jpg",
-             # Búsqueda asumiendo que el código está en /src en Render
-             "/opt/render/project/src/logopl.png",
-             "/opt/render/project/src/logopl.jpg",
-             "/opt/render/project/src/assets/logopl.png",
-             "/opt/render/project/src/assets/logopl.jpg"
-        ]
-        
-        logo_cargado = False
-        for ruta in rutas_logos:  
-            if os.path.exists(ruta):  
-                try: 
+        rutas_logos = ["logopl.png", "assets/logopl.png", "logo.png", "assets/logo.png"]
+        for ruta in rutas_logos:
+            if os.path.exists(ruta):
+                try:
                     self.image(ruta, x=10, y=8, w=190)
-                    logo_cargado = True
-                    break   
-                except Exception as e:
+                    break
+                except:
                     pass
-        
-        if not logo_cargado:
-            self.set_y(15)
-            self.set_font('helvetica', 'B', 10)
-            self.set_text_color(255, 0, 0)
-            self.cell(0, 10, "ERROR: NO SE ENCUENTRA LA IMAGEN 'logopl.png' EN EL SERVIDOR", border=0, align='C')
-            self.set_text_color(0, 0, 0)
-
         self.set_y(40)   
         
     def footer(self):  
@@ -1395,32 +1354,6 @@ def main(page: ft.Page):
         page.add(ft.Container(content=ft.Row([ft.Icon("bolt", color="#fbbf24", size=30), ft.Text(f"INGECTEC SAS", size=22, weight="bold", color="#fbbf24")], alignment=ft.MainAxisAlignment.CENTER), padding=5), ft.Container(content=ft.Text(f"👤 Conectado: {sesion['usuario']} ({sesion['rol']})", size=12, color="#94a3b8"), alignment=ft.alignment.center_right), contenedor_botones, tabla, f_cli, ft.Container(content=ft.ElevatedButton("GENERAR COTIZACIÓN PROFESIONAL", icon="bolt", bgcolor="#f59e0b", color="black", height=50, on_click=generar_pdf_web), alignment=ft.alignment.center, padding=ft.padding.only(top=10, bottom=20)))  
         page.update()  
   
-        def verificar_borrador():  
-            if page.client_storage.contains_key(f"draft_{sesion['usuario']}"):  
-                draft_str = page.client_storage.get(f"draft_{sesion['usuario']}")  
-                if draft_str:  
-                    try:  
-                        draft = json.loads(draft_str)  
-                        if not draft.get("lista_items") and not draft.get("cabecera", {}).get("cliente"): return  
-                        def si_recuperar(e):  
-                            lista_items.clear(); lista_items.extend(draft.get("lista_items", [])); estado.update(draft.get("estado", {})); cab = draft.get("cabecera", {})  
-                            input_cliente.value = cab.get("cliente", ""); input_nit.value = cab.get("nit", ""); input_ciudad.value = cab.get("ciudad", "Yumbo"); input_atencion.value = cab.get("atencion", ""); input_ref.value = cab.get("ref", ""); input_tiempo_entrega.value = cab.get("tiempo_entrega", "4 Días hábiles"); input_validez.value = cab.get("validez", "20 Días"); input_pago.value = cab.get("pago", "30 Días"); input_garantia.value = cab.get("garantia", "6 meses en mano de obra"); input_notas.value = cab.get("notas", "")  
-                            dropdown_modo_cot.value = cab.get("modo", "AIU"); input_pct_a.value = cab.get("pct_a", "10"); input_pct_i.value = cab.get("pct_i", "2"); input_pct_u.value = cab.get("pct_u", "8"); input_pct_iva_u.value = cab.get("pct_iva_u", "19"); cambiar_modo_cot(None); actualizar_tabla_visual(); cerrar_dialogo(dlg_b); mostrar_snack("✅ Borrador recuperado con éxito", "#2563eb")  
-                        def no_recuperar(e): page.client_storage.remove(f"draft_{sesion['usuario']}"); cerrar_dialogo(dlg_b)  
-                        dlg_b = ft.AlertDialog(title=ft.Text("🔄 Borrador Encontrado", color="#f59e0b", weight="bold"), content=ft.Text("El sistema detectó una cotización pendiente que no se guardó.\n\n¿Deseas recuperarla para continuar donde la dejaste?"), actions=[ft.ElevatedButton("Sí, Recuperar", bgcolor="#10b981", color="white", on_click=si_recuperar), ft.TextButton("No, Descartar", on_click=no_recuperar)], open=True)  
-                        page.overlay.append(dlg_b); page.update()  
-                    except: pass  
-        verificar_borrador()  
-  
-        dia_actual = datetime.now().weekday()  
-        if dia_actual == 0 or dia_actual == 4:  
-            snack_recordatorio = ft.SnackBar(ft.Text("🛡️ RECORDATORIO: Por favor, genere un Backup en 'SISTEMA' periódicamente para salvaguardar la información contra vulnerabilidades o ciberataques.", color="black", weight="bold"), bgcolor="#fbbf24", duration=10000, open=True)
-            page.overlay.append(snack_recordatorio)
-            page.update()  
-  
-    mostrar_login()  
-  
-if hasattr(ft, 'app'):
-    ft.app(target=main, port=PORT, view=ft.AppView.WEB_BROWSER)
-else:
-    ft.app(target=main, port=PORT)
+        def verificar_borrador`, haz clic en la línea roja de **"Failed"** para abrir el registro de errores y ver exactamente qué le dolió a Python al intentar arrancar en el servidor con el nuevo comando de inicio.
+
+Haz clic en ese registro fallido y dime qué dicen las últimas letras en rojo de la consola para corregirlo de inmediato.
