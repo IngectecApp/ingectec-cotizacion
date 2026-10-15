@@ -86,14 +86,51 @@ class PDF(FPDF):
             self.ellipse(x+w-2*r, y+h-2*r, 2*r, 2*r, style='F')  
             
     def header(self):
-        rutas_logos = ["logopl.png", "assets/logopl.png", "logopl.jpg", "assets/logopl.jpg", "logo.png", "assets/logo.png"]
-        for ruta in rutas_logos:
-            if os.path.exists(ruta):
-                try:
+        try:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+        except:
+            base_dir = os.getcwd()
+
+        rutas_logos = [
+            os.path.join(base_dir, "assets", "logopl.jpg"),
+            os.path.join(base_dir, "logopl.jpg"),
+            os.path.join(base_dir, "assets", "logopl.png"),
+            os.path.join(base_dir, "logopl.png"),
+            os.path.join(base_dir, "assets", "logo pl.png"),
+            os.path.join(base_dir, "logo pl.png"),
+            os.path.join(base_dir, "assets", "logo.png"),
+            os.path.join(base_dir, "logo.png"),
+            "assets/logopl.png", 
+            "assets/logopl.jpg",
+            "logopl.png",
+            "logopl.jpg",
+            "../assets/logopl.png",
+            "../assets/logopl.jpg",
+            "../logopl.png",
+            "../logopl.jpg",
+            "/opt/render/project/src/logopl.png",
+            "/opt/render/project/src/logopl.jpg",
+            "/opt/render/project/src/assets/logopl.png",
+            "/opt/render/project/src/assets/logopl.jpg"
+        ]
+        
+        logo_cargado = False
+        for ruta in rutas_logos:  
+            if os.path.exists(ruta):  
+                try: 
                     self.image(ruta, x=10, y=8, w=190)
-                    break
-                except:
+                    logo_cargado = True
+                    break   
+                except Exception as e:
                     pass
+        
+        if not logo_cargado:
+            self.set_y(15)
+            self.set_font('helvetica', 'B', 10)
+            self.set_text_color(255, 0, 0)
+            self.cell(0, 10, "ERROR: NO SE ENCUENTRA LA IMAGEN 'logopl.png' EN EL SERVIDOR", border=0, align='C')
+            self.set_text_color(0, 0, 0)
+
         self.set_y(40)   
         
     def footer(self):  
@@ -1380,6 +1417,6 @@ def main(page: ft.Page):
     mostrar_login()  
   
 if hasattr(ft, 'app'):
-    ft.app(target=main, host="0.0.0.0", port=PORT, view=ft.AppView.WEB_BROWSER)
+    ft.app(target=main, port=PORT, view=ft.AppView.WEB_BROWSER)
 else:
-    ft.app(target=main, host="0.0.0.0", port=PORT)
+    ft.app(target=main, port=PORT)
