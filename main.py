@@ -11,19 +11,19 @@ import subprocess
 from fpdf import FPDF  
 from fpdf.enums import XPos, YPos  
 from datetime import datetime  
-
+  
 PORT = int(os.environ.get("PORT", 8080))  
 if not os.path.exists("assets"): os.makedirs("assets")  
-
+  
 DB_URL = os.environ.get("DATABASE_URL", "postgresql://ingectec_bd_user:HY7iwKhvaILCeuUKd7Pgknsh6Nsv4aUE@dpg-dapicrvf3r2c73ep15ag-a.oregon-postgres.render.com/ingectec_bd")  
-
+  
 def conectar_db():  
     try:  
         conn = psycopg2.connect(DB_URL)  
         conn.autocommit = True   
         return conn  
     except: return None  
-
+  
 def init_db():  
     conn = conectar_db()  
     if conn:  
@@ -59,9 +59,9 @@ def init_db():
             except: pass  
         c.execute('CREATE TABLE IF NOT EXISTS h_det (id SERIAL PRIMARY KEY, nro TEXT, "desc" TEXT, cant NUMERIC, und TEXT, unit NUMERIC, sub NUMERIC, imp TEXT, tipo TEXT)')  
         conn.close()  
-
+  
 init_db()  
-
+  
 def sanitizar_texto(texto):  
     if not texto: return ""  
     s = str(texto)  
@@ -74,7 +74,7 @@ def sanitizar_texto(texto):
     }  
     for mal, bien in correcciones.items(): s = re.sub(mal, bien, s, flags=re.IGNORECASE)  
     return s.encode("latin-1", "replace").decode("latin-1")  
-
+  
 class PDF(FPDF):  
     def rounded_rect(self, x, y, w, h, r, style='F'):  
         if style == 'F':  
@@ -147,7 +147,7 @@ class PDF(FPDF):
         self.cell(0, 4, "WWW.INGECTEC.COM", border=0, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)  
         self.set_y(-10)
         self.cell(0, 4, f'Página {self.page_no()}', border=0, align='R')  
-
+  
 def main(page: ft.Page):  
     page.title = "⚡ INGECTEC L34L - PREMIUM"  
     for ruta in ["assets/logo pl.png", "assets/logopl.png", "assets/logo.png", "assets/logo1.png", "logopl.png", "logo.png"]:  
@@ -161,7 +161,7 @@ def main(page: ft.Page):
     sesion = {"usuario": None, "rol": None}
     lista_items = []
     estado = {"nro_edicion": None, "creador_edicion": None, "permitidos_edicion": []}  
-
+  
     def liberar_sesion_actual():  
         if sesion.get("usuario"):  
             try:  
@@ -172,7 +172,7 @@ def main(page: ft.Page):
                     db_x.commit()
                     db_x.close()  
             except: pass  
-
+  
     page.window.prevent_close = True  
     
     def on_window_event(e):  
@@ -183,26 +183,26 @@ def main(page: ft.Page):
     
     def on_disconnect(e): liberar_sesion_actual()  
     page.on_disconnect = on_disconnect  
-
+  
     def mostrar_alerta(titulo, mensaje):  
         dlg = ft.AlertDialog(title=ft.Text(titulo, weight="bold", color="#fbbf24"), content=ft.Text(str(mensaje)), open=True)  
         def cerrar(e): dlg.open = False; page.update()  
         dlg.actions = [ft.TextButton("OK", on_click=cerrar)]
         page.overlay.append(dlg)
         page.update()  
-
+  
     def mostrar_snack(mensaje, color_fondo="#10b981", color_texto="white"):  
         snack = ft.SnackBar(content=ft.Text(mensaje, color_texto), bgcolor=color_fondo, open=True)
         page.overlay.append(snack)
         page.update()  
-
+  
     def cerrar_dialogo(dlg): 
         dlg.open = False
         page.update()  
-
+  
     input_usr = ft.TextField(label="Usuario", width=300)
     input_pwd = ft.TextField(label="Contraseña", password=True, can_reveal_password=True, width=300)  
-
+  
     def procesar_login(e):  
         u = input_usr.value.upper().strip()
         p = input_pwd.value.strip()
@@ -241,9 +241,9 @@ def main(page: ft.Page):
                 db.close()
                 mostrar_snack("❌ Usuario no existe", "#ef4444")
                 page.update()  
-
+  
     pantalla_login = ft.Container(content=ft.Column([ft.Icon("bolt", size=70, color="#f59e0b"), ft.Text("INGECTEC - Acceso Seguro", size=20, weight="bold", color="white"), input_usr, input_pwd, ft.ElevatedButton("INICIAR SESIÓN", bgcolor="#f59e0b", color="black", width=300, height=45, on_click=procesar_login)], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15), alignment=ft.alignment.center, expand=True)  
-
+  
     def mostrar_login():  
         liberar_sesion_actual()
         sesion["usuario"] = None
@@ -258,7 +258,7 @@ def main(page: ft.Page):
         page.controls.clear()
         page.add(pantalla_login)
         page.update()  
-
+  
     def iniciar_app_principal():  
         page.scroll = ft.ScrollMode.AUTO
         page.controls.clear()  
@@ -283,16 +283,16 @@ def main(page: ft.Page):
         cont_i = ft.Container(content=input_pct_i, col={"sm": 3, "md": 2, "lg": 2})
         cont_u = ft.Container(content=input_pct_u, col={"sm": 3, "md": 2, "lg": 2})
         cont_iva_u = ft.Container(content=input_pct_iva_u, col={"sm": 3, "md": 2, "lg": 2})  
-
+  
         def guardar_borrador(e=None):  
             try:  
                 borrador = {"lista_items": lista_items, "estado": estado, "cabecera": {"cliente": input_cliente.value, "nit": input_nit.value, "ciudad": input_ciudad.value, "atencion": input_atencion.value, "ref": input_ref.value, "tiempo_entrega": input_tiempo_entrega.value, "validez": input_validez.value, "pago": input_pago.value, "garantia": input_garantia.value, "notas": input_notas.value, "modo": dropdown_modo_cot.value, "pct_a": input_pct_a.value, "pct_i": input_pct_i.value, "pct_u": input_pct_u.value, "pct_iva_u": input_pct_iva_u.value}}  
                 if sesion["usuario"]: page.client_storage.set(f"draft_{sesion['usuario']}", json.dumps(borrador))  
             except: pass  
-
+  
         for i in [input_nit, input_ciudad, input_atencion, input_ref, input_tiempo_entrega, input_validez, input_pago, input_garantia, input_notas, input_pct_a, input_pct_i, input_pct_u, input_pct_iva_u]: 
             i.on_change = guardar_borrador  
-
+  
         def verificar_permiso_edicion(mostrar_aviso=True):  
             if estado.get("nro_edicion") and estado.get("creador_edicion"):  
                 if estado["creador_edicion"] not in ["SISTEMA", sesion["usuario"]]:  
@@ -300,7 +300,7 @@ def main(page: ft.Page):
                         if mostrar_aviso: mostrar_alerta("Protegido 🛡️", f"Cotización exclusiva de {estado['creador_edicion']}.")  
                         return False  
             return True  
-
+  
         def cambiar_modo_cot(e):  
             es_aiu = dropdown_modo_cot.value == "AIU"
             container_texto_aiu.visible = es_aiu
@@ -312,7 +312,7 @@ def main(page: ft.Page):
             guardar_borrador()  
             
         dropdown_modo_cot.on_change = cambiar_modo_cot  
-
+  
         def buscar_cliente_realtime(e):  
             txt = (input_cliente.value or "").upper().strip()
             lista_busqueda_cli.controls.clear()  
@@ -336,7 +336,7 @@ def main(page: ft.Page):
             guardar_borrador()  
             
         input_cliente.on_change = buscar_cliente_realtime  
-
+  
         db_num = conectar_db()
         nro_actual = "100"  
         if db_num:  
@@ -345,7 +345,7 @@ def main(page: ft.Page):
             res = c.fetchone()  
             if res: nro_actual = f"{datetime.now().strftime('%m')}-{res[0]:03d}"  
             db_num.close()  
-
+  
         def obtener_items_procesados(lista):  
             disp = []
             curr_p = -1
@@ -368,7 +368,7 @@ def main(page: ft.Page):
                 if disp[curr_p]['cant'] == 0: disp[curr_p]['cant'] = 1   
                 disp[curr_p]['precio'] = disp[curr_p]['total'] / disp[curr_p]['cant']  
             return disp  
-
+  
         columna_tabla_items = ft.Column()  
         def actualizar_tabla_visual():  
             columna_tabla_items.controls.clear()  
@@ -451,7 +451,7 @@ def main(page: ft.Page):
             try: page.update()  
             except: pass  
             guardar_borrador()  
-
+  
         def abrir_modal_item(e):  
             if not verificar_permiso_edicion(): return  
             res_inv = ft.ListView(expand=True, spacing=10, height=150)
@@ -527,7 +527,7 @@ def main(page: ft.Page):
             page.overlay.append(dlg_i)
             page.update()
             b_inv(None)  
-
+  
         def abrir_modal_bodega(e):  
             try:  
                 def vaciar_bodega(evt):  
@@ -546,7 +546,7 @@ def main(page: ft.Page):
                     dlg_vaciar_b.actions = [ft.ElevatedButton("SÍ, ELIMINAR TODO", bgcolor="#ef4444", color="white", on_click=confirmar), ft.TextButton("Cancelar", on_click=lambda ev: cerrar_dialogo(dlg_vaciar_b))]
                     page.overlay.append(dlg_vaciar_b)
                     page.update()  
-
+  
                 def vaciar_proveedores(evt):  
                     def confirmar(ev):  
                         db = conectar_db()  
@@ -582,7 +582,7 @@ def main(page: ft.Page):
                 lst_provs = ft.ListView(height=200)
                 filtro_cat = ft.TextField(label="Filtrar catálogo completo...")
                 lst_cat = ft.ListView(expand=True, spacing=5, height=300)  
-
+  
                 def load_provs():  
                     lst_provs.controls.clear()
                     ops = []
@@ -607,7 +607,7 @@ def main(page: ft.Page):
                     c_p1.options=ops; c_p2.options=ops; c_p3.options=ops; c_p4.options=ops; c_p5.options=ops; c_p6.options=ops  
                     try: page.update()  
                     except: pass  
-
+  
                 def save_prov(ev):  
                     if not e_pnom.value: return  
                     db=conectar_db()  
@@ -621,7 +621,7 @@ def main(page: ft.Page):
                         e_ptel.value=""
                         mostrar_snack(f"✅ Proveedor guardado")
                         load_provs()  
-
+  
                 def p_mas_provs(evt):  
                     if not e_pmas.value.strip(): return  
                     try:  
@@ -653,7 +653,7 @@ def main(page: ft.Page):
                             mostrar_snack(f"✅ {ag} proveedores procesados")
                             load_provs()  
                     except Exception as ex: mostrar_alerta("Error en Carga Masiva", str(ex))  
-
+  
                 def b_bod(evt):  
                     resultados_bod.controls.clear()
                     db = conectar_db()  
@@ -685,7 +685,7 @@ def main(page: ft.Page):
                             resultados_bod.controls.append(tile)  
                         db.close()
                         page.update()  
-
+  
                 def s_bod(evt):  
                     if not e_desc.value: return  
                     try: p_val = float(e_precio.value or 0)  
@@ -703,7 +703,7 @@ def main(page: ft.Page):
                         b_bod(None)
                         load_cat(None)
                         mostrar_snack("✅ Guardado con éxito", "#2563eb")  
-
+  
                 def p_mas(evt):  
                     if not e_mas.value.strip(): return  
                     db=conectar_db()  
@@ -741,7 +741,7 @@ def main(page: ft.Page):
                         b_bod(None)
                         load_cat(None)
                         mostrar_snack(f"✅ {ag} ítems procesados.")  
-
+  
                 def b_comp(evt):  
                     txt = (c_item.value or "").upper().strip()
                     lst_comp.controls.clear()  
@@ -758,7 +758,7 @@ def main(page: ft.Page):
                             lst_comp.visible = len(lst_comp.controls)>0  
                     else: lst_comp.visible = False  
                     page.update()  
-
+  
                 def run_comp(evt):  
                     itm = sanitizar_texto(c_item.value.strip().upper())  
                     if not itm: return mostrar_alerta("Aviso", "Ingresa ítem.")  
@@ -789,7 +789,7 @@ def main(page: ft.Page):
                         b_bod(None)
                         load_cat(None)
                         mostrar_snack(f"🏆 Base: {gpc} (${gpa:,.2f}). Mejor compra: {gpb}.", "#8b5cf6")  
-
+  
                 def load_cat(evt):  
                     lst_cat.controls.clear()
                     txt = (filtro_cat.value or "").upper().strip()
@@ -804,12 +804,12 @@ def main(page: ft.Page):
                                 fa = "Antigua"  
                                 if r[3]:  
                                     try: fa = r[3] if (hoy_dt - datetime.strptime(r[3], "%Y-%m-%d")).days <= 5 else "Antigua"  
-                                except: pass  
+                                    except: pass  
                                 lst_cat.controls.append(ft.ListTile(title=ft.Text(r[0], color="#fbbf24", weight="bold"), subtitle=ft.Text(f"Precio: ${float(r[1] or 0):,.2f} | Prov: {r[2] if len(r)>2 and r[2] else 'N/A'} | Act: {fa}", color="#94a3b8" if fa == "Antigua" else "#10b981")))  
                         except: pass  
                         db.close()
                         page.update()  
-
+  
                 filtro_cat.on_change = load_cat
                 e_desc.on_change = b_bod  
                 dlg_b = ft.AlertDialog(title=ft.Text("📦 Gestión de Bodega / Catálogo"), content=ft.Container(width=750, height=550, content=ft.Tabs(selected_index=0, tabs=[ft.Tab(text="🔍 Buscar", content=ft.Column([ft.Container(height=10), ft.Text("Ingreso Manual:", weight="bold", color="#fbbf24", size=12), e_desc, ft.ResponsiveRow([ft.Container(e_precio, col={"sm": 8}), ft.Container(e_bodega_iva, col={"sm": 4})]), ft.ElevatedButton("Guardar Precio / Actualizar Fecha", bgcolor="#2563eb", on_click=s_bod), resultados_bod], tight=True)), ft.Tab(text="📥 Masivo / Comparar", content=ft.Column([ft.Container(height=10), ft.Text("Guarda el MAYOR valor +19% IVA (Si el ítem dice 'EXENTO', no suma IVA).", color="#fbbf24", size=12), e_mas, ft.ElevatedButton("Importar y Analizar Ganadores", bgcolor="#10b981", on_click=p_mas)], tight=True)), ft.Tab(text="⚖️ Comparador", content=ft.Column([ft.Container(height=10), ft.Text("Compite COSTOS NETOS. Guarda el más ALTO (+19% IVA) y anota el más BARATO.", color="#10b981", size=12), c_item, lst_comp, ft.ResponsiveRow([c_p1, c_pr1]), ft.ResponsiveRow([c_p2, c_pr2]), ft.ResponsiveRow([c_p3, c_pr3]), ft.ResponsiveRow([c_p4, c_pr4]), ft.ResponsiveRow([c_p5, c_pr5]), ft.ResponsiveRow([c_p6, c_pr6]), ft.ElevatedButton("Analizar", bgcolor="#8b5cf6", color="white", on_click=run_comp)], tight=True, scroll=ft.ScrollMode.AUTO)), ft.Tab(text="📜 Catálogo (Fechas)", content=ft.Column([ft.Container(height=10), ft.Row([ft.Text("Los ítems de >6 días se marcan como 'Antigua':", color="#fbbf24", size=12), ft.ElevatedButton("🗑️ VACIAR TODA LA BODEGA", bgcolor="#ef4444", color="white", on_click=vaciar_bodega)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN), filtro_cat, lst_cat], tight=True, scroll=ft.ScrollMode.AUTO)), ft.Tab(text="🏢 Provs.", content=ft.Column([ft.Container(height=10), ft.Row([ft.Text("Ingreso Manual:", weight="bold", color="#fbbf24"), ft.ElevatedButton("🗑️ VACIAR TODOS", bgcolor="#ef4444", color="white", on_click=vaciar_proveedores)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN), ft.Row([e_pnom, e_ptel]), ft.ElevatedButton("Guardar Proveedor", bgcolor="#10b981", color="white", on_click=save_prov), ft.Divider(color="white24"), ft.Text("Carga Masiva (Copiar y Pegar):", weight="bold", color="#fbbf24"), e_pmas, ft.ElevatedButton("Importar Masivo", bgcolor="#2563eb", color="white", on_click=p_mas_provs), ft.Divider(color="white24"), lst_provs], tight=True, scroll=ft.ScrollMode.AUTO))])), open=True)  
@@ -820,7 +820,7 @@ def main(page: ft.Page):
                 load_provs()
                 load_cat(None)  
             except Exception as bug: mostrar_alerta("Error abriendo Bodega", str(bug))  
-
+  
         def abrir_modal_clientes(e):  
             r_cli = ft.ListView(expand=True, spacing=10, height=200)
             cn = ft.TextField(label="Nombre*", col={"sm":12}); ci = ft.TextField(label="NIT*", col={"sm":6}); ct = ft.TextField(label="Tel", col={"sm":6})
@@ -853,7 +853,7 @@ def main(page: ft.Page):
                     db.close()  
                 try: page.update()  
                 except: pass  
-
+  
             def s_cli(ev):  
                 if not cn.value: return  
                 db=conectar_db()  
@@ -865,7 +865,7 @@ def main(page: ft.Page):
                     cn.value=""; ci.value=""; cd.value=""; ce.value=""; cc.value=""; ct.value=""
                     load_cli()
                     mostrar_snack("✅ Guardado")  
-
+  
             def p_cli(ev):  
                 if not cm.value.strip(): return  
                 db=conectar_db()  
@@ -882,13 +882,13 @@ def main(page: ft.Page):
                     cm.value=""
                     load_cli()
                     mostrar_snack(f"✅ {ag} procesados")  
-
+  
             dlg_c = ft.AlertDialog(title=ft.Text("👥 Gestión de Clientes"), content=ft.Container(width=750, height=500, content=ft.Tabs(selected_index=0, tabs=[ft.Tab(text="Edición", content=ft.Column([ft.Container(height=10), ft.ResponsiveRow([cn, ci, ct, cd, cc, ce]), ft.ElevatedButton("Guardar", bgcolor="#10b981", on_click=s_cli), r_cli], tight=True, scroll=ft.ScrollMode.AUTO)), ft.Tab(text="Carga Masiva", content=ft.Column([ft.Container(height=10), cm, ft.ElevatedButton("Importar", bgcolor="#10b981", on_click=p_cli)], tight=True))])), open=True)  
             dlg_c.actions = [ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg_c))]
             page.overlay.append(dlg_c)
             page.update()
             load_cli()  
-
+  
         def abrir_modal_usuarios(e):  
             pass_act = ft.TextField(label="Contraseña Actual", password=True, can_reveal_password=True)
             pass_new = ft.TextField(label="Nueva Contraseña", password=True, can_reveal_password=True)
@@ -910,7 +910,7 @@ def main(page: ft.Page):
                     pass_new.value = ""
                     pass_conf.value = ""
                     mostrar_snack("✅ Contraseña actualizada")  
-
+  
             tab_clave = ft.Tab(text="🔑 Mi Clave", content=ft.Column([ft.Container(height=10), pass_act, pass_new, pass_conf, ft.ElevatedButton("Actualizar Contraseña", bgcolor="#f59e0b", color="black", on_click=guardar_clave)], tight=True))
             res_u = ft.ListView(expand=True, spacing=10, height=200)
             un = ft.TextField(label="Usuario*", col={"sm":4})
@@ -967,7 +967,7 @@ def main(page: ft.Page):
             page.overlay.append(dlg_u)
             page.update()  
             if sesion["usuario"] in ["OMERA", "PLEAL"]: load_u()  
-
+  
         def abrir_modal_historial(e):  
             res_h = ft.ListView(expand=True, spacing=10, height=300)
             bus_h = ft.TextField(label="Buscar cliente...", width=400)  
@@ -1067,7 +1067,7 @@ def main(page: ft.Page):
             page.overlay.append(dlg_h)
             page.update()
             load_h()  
-
+  
         def abrir_modal_sistema(e):  
             def generar_backup_json(evt):  
                 db = conectar_db()  
@@ -1088,7 +1088,7 @@ def main(page: ft.Page):
                         zipf.write(f"assets/{nombre_base}.json", arcname=f"{nombre_base}.json")  
                     page.launch_url(f'/{nombre_base}.zip')
                     mostrar_snack(f"✅ Backup {nombre_base}.zip descargado.", "#2563eb")  
-
+  
             e_json = ft.TextField(multiline=True, min_lines=6, max_lines=10, label="Pega aquí el archivo JSON")  
             def subir_backup_json(evt):  
                 if not e_json.value.strip(): return  
@@ -1109,7 +1109,7 @@ def main(page: ft.Page):
                         mostrar_snack("✅ Backup restaurado con éxito")
                         e_json.value = ""  
                 except Exception as ex: mostrar_alerta("Error", f"Archivo JSON inválido o corrupto: {str(ex)}")  
-
+  
             def confirmar_reseteo(evt):  
                 ic = ft.TextField(label="Contraseña Maestra", password=True)  
                 dc = ft.AlertDialog(title=ft.Text("⚠️ ADVERTENCIA EXTREMA", color="#ef4444"), content=ft.Column([ft.Text("Se borrará TODO."), ic], tight=True), open=True)  
@@ -1132,7 +1132,7 @@ def main(page: ft.Page):
                 dc.actions = [ft.ElevatedButton("BORRAR", bgcolor="#ef4444", on_click=ex), ft.TextButton("Cancelar", on_click=lambda e: cerrar_dialogo(dc))]
                 page.overlay.append(dc)
                 page.update()  
-
+  
             col_general = [ft.Container(height=10), ft.ElevatedButton("📥 1. DESCARGAR BACKUP", bgcolor="#2563eb", color="white", width=350, on_click=generar_backup_json)]  
             if sesion["usuario"] in ["OMERA", "PLEAL"]: 
                 col_general.extend([ft.Container(height=20), ft.Text("ZONA DE PELIGRO:", color="#ef4444", weight="bold"), ft.ElevatedButton("⚠️ 2. RESTAURAR DE FÁBRICA", bgcolor="#ef4444", color="white", width=350, on_click=confirmar_reseteo)])  
@@ -1140,7 +1140,7 @@ def main(page: ft.Page):
             dlg_sis.actions = [ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg_sis))]
             page.overlay.append(dlg_sis)
             page.update()  
-
+  
         def limpiar_todo(e):  
             lista_items.clear()
             estado["nro_edicion"] = None
@@ -1165,7 +1165,7 @@ def main(page: ft.Page):
             cambiar_modo_cot(None)  
             try: page.client_storage.remove(f"draft_{sesion['usuario']}")  
             except: pass  
-
+  
         def generar_pdf_web(e):  
             try:  
                 if not lista_items or not input_cliente.value: return mostrar_alerta("Aviso", "Faltan datos.")  
@@ -1189,7 +1189,7 @@ def main(page: ft.Page):
                 except: pct_u = 0.0  
                 try: pct_iva_u = float(input_pct_iva_u.value)  
                 except: pct_iva_u = 0.0  
-
+  
                 c_dir = ""; c_email = ""; c_ciu_cli = ""; c_tel = ""
                 db = conectar_db()  
                 try:  
@@ -1202,7 +1202,7 @@ def main(page: ft.Page):
                         c_ciu_cli=sanitizar_texto(cli_d[2] or "")
                         c_tel=sanitizar_texto(cli_d[3] or "")  
                 except: pass  
-
+  
                 nro_doc = estado["nro_edicion"]
                 mes_act = datetime.now().strftime("%m")
                 subtotal = 0
@@ -1214,18 +1214,18 @@ def main(page: ft.Page):
                             pct = float(re.findall(r"[\d.]+", imps)[0])
                             iva_bases[pct] = iva_bases.get(pct, 0) + tot  
                         except: pass  
-
+  
                 val_a = subtotal * (pct_a / 100)
                 val_i = subtotal * (pct_i / 100)
                 val_u = subtotal * (pct_u / 100)
                 tot_aiu = val_a + val_i + val_u
                 val_iva_u = val_u * (pct_iva_u / 100)
                 tot_fin = (subtotal + tot_aiu + val_iva_u) if c_modo == "AIU" else subtotal  
-
+   
                 if c_modo == "IVA" and not iva_bases: tot_fin += subtotal * 0.19  
                 else:  
                     for p_iva, b_amt in iva_bases.items(): tot_fin += b_amt * (p_iva / 100)  
-
+  
                 if puede_guardar:  
                     c_up = db.cursor()  
                     if not nro_doc:  
@@ -1237,15 +1237,15 @@ def main(page: ft.Page):
                         c_up.execute("DELETE FROM h_cab WHERE nro=%s", (nro_doc,))
                         c_up.execute("DELETE FROM h_det WHERE nro=%s", (nro_doc,))
                         c_up.execute("DELETE FROM historial WHERE nro=%s", (nro_doc,))  
-
+   
                     c_up.execute("INSERT INTO cli (n, i) VALUES (%s, %s) ON CONFLICT(n) DO NOTHING", (c_nom, c_nit))  
                     c_up.execute("""INSERT INTO h_cab (nro, cli, nit, atn, ref, ciu_origen, t_entrega, validez, pago, garantia, notas, modo, pct_a, pct_i, pct_u, pct_iva_u) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", (nro_doc, c_nom, c_nit, c_atn, c_ref, c_ciu_origen, c_t_entrega, c_validez, c_pago, c_garantia, c_notas, c_modo, pct_a, pct_i, pct_u, pct_iva_u))  
-
+   
                     for i in lista_items: 
                         c_up.execute('INSERT INTO h_det (nro, "desc", cant, und, unit, sub, imp, tipo) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)', (nro_doc, i['desc'], float(i['cant']), i.get('und', 'UNID'), float(i['precio']), float(i['total']), i.get('impuesto', 'EXENTO'), i.get('tipo', 'P')))  
-
-                    c_nom_limpio = re.sub(r'[^\w\s-]', '', c_nom).strip()
-                    nom_arc = f"{c_nom_limpio}-{nro_doc}.pdf"
+   
+                    nombre_limpio = re.sub(r'[^\w\s-]', '', c_nom).strip()
+                    nom_arc = f"{nombre_limpio}-{nro_doc}.pdf"
                     
                     c_up.execute("SELECT permitidos FROM historial WHERE nro=%s", (nro_doc,))
                     row_perm = c_up.fetchone()
@@ -1254,12 +1254,12 @@ def main(page: ft.Page):
                     db.commit()  
                 else:  
                     if not nro_doc: nro_doc = f"{mes_act}-TEMP"  
-                    c_nom_limpio = re.sub(r'[^\w\s-]', '', c_nom).strip()
-                    nom_arc = f"{c_nom_limpio}-{nro_doc}.pdf"  
+                    nombre_limpio = re.sub(r'[^\w\s-]', '', c_nom).strip()
+                    nom_arc = f"{nombre_limpio}-{nro_doc}.pdf"  
                 db.close()  
                 try: page.client_storage.remove(f"draft_{sesion['usuario']}")  
                 except: pass  
-
+  
                 asesor_impresion = (estado.get("creador_edicion") or sesion["usuario"]).upper()  
                 qr = qrcode.QRCode(box_size=10, border=2)
                 qr.add_data(f"https://wa.me/{ {'OMERA': '573175046404', 'YRESTREPO': '573002986963', 'JCARDONA': '573225532559', 'PLEAL': '573175046404'}.get(asesor_impresion, '573175046404') }")
@@ -1268,14 +1268,14 @@ def main(page: ft.Page):
                 
                 p = PDF()
                 p.asesor_nombre = {"OMERA": "OSCAR MERA", "YRESTREPO": "YEISON FABIAN RESTREPO", "JCARDONA": "JOHN JAIRO CARDONA", "PLEAL": "PAULO ANDRES LEAL GARCIA"}.get(asesor_impresion, asesor_impresion)   
-
+  
                 p.set_margins(10, 10, 10); p.set_auto_page_break(auto=True, margin=30); p.add_page(); p.set_font('helvetica', 'B', 11); hy = datetime.now()  
                 p.cell(0, 5, sanitizar_texto(f"{c_ciu_origen}, {hy.day} de {['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'][hy.month-1]} de {hy.year}"), border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT); p.ln(4)  
-
+   
                 y_st = p.get_y()
                 lin_dir = f"{c_dir} - {c_ciu_cli}".strip(" -") if c_ciu_cli else c_dir  
                 lc = 1 + (1 if c_atn else 0) + (1 if c_nom else 0) + (1 if c_nit else 0) + (1 if lin_dir else 0) + (1 if c_tel else 0) + (1 if c_email else 0)  
-
+   
                 p.set_fill_color(240, 240, 240)
                 p.rounded_rect(8, y_st - 2, 105, (lc * 5) + 4, r=3, style='F')
                 p.rounded_rect(118, y_st - 2, 84, 14, r=3, style='F')
@@ -1289,13 +1289,13 @@ def main(page: ft.Page):
                 if lin_dir: p.cell(110, 5, lin_dir, border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)  
                 if c_tel: p.cell(110, 5, f"Tel: {c_tel}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)  
                 if c_email: p.cell(110, 5, c_email, border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)  
-
+   
                 y_ed = p.get_y(); p.set_xy(120, y_st + 2); p.set_font('helvetica', 'B', 12); p.set_text_color(31, 73, 125); p.cell(80, 5, f"COTIZACIÓN ING {nro_doc}", border=0, align='C'); p.set_text_color(0, 0, 0); p.set_y(max(y_ed, y_st + 10) + 5)  
-
+   
                 if c_ref:  
                     ysr = p.get_y(); nl = (len("REFERENCIA: " + c_ref) // 85) + 1   
                     p.set_fill_color(240, 240, 240); p.rounded_rect(8, ysr - 2, 194, (nl * 5) + 4, r=3, style='F'); p.set_font('helvetica', 'B', 11); p.set_text_color(31, 73, 125); p.write(5, "REFERENCIA: "); p.set_font('helvetica', '', 11); p.set_text_color(0, 0, 0); p.write(5, f"{c_ref}\n"); p.ln(5)  
-
+  
                 p.set_fill_color(194, 229, 194); p.set_text_color(0, 0, 0); p.set_font("helvetica", '', 8); ancho_desc = 98 if c_modo == "AIU" else 78  
                 p.cell(10, 6, "ITEM", 1, fill=True, align='C')
                 p.cell(ancho_desc, 6, "DESCRIPCION", 1, fill=True, align='C')
@@ -1304,7 +1304,7 @@ def main(page: ft.Page):
                 p.cell(20, 6, "V. UNIT", 1, fill=True, align='C')  
                 if c_modo != "AIU": p.cell(20, 6, "IMPUESTO", 1, fill=True, align='C')  
                 p.cell(25, 6, "VALOR", 1, fill=True, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)  
-
+  
                 p.set_fill_color(255, 255, 255); wrap_width = 55 if c_modo == "AIU" else 43  
                 for idx, i in enumerate(obtener_items_procesados(lista_items)):  
                     is_title = bool(i['tipo'] == 'P' and i.get('has_subs', False))  
@@ -1323,7 +1323,7 @@ def main(page: ft.Page):
                         u_s=sanitizar_texto(i['und']) if i['cant']>0 else ""
                         pu=""; imps=""; tot_s=""
                         p.set_fill_color(255, 255, 255); p.set_font('helvetica', '', 8)  
-
+  
                     d_lin = textwrap.wrap(sanitizar_texto(i['desc']), width=wrap_width) or [""]  
                     for li, l_txt in enumerate(d_lin):  
                         bs = 1 if len(d_lin)==1 else ('LTR' if li==0 else ('LBR' if li==len(d_lin)-1 else 'LR'))  
@@ -1343,12 +1343,12 @@ def main(page: ft.Page):
                             p.cell(20, 6, "", border=bs, align='R', fill=is_title)  
                             if c_modo != "AIU": p.cell(20, 6, "", border=bs, align='C', fill=is_title)  
                             p.cell(25, 6, "", border=bs, align='R', fill=is_title, new_x=XPos.LMARGIN, new_y=YPos.NEXT)  
-
+  
                 def p_tot(lbl, val, b=False):  
                     if b: p.set_font('helvetica', 'B', 9)  
                     p.set_x(130 if c_modo == "AIU" else 110); p.cell(45 if c_modo == "AIU" else 65, 5, sanitizar_texto(lbl), 1, align='C'); p.cell(25, 5, f"$ {val:,.2f}", 1, align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)   
                     if b: p.set_font('helvetica', '', 9)  
-
+  
                 p.set_font('helvetica', '', 9); p_tot("SUBTOTAL", subtotal)  
                 if c_modo == "AIU": 
                     p_tot(f"ADMINISTRACIÓN ({pct_a:g}%)", val_a)
@@ -1360,7 +1360,7 @@ def main(page: ft.Page):
                 else:  
                     for pv, ba in iva_bases.items(): p_tot(f"IVA ({pv:g}%)", ba * (pv / 100))  
                 p_tot("TOTAL", tot_fin, True)  
-
+  
                 p.ln(10); p.set_font('helvetica', 'B', 10); p.cell(0, 5, "CONDICIONES COMERCIALES", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT); p.ln(2); p.set_font('helvetica', '', 10)  
                 p.cell(0, 5, f"- Tiempo de entrega: {c_t_entrega}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                 p.cell(0, 5, f"- Validez de la cotizacion: {c_validez}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
@@ -1382,10 +1382,10 @@ def main(page: ft.Page):
                             elif platform.system() == "Darwin": subprocess.call(["open", ruta_abs])  
                             else: subprocess.call(["xdg-open", ruta_abs])  
                         except Exception as ex: mostrar_alerta("Error", f"No se pudo abrir el archivo localmente: {ex}")  
-
+  
                 dlg_d = ft.AlertDialog(title=ft.Text("✅ Generado", color="#10b981"), content=ft.Text(f"Archivo: {nom_arc}"), open=True); dlg_d.actions = [ft.ElevatedButton("📥 ABRIR PDF", bgcolor="#2563eb", color="white", on_click=descargar_pdf_abrir), ft.TextButton("Cerrar", on_click=lambda ev: cerrar_dialogo(dlg_d))]; page.overlay.append(dlg_d); page.update()  
             except Exception as eFallo: mostrar_alerta("Error al generar PDF", f"Hubo un fallo: {str(eFallo)}")  
-
+  
         botones_lista = [ft.ElevatedButton("AÑADIR ÍTEM", icon="add", bgcolor="#f59e0b", color="black", on_click=abrir_modal_item), ft.ElevatedButton("BODEGA", icon="inventory_2", bgcolor="#334155", color="white", on_click=abrir_modal_bodega), ft.ElevatedButton("CLIENTES", icon="groups", bgcolor="#334155", color="white", on_click=abrir_modal_clientes), ft.ElevatedButton("USUARIOS", icon="security", bgcolor="#334155", color="white", on_click=abrir_modal_usuarios), ft.ElevatedButton("HISTORIAL", icon="history", bgcolor="#334155", color="white", on_click=abrir_modal_historial), ft.ElevatedButton("LIMPIAR", icon="delete_sweep", bgcolor="#475569", color="white", on_click=limpiar_todo), ft.ElevatedButton("SISTEMA", icon="settings", bgcolor="#475569", color="white", on_click=abrir_modal_sistema), ft.ElevatedButton("SALIR", icon="logout", bgcolor="#ef4444", color="white", on_click=lambda e: mostrar_login())]  
         contenedor_botones = ft.Container(content=ft.Row(botones_lista, wrap=True, alignment=ft.MainAxisAlignment.CENTER, spacing=10), alignment=ft.alignment.center, margin=ft.margin.only(bottom=15, top=5))  
         tabla = ft.Container(content=ft.Column([ft.Row([ft.Text(f"COTIZACIÓN ING {nro_actual}", weight="bold", color="#fbbf24", size=16)], alignment=ft.MainAxisAlignment.CENTER), ft.Divider(color="white24"), ft.ResponsiveRow([ft.Text("DESCRIPCIÓN (Clic para editar)", weight="bold", color="#fbbf24", col={"sm": 6}, text_align="center"), ft.Text("CANTIDAD", weight="bold", color="#fbbf24", col={"sm": 3}, text_align="center"), ft.Text("TOTAL", weight="bold", color="#fbbf24", col={"sm": 3}, text_align="center")]), columna_tabla_items, ft.Container(height=10)]), bgcolor="#0f172a", padding=15, border_radius=8, border=ft.border.all(1, "white12"))  
@@ -1393,7 +1393,7 @@ def main(page: ft.Page):
         
         page.add(ft.Container(content=ft.Row([ft.Icon("bolt", color="#fbbf24", size=30), ft.Text(f"INGECTEC SAS", size=22, weight="bold", color="#fbbf24")], alignment=ft.MainAxisAlignment.CENTER), padding=5), ft.Container(content=ft.Text(f"👤 Conectado: {sesion['usuario']} ({sesion['rol']})", size=12, color="#94a3b8"), alignment=ft.alignment.center_right), contenedor_botones, tabla, f_cli, ft.Container(content=ft.ElevatedButton("GENERAR COTIZACIÓN PROFESIONAL", icon="bolt", bgcolor="#f59e0b", color="black", height=50, on_click=generar_pdf_web), alignment=ft.alignment.center, padding=ft.padding.only(top=10, bottom=20)))  
         page.update()  
-
+  
         def verificar_borrador():  
             if page.client_storage.contains_key(f"draft_{sesion['usuario']}"):  
                 draft_str = page.client_storage.get(f"draft_{sesion['usuario']}")  
@@ -1410,15 +1410,15 @@ def main(page: ft.Page):
                         page.overlay.append(dlg_b); page.update()  
                     except: pass  
         verificar_borrador()  
-
+  
         dia_actual = datetime.now().weekday()  
         if dia_actual == 0 or dia_actual == 4:  
             snack_recordatorio = ft.SnackBar(ft.Text("🛡️ RECORDATORIO: Por favor, genere un Backup en 'SISTEMA' periódicamente para salvaguardar la información contra vulnerabilidades o ciberataques.", color="black", weight="bold"), bgcolor="#fbbf24", duration=10000, open=True)
             page.overlay.append(snack_recordatorio)
             page.update()  
-
+  
     mostrar_login()  
-
+  
 if hasattr(ft, 'app'):
     ft.app(target=main, host="0.0.0.0", port=PORT, view=ft.AppView.WEB_BROWSER)
 else:
