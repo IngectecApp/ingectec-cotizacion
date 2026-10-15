@@ -1380,6 +1380,6 @@ def main(page: ft.Page):
     mostrar_login()  
   
 if hasattr(ft, 'app'):
-    ft.app(target=main, port=PORT, view=ft.AppView.WEB_BROWSER)
+    ft.app(target=main, host="0.0.0.0", port=PORT, view=ft.AppView.WEB_BROWSER)
 else:
-    ft.app(target=main, port=PORT)
+    ft.app(target=main, host="0.0.0.0", port=PORT)
