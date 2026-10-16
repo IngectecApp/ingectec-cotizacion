@@ -32,10 +32,12 @@ def init_db():
         c = conn.cursor()
         c.execute("CREATE TABLE IF NOT EXISTS usuarios (usuario TEXT PRIMARY KEY, password TEXT, rol TEXT, intentos INTEGER DEFAULT 0, bloqueado INTEGER DEFAULT 0)")
         
+        # Agregar columna para control de sesiones concurrentes
         try: 
             c.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS sesion_activa INTEGER DEFAULT 0")
         except: pass
         
+        # 🔥 SOLUCIÓN DE EMERGENCIA: Desbloquea a todos los usuarios cuando el servidor web se reinicia o actualiza el código
         try:
             c.execute("UPDATE usuarios SET sesion_activa = 0")
         except: pass
@@ -138,7 +140,9 @@ class PDF(FPDF):
         ]
         for ruta in rutas_logos:
             if os.path.exists(ruta):
-                try: self.image(ruta, x=10, y=8, w=190); break 
+                try: 
+                    self.image(ruta, x=10, y=8, w=190)
+                    break 
                 except: pass
         self.set_y(40) 
         
@@ -1518,6 +1522,6 @@ def main(page: ft.Page):
     mostrar_login()
 
 if hasattr(ft, 'app'):
-    ft.app(target=main, host="0.0.0.0", port=PORT, view=ft.AppView.WEB_BROWSER, assets_dir="assets")
+    ft.app(target=main, host="0.0.0.0", port=PORT, view=ft.AppView.WEB_BROWSER)
 else:
-    ft.app(target=main, host="0.0.0.0", port=PORT, view=ft.AppView.WEB_BROWSER, assets_dir="assets")
+    ft.app(target=main, host="0.0.0.0", port=PORT)
