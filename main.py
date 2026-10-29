@@ -67,20 +67,4 @@ def sanitizar_texto(texto):
     s = str(texto)
     for orig, nuevo in {"•": "-", "·": "-", "–": "-", "—": "-", "“": '"', "”": '"', "‘": "'", "’": "'", "…": "...", "€": "EUR"}.items(): 
         s = s.replace(orig, nuevo)
-    correcciones = {r"\bBALVULA\b": "VÁLVULA", r"\bBALVULAS\b": "VÁLVULAS", r"\bTAVLERO\b": "TABLERO", r"\bTAVLEROS\b": "TABLEROS", r"\bBOLTIOS\b": "VOLTIOS", r"\bBOLTAJE\b": "VOLTAJE", r"\bTUBERIA\b": "TUBERÍA", r"\bGAVINETE\b": "GABINETE", r"\bINTERUPTOR\b": "INTERRUPTOR", r"\bCONECCION\b": "CONEXIÓN", r"\bINSTALACION\b": "INSTALACIÓN", r"\bMANTENIMIENTO\b": "MANTENIMIENTO"}
-    for mal, bien in correcciones.items(): s = re.sub(mal, bien, s, flags=re.IGNORECASE)
-    return s.encode("latin-1", "replace").decode("latin-1")
-
-class PDF(FPDF):
-    def rounded_rect(self, x, y, w, h, r, style='F'):
-        if style == 'F':
-            self.rect(x + r, y, w - 2 * r, h, style='F'); self.rect(x, y + r, w, h - 2 * r, style='F')
-            self.ellipse(x, y, 2 * r, 2 * r, style='F'); self.ellipse(x + w - 2 * r, y, 2 * r, 2 * r, style='F')
-            self.ellipse(x, y + h - 2 * r, 2 * r, 2 * r, style='F'); self.ellipse(x + w - 2 * r, y + h - 2 * r, 2 * r, 2 * r, style='F')
-
-    def header(self):
-        try: base_dir = os.path.dirname(os.path.abspath(__file__))
-        except: base_dir = os.getcwd()
-        rutas_logos = [
-            os.path.join(base_dir, "assets", "logopl.jpg"), os.path.join(base_dir, "logopl.jpg"),
-            os.path.join(base_dir, "assets", "logopl.png"), os.path.
+    correcciones = {r"\bBALVULA\b": "VÁLVULA", r"\bBALVULAS\b": "VÁLVULAS", r"\bTAVLERO\b": "TABLERO", r"\bTAVLEROS\b": "TABLEROS", r"\bBOLTIOS\b": "VOLTIOS", r"\bBOLTAJE\b": "VOLTAJE", r"\bTUBERIA\b": "TUBERÍA", r"\bGAVINETE\b": "GABINETE", r"\bINTERUPTOR\b": "INTERRUPTOR", r"\bCONECCION\
