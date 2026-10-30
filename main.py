@@ -270,7 +270,11 @@ def main(page: ft.Page):
                     def on_c(e):
                         if not verificar_permiso_edicion(): return
                         estado_modal = {"idx": idx_r}
-                        ec = ft.TextField(label="Cant", value=str(lista_items[idx_r]['cant'])); ep = ft.TextField(label="Costo Base", value=f"{lista_items[idx_r].get('precio_base', lista_items[idx_r]['precio']):.2f}"); eu = ft.TextField(label="Utilidad %", value=str(lista_items[idx_r].get('utilidad', 0)))
+                        
+                        ed = ft.TextField(label="Descripción", value=lista_items[idx_r]['desc'], multiline=True, min_lines=2, max_lines=5)
+                        ec = ft.TextField(label="Cant", value=str(lista_items[idx_r]['cant']))
+                        ep = ft.TextField(label="Costo Base", value=f"{lista_items[idx_r].get('precio_base', lista_items[idx_r]['precio']):.2f}")
+                        eu = ft.TextField(label="Utilidad %", value=str(lista_items[idx_r].get('utilidad', 0)))
                         
                         def move_up(ev):
                             curr = estado_modal["idx"]
@@ -280,20 +284,29 @@ def main(page: ft.Page):
                             curr = estado_modal["idx"]
                             if curr < len(lista_items) - 1: lista_items[curr], lista_items[curr+1] = lista_items[curr+1], lista_items[curr]; estado_modal["idx"] = curr + 1; actualizar_tabla_visual()
                         
-                        btn_up = ft.IconButton("arrow_upward", on_click=move_up, tooltip="Subir posición", icon_color="#3b82f6"); btn_down = ft.IconButton("arrow_downward", on_click=move_down, tooltip="Bajar posición", icon_color="#3b82f6")
+                        btn_up = ft.IconButton("arrow_upward", on_click=move_up, tooltip="Subir posición", icon_color="#3b82f6")
+                        btn_down = ft.IconButton("arrow_downward", on_click=move_down, tooltip="Bajar posición", icon_color="#3b82f6")
                         row_arrows = ft.Row([ft.Text("Mover de posición:", size=12, color="#94a3b8"), btn_up, btn_down], alignment=ft.MainAxisAlignment.CENTER)
 
-                        dlg_e = ft.AlertDialog(title=ft.Text(f"Editar: {lista_items[idx_r]['desc']}"), content=ft.Column([ec, ep, eu, row_arrows], tight=True), open=True)
+                        dlg_e = ft.AlertDialog(title=ft.Text(f"Editar ítem", color="#fbbf24"), content=ft.Column([ed, ec, ep, eu, row_arrows], tight=True, scroll=ft.ScrollMode.AUTO), open=True)
                         
                         def s(ev):
                             try: 
                                 curr = estado_modal["idx"]
-                                lista_items[curr]['cant'] = float(ec.value or 0); p_base = float(ep.value or 0); u_pct = float(eu.value or 0); lista_items[curr]['precio_base'] = p_base; lista_items[curr]['utilidad'] = u_pct; p_final = p_base * (1 + u_pct / 100.0); lista_items[curr]['precio'] = p_final; lista_items[curr]['total'] = lista_items[curr]['cant'] * p_final
+                                lista_items[curr]['desc'] = sanitizar_texto(ed.value or "")
+                                lista_items[curr]['cant'] = float(ec.value or 0)
+                                p_base = float(ep.value or 0)
+                                u_pct = float(eu.value or 0)
+                                lista_items[curr]['precio_base'] = p_base
+                                lista_items[curr]['utilidad'] = u_pct
+                                p_final = p_base * (1 + u_pct / 100.0)
+                                lista_items[curr]['precio'] = p_final
+                                lista_items[curr]['total'] = lista_items[curr]['cant'] * p_final
                                 actualizar_tabla_visual(); cerrar_dialogo(dlg_e)
                             except: pass
                         def rm(ev): curr = estado_modal["idx"]; lista_items.pop(curr); actualizar_tabla_visual(); cerrar_dialogo(dlg_e)
                             
-                        dlg_e.actions = [ft.ElevatedButton("Guardar", bgcolor="#10b981", on_click=s), ft.ElevatedButton("Eliminar", bgcolor="#ef4444", on_click=rm), ft.TextButton("Cancelar", on_click=lambda ev: cerrar_dialogo(dlg_e))]
+                        dlg_e.actions = [ft.ElevatedButton("Guardar", bgcolor="#10b981", color="white", on_click=s), ft.ElevatedButton("Eliminar", bgcolor="#ef4444", color="white", on_click=rm), ft.TextButton("Cancelar", on_click=lambda ev: cerrar_dialogo(dlg_e))]
                         page.overlay.append(dlg_e); page.update()
                     return on_c
 
@@ -306,7 +319,7 @@ def main(page: ft.Page):
             tipo_it = ft.RadioGroup(content=ft.Row([ft.Radio(value="P", label="Ítem Principal (Título)"), ft.Radio(value="S", label="Sub-ítem (Hijo)")]), value="P")
             m_cot = dropdown_modo_cot.value; pct_def = "19" if m_cot=="IVA" else "10"
 
-            i_desc = ft.TextField(label="Descripción"); i_cant = ft.TextField(label="Cantidad", value="1", col={"sm": 3}); i_und_c = ft.TextField(label="Iniciales", visible=False, col={"sm": 2}); i_pre = ft.TextField(label="Costo Base", value="0.00", col={"sm": 3}); i_utilidad = ft.TextField(label="Utilidad %", value="0", col={"sm": 3})
+            i_desc = ft.TextField(label="Descripción", multiline=True, min_lines=2, max_lines=4); i_cant = ft.TextField(label="Cantidad", value="1", col={"sm": 3}); i_und_c = ft.TextField(label="Iniciales", visible=False, col={"sm": 2}); i_pre = ft.TextField(label="Costo Base", value="0.00", col={"sm": 3}); i_utilidad = ft.TextField(label="Utilidad %", value="0", col={"sm": 3})
             
             def cb_und(evt):
                 if i_und.value == "✍️ ESCRIBIR...": i_cant.col={"sm": 2}; i_und.col={"sm": 3}; i_und_c.visible=True; i_pre.col={"sm": 2}; i_utilidad.col={"sm": 2}; i_und_c.focus()
@@ -360,8 +373,8 @@ def main(page: ft.Page):
                 except: pass
 
             b_busq = ft.TextField(label="Buscar en bodega...", on_change=b_inv)
-            dlg_i = ft.AlertDialog(title=ft.Text("➕ Añadir"), content=ft.Container(width=750, content=ft.Column([tipo_it, b_busq, res_inv, i_desc, ft.ResponsiveRow([i_cant, i_und, i_und_c, i_pre, i_utilidad]), ft.ResponsiveRow([i_imp_t, i_imp_p])], tight=True)), open=True)
-            dlg_i.actions = [ft.ElevatedButton("Guardar", bgcolor="#10b981", on_click=g_item), ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg_i))]
+            dlg_i = ft.AlertDialog(title=ft.Text("➕ Añadir"), content=ft.Container(width=750, content=ft.Column([tipo_it, b_busq, res_inv, i_desc, ft.ResponsiveRow([i_cant, i_und, i_und_c, i_pre, i_utilidad]), ft.ResponsiveRow([i_imp_t, i_imp_p])], tight=True, scroll=ft.ScrollMode.AUTO)), open=True)
+            dlg_i.actions = [ft.ElevatedButton("Guardar", bgcolor="#10b981", color="white", on_click=g_item), ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg_i))]
             page.overlay.append(dlg_i); page.update(); b_inv(None)
 
         def abrir_modal_bodega(e):
@@ -841,7 +854,7 @@ def main(page: ft.Page):
                         cn=float(i['cant']); un=float(i['precio']); tot=float(i['total']); imps=i.get('impuesto', 'EXENTO'); u_s=i.get('und', 'UNID'); t_v=i.get('tipo', 'P')
                         c_up.execute('INSERT INTO h_det (nro, "desc", cant, und, unit, sub, imp, tipo) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)', (nro_doc, i['desc'], cn, u_s, un, tot, imps, t_v))
                         
-                    nom_limp = re.sub(r'[^\w-]', '_', c_nom).replace('__', '_').strip('_')
+                    nom_limp = re.sub(r'[^\w\s-]', '', c_nom).strip()
                     nom_arc = f"{nom_limp}-{nro_doc}.pdf"
                     
                     c_up.execute("SELECT permitidos FROM historial WHERE nro=%s", (nro_doc,))
@@ -852,7 +865,7 @@ def main(page: ft.Page):
                     db.commit()
                 else:
                     if not nro_doc: nro_doc = f"{mes_act}-TEMP"
-                    nom_limp = re.sub(r'[^\w-]', '_', c_nom).replace('__', '_').strip('_')
+                    nom_limp = re.sub(r'[^\w\s-]', '', c_nom).strip()
                     nom_arc = f"{nom_limp}-{nro_doc}.pdf"
                     
                 db.close()
@@ -864,8 +877,7 @@ def main(page: ft.Page):
                 
                 numeros_whatsapp = {"OMERA": "573175046404", "YRESTREPO": "573002986963", "JCARDONA": "573225532559", "PLEAL": "573175046404"}
                 numero_asesor = numeros_whatsapp.get(asesor_impresion, "573175046404")
-                ruta_qr = "/tmp/qr_temp.png" if platform.system() != "Windows" else "qr_temp.png"
-                qr = qrcode.QRCode(box_size=10, border=2); qr.add_data(f"https://wa.me/{numero_asesor}"); qr.make(fit=True); qr.make_image(fill_color="black", back_color="white").save(ruta_qr)
+                qr = qrcode.QRCode(box_size=10, border=2); qr.add_data(f"https://wa.me/{numero_asesor}"); qr.make(fit=True); qr.make_image(fill_color="black", back_color="white").save("assets/qr_temp.png")
 
                 nombres_completos = {"OMERA": "OSCAR MERA", "YRESTREPO": "YEISON FABIAN RESTREPO", "JCARDONA": "JOHN JAIRO CARDONA", "PLEAL": "PAULO ANDRES LEAL GARCIA"}
                 p = PDF(); p.asesor_nombre = nombres_completos.get(asesor_impresion, asesor_impresion) 
@@ -982,11 +994,10 @@ def main(page: ft.Page):
                 p.cell(0, 5, f"- Tiempo de entrega: {c_t_entrega}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT); p.cell(0, 5, f"- Validez de la cotizacion: {c_validez}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT); p.cell(0, 5, f"- Forma de pago: {c_pago}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT); p.cell(0, 5, f"- Garantia: {c_garantia}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                 if c_notas: p.multi_cell(0, 5, f"- Notas: {c_notas}", border=0, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                 
-                p.ln(8); p.set_font("helvetica", 'B', 8); p.cell(0, 5, "Escanee este código para atención personalizada y directa con nuestra Gerencia.", border=0, align='L', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-                p.image(ruta_qr, 10, p.get_y(), 25, 25)
+                p.ln(8); p.set_font("helvetica", 'B', 8); p.cell(0, 5, "Escanee este código para atención personalizada y directa con nuestra Gerencia.", border=0, align='L', new_x=XPos.LMARGIN, new_y=YPos.NEXT); p.image("assets/qr_temp.png", 10, p.get_y(), 25, 25)
 
                 p.output(f"assets/{nom_arc}")
-                try: os.remove(ruta_qr)
+                try: os.remove("assets/qr_temp.png")
                 except: pass
                 
                 if not puede_guardar:
@@ -1010,9 +1021,7 @@ def main(page: ft.Page):
                 dlg_d = ft.AlertDialog(title=ft.Text("✅ Generado", color="#10b981"), content=ft.Text(f"Archivo: {nom_arc}"), open=True)
                 dlg_d.actions = [ft.ElevatedButton("📥 ABRIR PDF", bgcolor="#2563eb", color="white", on_click=descargar_pdf_abrir), ft.TextButton("Cerrar", on_click=lambda ev: cerrar_dialogo(dlg_d))]
                 page.overlay.append(dlg_d); page.update()
-            except Exception as eFallo:
-                print(f"Error generando PDF: {str(eFallo)}")
-                mostrar_alerta("Error al generar PDF", f"Fallo interno en Render. Revisa los logs.")
+            except Exception as eFallo: mostrar_alerta("Error al generar PDF", f"Hubo un fallo: {str(eFallo)}")
 
         botones_lista = [
             ft.ElevatedButton("AÑADIR ÍTEM", icon="add", bgcolor="#f59e0b", color="black", on_click=abrir_modal_item),
