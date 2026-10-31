@@ -270,11 +270,8 @@ def main(page: ft.Page):
                     def on_c(e):
                         if not verificar_permiso_edicion(): return
                         estado_modal = {"idx": idx_r}
-                        
-                        ed = ft.TextField(label="Descripción", value=lista_items[idx_r]['desc'], multiline=True, min_lines=2, max_lines=5)
-                        ec = ft.TextField(label="Cant", value=str(lista_items[idx_r]['cant']))
-                        ep = ft.TextField(label="Costo Base", value=f"{lista_items[idx_r].get('precio_base', lista_items[idx_r]['precio']):.2f}")
-                        eu = ft.TextField(label="Utilidad %", value=str(lista_items[idx_r].get('utilidad', 0)))
+                        edesc = ft.TextField(label="Descripción", value=lista_items[idx_r]['desc'], multiline=True, min_lines=3, max_lines=6)
+                        ec = ft.TextField(label="Cant", value=str(lista_items[idx_r]['cant']), col={"sm": 4}); ep = ft.TextField(label="Costo Base", value=f"{lista_items[idx_r].get('precio_base', lista_items[idx_r]['precio']):.2f}", col={"sm": 4}); eu = ft.TextField(label="Utilidad %", value=str(lista_items[idx_r].get('utilidad', 0)), col={"sm": 4})
                         
                         def move_up(ev):
                             curr = estado_modal["idx"]
@@ -284,29 +281,21 @@ def main(page: ft.Page):
                             curr = estado_modal["idx"]
                             if curr < len(lista_items) - 1: lista_items[curr], lista_items[curr+1] = lista_items[curr+1], lista_items[curr]; estado_modal["idx"] = curr + 1; actualizar_tabla_visual()
                         
-                        btn_up = ft.IconButton("arrow_upward", on_click=move_up, tooltip="Subir posición", icon_color="#3b82f6")
-                        btn_down = ft.IconButton("arrow_downward", on_click=move_down, tooltip="Bajar posición", icon_color="#3b82f6")
+                        btn_up = ft.IconButton("arrow_upward", on_click=move_up, tooltip="Subir posición", icon_color="#3b82f6"); btn_down = ft.IconButton("arrow_downward", on_click=move_down, tooltip="Bajar posición", icon_color="#3b82f6")
                         row_arrows = ft.Row([ft.Text("Mover de posición:", size=12, color="#94a3b8"), btn_up, btn_down], alignment=ft.MainAxisAlignment.CENTER)
 
-                        dlg_e = ft.AlertDialog(title=ft.Text(f"Editar ítem", color="#fbbf24"), content=ft.Column([ed, ec, ep, eu, row_arrows], tight=True, scroll=ft.ScrollMode.AUTO), open=True)
+                        dlg_e = ft.AlertDialog(title=ft.Text("Editar Ítem"), content=ft.Container(width=500, content=ft.Column([edesc, ft.ResponsiveRow([ec, ep, eu]), row_arrows], tight=True)), open=True)
                         
                         def s(ev):
                             try: 
                                 curr = estado_modal["idx"]
-                                lista_items[curr]['desc'] = sanitizar_texto(ed.value or "")
-                                lista_items[curr]['cant'] = float(ec.value or 0)
-                                p_base = float(ep.value or 0)
-                                u_pct = float(eu.value or 0)
-                                lista_items[curr]['precio_base'] = p_base
-                                lista_items[curr]['utilidad'] = u_pct
-                                p_final = p_base * (1 + u_pct / 100.0)
-                                lista_items[curr]['precio'] = p_final
-                                lista_items[curr]['total'] = lista_items[curr]['cant'] * p_final
+                                lista_items[curr]['desc'] = sanitizar_texto(edesc.value)
+                                lista_items[curr]['cant'] = float(ec.value or 0); p_base = float(ep.value or 0); u_pct = float(eu.value or 0); lista_items[curr]['precio_base'] = p_base; lista_items[curr]['utilidad'] = u_pct; p_final = p_base * (1 + u_pct / 100.0); lista_items[curr]['precio'] = p_final; lista_items[curr]['total'] = lista_items[curr]['cant'] * p_final
                                 actualizar_tabla_visual(); cerrar_dialogo(dlg_e)
                             except: pass
                         def rm(ev): curr = estado_modal["idx"]; lista_items.pop(curr); actualizar_tabla_visual(); cerrar_dialogo(dlg_e)
                             
-                        dlg_e.actions = [ft.ElevatedButton("Guardar", bgcolor="#10b981", color="white", on_click=s), ft.ElevatedButton("Eliminar", bgcolor="#ef4444", color="white", on_click=rm), ft.TextButton("Cancelar", on_click=lambda ev: cerrar_dialogo(dlg_e))]
+                        dlg_e.actions = [ft.ElevatedButton("Guardar", bgcolor="#10b981", on_click=s), ft.ElevatedButton("Eliminar", bgcolor="#ef4444", on_click=rm), ft.TextButton("Cancelar", on_click=lambda ev: cerrar_dialogo(dlg_e))]
                         page.overlay.append(dlg_e); page.update()
                     return on_c
 
@@ -319,7 +308,7 @@ def main(page: ft.Page):
             tipo_it = ft.RadioGroup(content=ft.Row([ft.Radio(value="P", label="Ítem Principal (Título)"), ft.Radio(value="S", label="Sub-ítem (Hijo)")]), value="P")
             m_cot = dropdown_modo_cot.value; pct_def = "19" if m_cot=="IVA" else "10"
 
-            i_desc = ft.TextField(label="Descripción", multiline=True, min_lines=2, max_lines=4); i_cant = ft.TextField(label="Cantidad", value="1", col={"sm": 3}); i_und_c = ft.TextField(label="Iniciales", visible=False, col={"sm": 2}); i_pre = ft.TextField(label="Costo Base", value="0.00", col={"sm": 3}); i_utilidad = ft.TextField(label="Utilidad %", value="0", col={"sm": 3})
+            i_desc = ft.TextField(label="Descripción", multiline=True, min_lines=3, max_lines=6); i_cant = ft.TextField(label="Cantidad", value="1", col={"sm": 3}); i_und_c = ft.TextField(label="Iniciales", visible=False, col={"sm": 2}); i_pre = ft.TextField(label="Costo Base", value="0.00", col={"sm": 3}); i_utilidad = ft.TextField(label="Utilidad %", value="0", col={"sm": 3})
             
             def cb_und(evt):
                 if i_und.value == "✍️ ESCRIBIR...": i_cant.col={"sm": 2}; i_und.col={"sm": 3}; i_und_c.visible=True; i_pre.col={"sm": 2}; i_utilidad.col={"sm": 2}; i_und_c.focus()
@@ -373,8 +362,8 @@ def main(page: ft.Page):
                 except: pass
 
             b_busq = ft.TextField(label="Buscar en bodega...", on_change=b_inv)
-            dlg_i = ft.AlertDialog(title=ft.Text("➕ Añadir"), content=ft.Container(width=750, content=ft.Column([tipo_it, b_busq, res_inv, i_desc, ft.ResponsiveRow([i_cant, i_und, i_und_c, i_pre, i_utilidad]), ft.ResponsiveRow([i_imp_t, i_imp_p])], tight=True, scroll=ft.ScrollMode.AUTO)), open=True)
-            dlg_i.actions = [ft.ElevatedButton("Guardar", bgcolor="#10b981", color="white", on_click=g_item), ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg_i))]
+            dlg_i = ft.AlertDialog(title=ft.Text("➕ Añadir"), content=ft.Container(width=750, content=ft.Column([tipo_it, b_busq, res_inv, i_desc, ft.ResponsiveRow([i_cant, i_und, i_und_c, i_pre, i_utilidad]), ft.ResponsiveRow([i_imp_t, i_imp_p])], tight=True)), open=True)
+            dlg_i.actions = [ft.ElevatedButton("Guardar", bgcolor="#10b981", on_click=g_item), ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg_i))]
             page.overlay.append(dlg_i); page.update(); b_inv(None)
 
         def abrir_modal_bodega(e):
@@ -941,7 +930,11 @@ def main(page: ft.Page):
                         p.set_fill_color(255, 255, 255)
                         p.set_font('helvetica', '', 8)
 
-                    d_lin = textwrap.wrap(sanitizar_texto(i['desc']), width=wrap_width) or [""]
+                    d_lin = []
+                    for linea_texto in sanitizar_texto(i['desc']).split('\n'):
+                        d_lin.extend(textwrap.wrap(linea_texto, width=wrap_width) or [""])
+                    if not d_lin: d_lin = [""]
+                    
                     for li, l_txt in enumerate(d_lin):
                         bs = 1 if len(d_lin)==1 else ('LTR' if li==0 else ('LBR' if li==len(d_lin)-1 else 'LR'))
                         if li == 0:
