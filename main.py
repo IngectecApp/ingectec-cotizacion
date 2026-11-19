@@ -17,6 +17,22 @@ if not os.path.exists("assets"): os.makedirs("assets")
 
 DB_URL = os.environ.get("DATABASE_URL", "postgresql://ingectec_bd_user:HY7iwKhvaILCeuUKd7Pgknsh6Nsv4aUE@dpg-dapicrvf3r2c73ep15ag-a.oregon-postgres.render.com/ingectec_bd")
 
+def parse_numero(val, default=0.0):
+    if val is None: return default
+    s = str(val).strip().replace("$", "").replace(" ", "")
+    if not s: return default
+    if re.match(r"^-?\d{1,3}(\.\d{3})+$", s):
+        s = s.replace(".", "")
+    elif re.match(r"^-?\d{1,3}(,\d{3})+$", s):
+        s = s.replace(",", "")
+    elif re.match(r"^-?\d{1,3}(\.\d{3})+,\d+$", s):
+        s = s.replace(".", "").replace(",", ".")
+    elif re.match(r"^-?\d{1,3}(,\d{3})+\.\d+$", s):
+        s = s.replace(",", "")
+    elif "," in s and "." not in s:
+        s = s.replace(",", ".")
+    return float(s)
+
 def conectar_db():
     try:
         conn = psycopg2.connect(DB_URL)
@@ -129,15 +145,21 @@ def main(page: ft.Page):
     page.window.on_event = on_window_event
     page.on_disconnect = lambda e: liberar_sesion_actual()
 
+    def cerrar_dialogo(dlg):
+        dlg.open = False
+        page.update()
+        try:
+            if dlg in page.overlay:
+                page.overlay.remove(dlg)
+        except: pass
+
     def mostrar_alerta(titulo, mensaje):
         dlg = ft.AlertDialog(title=ft.Text(titulo, weight="bold", color="#fbbf24"), content=ft.Text(str(mensaje)), open=True)
-        dlg.actions = [ft.TextButton("OK", on_click=lambda e: (setattr(dlg, 'open', False), page.update()))]
+        dlg.actions = [ft.TextButton("OK", on_click=lambda e: cerrar_dialogo(dlg))]
         page.overlay.append(dlg); page.update()
 
     def mostrar_snack(mensaje, color_fondo="#10b981", color_texto="white"):
         page.overlay.append(ft.SnackBar(content=ft.Text(mensaje, color=color_texto), bgcolor=color_fondo, open=True)); page.update()
-
-    def cerrar_dialogo(dlg): dlg.open = False; page.update()
 
     input_usr = ft.TextField(label="Usuario (Ej. OMERA, YRESTREPO)", width=300)
     input_pwd = ft.TextField(label="Contraseña", password=True, can_reveal_password=True, width=300)
@@ -252,26 +274,41 @@ def main(page: ft.Page):
             return disp
 
         columna_tabla_items = ft.Column()
+        txt_subtotal_general = ft.Text("SUBTOTAL GENERAL: $0.00", weight="bold", color="#10b981", size=14)
+
         def actualizar_tabla_visual():
             columna_tabla_items.controls.clear()
+            subtotal_gen = sum(float(x.get('total', 0)) for x in lista_items)
+            txt_subtotal_general.value = f"SUBTOTAL GENERAL: ${subtotal_gen:,.2f}"
+
             for item in obtener_items_procesados(lista_items):
                 is_p = item['tipo'] == 'P'; has_s = item.get('has_subs', False); is_title = is_p and has_s
                 
                 if is_title:
-                    tot_s = f"${item['total']:,.2f}" if item['total'] > 0 else ""; c_s = ""; imp_l = ""; txt_col = "#fbbf24"; txt_wgt = "bold"
+                    tot_s = f"${item['total']:,.2f}" if item['total'] > 0 else ""
+                    c_s = f"{item['cant']:g} {item['und']}" if item['total'] > 0 else ""
+                    imp_l = ""
+                    txt_col = "#fbbf24"; txt_wgt = "bold"
                 elif is_p:
-                    tot_s = f"${item['total']:,.2f}" if item['total'] > 0 else ""; c_s = "" if item['cant'] == 0 else f"{item['cant']:g} {item['und']}"; imp_l = f" ({item['impuesto']})" if item['total'] > 0 else ""; txt_col = "white"; txt_wgt = "normal"
+                    tot_s = f"${item['total']:,.2f}" if item['total'] > 0 else ""
+                    c_s = "" if item['cant'] == 0 else f"{item['cant']:g} {item['und']}"
+                    imp_l = f" ({item['impuesto']})" if item['total'] > 0 else ""
+                    txt_col = "#fbbf24"; txt_wgt = "bold"
                 else:
-                    tot_s = f"${item['total']:,.2f}" if item['total'] > 0 else ""; c_s = f"{item['cant']:g} {item['und']}" if item['cant'] > 0 else ""; imp_l = ""; txt_col = "white"; txt_wgt = "normal"
-                
-                if is_p: txt_col = "#fbbf24"; txt_wgt = "bold"
+                    tot_s = ""
+                    c_s = f"{item['cant']:g} {item['und']}" if item['cant'] > 0 else ""
+                    imp_l = ""
+                    txt_col = "#cbd5e1"; txt_wgt = "normal"
                 
                 def evt_edit(idx_r):
                     def on_c(e):
                         if not verificar_permiso_edicion(): return
                         estado_modal = {"idx": idx_r}
-                        edesc = ft.TextField(label="Descripción", value=lista_items[idx_r]['desc'], multiline=True, min_lines=3, max_lines=6)
-                        ec = ft.TextField(label="Cant", value=str(lista_items[idx_r]['cant']), col={"sm": 4}); ep = ft.TextField(label="Costo Base", value=f"{lista_items[idx_r].get('precio_base', lista_items[idx_r]['precio']):.2f}", col={"sm": 4}); eu = ft.TextField(label="Utilidad %", value=str(lista_items[idx_r].get('utilidad', 0)), col={"sm": 4})
+                        
+                        ed = ft.TextField(label="Descripción", value=lista_items[idx_r]['desc'], multiline=True, min_lines=2, max_lines=5)
+                        ec = ft.TextField(label="Cant", value=str(lista_items[idx_r]['cant']))
+                        ep = ft.TextField(label="Costo Base", value=f"{lista_items[idx_r].get('precio_base', lista_items[idx_r]['precio']):.2f}")
+                        eu = ft.TextField(label="Utilidad %", value=str(lista_items[idx_r].get('utilidad', 0)))
                         
                         def move_up(ev):
                             curr = estado_modal["idx"]
@@ -281,34 +318,72 @@ def main(page: ft.Page):
                             curr = estado_modal["idx"]
                             if curr < len(lista_items) - 1: lista_items[curr], lista_items[curr+1] = lista_items[curr+1], lista_items[curr]; estado_modal["idx"] = curr + 1; actualizar_tabla_visual()
                         
-                        btn_up = ft.IconButton("arrow_upward", on_click=move_up, tooltip="Subir posición", icon_color="#3b82f6"); btn_down = ft.IconButton("arrow_downward", on_click=move_down, tooltip="Bajar posición", icon_color="#3b82f6")
+                        btn_up = ft.IconButton("arrow_upward", on_click=move_up, tooltip="Subir posición", icon_color="#3b82f6")
+                        btn_down = ft.IconButton("arrow_downward", on_click=move_down, tooltip="Bajar posición", icon_color="#3b82f6")
                         row_arrows = ft.Row([ft.Text("Mover de posición:", size=12, color="#94a3b8"), btn_up, btn_down], alignment=ft.MainAxisAlignment.CENTER)
 
-                        dlg_e = ft.AlertDialog(title=ft.Text("Editar Ítem"), content=ft.Container(width=500, content=ft.Column([edesc, ft.ResponsiveRow([ec, ep, eu]), row_arrows], tight=True)), open=True)
+                        dlg_e = ft.AlertDialog(title=ft.Text("Editar ítem", color="#fbbf24"), content=ft.Container(width=500, content=ft.Column([ed, ec, ep, eu, row_arrows], tight=True, spacing=10, scroll=ft.ScrollMode.AUTO)), open=True)
                         
                         def s(ev):
                             try: 
                                 curr = estado_modal["idx"]
-                                lista_items[curr]['desc'] = sanitizar_texto(edesc.value)
-                                lista_items[curr]['cant'] = float(ec.value or 0); p_base = float(ep.value or 0); u_pct = float(eu.value or 0); lista_items[curr]['precio_base'] = p_base; lista_items[curr]['utilidad'] = u_pct; p_final = p_base * (1 + u_pct / 100.0); lista_items[curr]['precio'] = p_final; lista_items[curr]['total'] = lista_items[curr]['cant'] * p_final
+                                lista_items[curr]['desc'] = sanitizar_texto(ed.value or "")
+                                lista_items[curr]['cant'] = parse_numero(ec.value, 0.0)
+                                p_base = parse_numero(ep.value, 0.0)
+                                u_pct = parse_numero(eu.value, 0.0)
+                                lista_items[curr]['precio_base'] = p_base
+                                lista_items[curr]['utilidad'] = u_pct
+                                p_final = p_base * (1 + u_pct / 100.0)
+                                lista_items[curr]['precio'] = p_final
+                                lista_items[curr]['total'] = lista_items[curr]['cant'] * p_final
                                 actualizar_tabla_visual(); cerrar_dialogo(dlg_e)
-                            except: pass
+                            except Exception as ex:
+                                mostrar_alerta("Error al editar", f"Revisa los números ingresados: {ex}")
                         def rm(ev): curr = estado_modal["idx"]; lista_items.pop(curr); actualizar_tabla_visual(); cerrar_dialogo(dlg_e)
                             
-                        dlg_e.actions = [ft.ElevatedButton("Guardar", bgcolor="#10b981", on_click=s), ft.ElevatedButton("Eliminar", bgcolor="#ef4444", on_click=rm), ft.TextButton("Cancelar", on_click=lambda ev: cerrar_dialogo(dlg_e))]
+                        dlg_e.actions = [ft.ElevatedButton("Guardar", bgcolor="#10b981", color="white", on_click=s), ft.ElevatedButton("Eliminar", bgcolor="#ef4444", color="white", on_click=rm), ft.TextButton("Cancelar", on_click=lambda ev: cerrar_dialogo(dlg_e))]
                         page.overlay.append(dlg_e); page.update()
                     return on_c
 
-                columna_tabla_items.controls.append(ft.Container(content=ft.ResponsiveRow([ft.Text(f"{item['num']}. {item['desc']}{imp_l}", col={"sm": 6}, color=txt_col, weight=txt_wgt, size=12), ft.Text(c_s, col={"sm": 3}, text_align="center", color=txt_col, weight=txt_wgt), ft.Text(tot_s, col={"sm": 3}, text_align="right", color=txt_col, weight=txt_wgt)]), on_click=evt_edit(item['raw_idx']), padding=5, border_radius=5, ink=True))
+                prefijo_visual = f"    {item['num']}. " if not is_p else f"{item['num']}. "
+                columna_tabla_items.controls.append(ft.Container(content=ft.ResponsiveRow([ft.Text(f"{prefijo_visual}{item['desc']}{imp_l}", col={"sm": 6}, color=txt_col, weight=txt_wgt, size=12), ft.Text(c_s, col={"sm": 3}, text_align="center", color=txt_col, weight=txt_wgt), ft.Text(tot_s, col={"sm": 3}, text_align="right", color=txt_col, weight=txt_wgt)]), on_click=evt_edit(item['raw_idx']), padding=5, border_radius=5, ink=True))
             page.update(); guardar_borrador()
 
         def abrir_modal_item(e):
             if not verificar_permiso_edicion(): return
-            res_inv = ft.ListView(expand=True, spacing=10, height=150)
-            tipo_it = ft.RadioGroup(content=ft.Row([ft.Radio(value="P", label="Ítem Principal (Título)"), ft.Radio(value="S", label="Sub-ítem (Hijo)")]), value="P")
+
+            cache_inv = []
+            db_init = conectar_db()
+            if db_init:
+                try:
+                    c_init = db_init.cursor()
+                    try: c_init.execute("SELECT d, p, proveedor FROM inv ORDER BY d ASC")
+                    except: c_init.execute("SELECT d, p, '' FROM inv ORDER BY d ASC")
+                    cache_inv = c_init.fetchall()
+                except: pass
+                db_init.close()
+
+            def texto_grupo_activo():
+                for it in reversed(lista_items):
+                    if it.get('tipo', 'P') == 'P':
+                        return f"📂 Grupo activo para sub-ítems: {it['desc']}"
+                return "📌 Primero agrega un Ítem Principal (ej. MANO DE OBRA o MATERIALES)"
+
+            txt_grupo_actual = ft.Text(texto_grupo_activo(), size=12, color="#fbbf24", weight="bold")
+            txt_estado_modal = ft.Text("", size=12, color="#10b981", weight="bold")
+
+            res_inv = ft.ListView(spacing=4, height=150)
+            cont_res_inv = ft.Container(content=res_inv, height=150, border=ft.border.all(1, "white12"), border_radius=6, padding=4)
             m_cot = dropdown_modo_cot.value; pct_def = "19" if m_cot=="IVA" else "10"
 
-            i_desc = ft.TextField(label="Descripción", multiline=True, min_lines=3, max_lines=6); i_cant = ft.TextField(label="Cantidad", value="1", col={"sm": 3}); i_und_c = ft.TextField(label="Iniciales", visible=False, col={"sm": 2}); i_pre = ft.TextField(label="Costo Base", value="0.00", col={"sm": 3}); i_utilidad = ft.TextField(label="Utilidad %", value="0", col={"sm": 3})
+            hay_principal = any(it.get('tipo', 'P') == 'P' for it in lista_items)
+            tipo_inicial = "S" if hay_principal else "P"
+
+            i_desc = ft.TextField(label="Descripción (Escribe aquí el nombre del título o sub-ítem)", multiline=True, min_lines=2, max_lines=3)
+            i_cant = ft.TextField(label="Cantidad", value="1", col={"sm": 3})
+            i_und_c = ft.TextField(label="Iniciales", visible=False, col={"sm": 2})
+            i_pre = ft.TextField(label="Costo Base", value="0", col={"sm": 3})
+            i_utilidad = ft.TextField(label="Utilidad %", value="0", col={"sm": 3})
             
             def cb_und(evt):
                 if i_und.value == "✍️ ESCRIBIR...": i_cant.col={"sm": 2}; i_und.col={"sm": 3}; i_und_c.visible=True; i_pre.col={"sm": 2}; i_utilidad.col={"sm": 2}; i_und_c.focus()
@@ -321,49 +396,135 @@ def main(page: ft.Page):
                 else: i_imp_p.value = "0"
                 page.update()
 
-            i_und = ft.Dropdown(label="Und", options=[ft.dropdown.Option(u) for u in ["ML", "UNID", "MTS", "GLB", "ROLLO", "DIA", "PAQ", "✍️ ESCRIBIR..."]], value="UNID", col={"sm": 3}, on_change=cb_und)
+            i_und = ft.Dropdown(label="Und", options=[ft.dropdown.Option(u) for u in ["ML", "UNID", "MTS", "GLB", "ROLLO", "DIA", "PAQ", "✍️ ESCRIBIR..."]], value="UNID" if tipo_inicial=="S" else "GLB", col={"sm": 3}, on_change=cb_und)
             i_imp_t = ft.Dropdown(label="Impuesto", options=[ft.dropdown.Option(m_cot), ft.dropdown.Option("EXENTO")], value=m_cot, col={"sm": 6}, on_change=cb_imp)
             i_imp_p = ft.TextField(label="% Imp", value=pct_def, col={"sm": 6})
 
-            def b_inv(evt):
-                res_inv.controls.clear(); db = conectar_db()
-                if db:
-                    c=db.cursor(); txt=(b_busq.value or "").upper()
-                    try: c.execute("SELECT d, p, proveedor FROM inv WHERE UPPER(d) LIKE %s LIMIT 30", ('%'+txt+'%',))
-                    except: c.execute("SELECT d, p, '' FROM inv WHERE UPPER(d) LIKE %s LIMIT 30", ('%'+txt+'%',))
-                    for r in c.fetchall():
-                        d=r[0]; p=r[1] or 0; prov=r[2] if len(r)>2 and r[2] else ""
-                        def sel(ev, desc=d, prec=p): 
-                            i_desc.value=desc; i_pre.value=f"{float(prec):.2f}"; i_und.value = "ML" if ("TUBO" in desc.upper() or "CABLE" in desc.upper()) else ("GLB" if "INSTALACION" in desc.upper() else "UNID"); i_und_c.visible=False; i_cant.col={"sm":3}; i_und.col={"sm":3}; i_pre.col={"sm":3}; i_utilidad.col={"sm":3}; i_utilidad.value="0"
-                            if float(prec) == 0: tipo_it.value = "P"; i_cant.value = "0"
-                            else: tipo_it.value = "S"; i_cant.value = "1"
-                            page.update()
-                            
-                        subt = f"${float(p):,.2f}" + (f" ({prov})" if prov else "")
-                        res_inv.controls.append(ft.ListTile(title=ft.Text(d, color="#fbbf24", size=14), subtitle=ft.Text(subt, color="#94a3b8"), on_click=sel))
-                    db.close()
+            def cb_tipo(evt):
+                if tipo_it.value == "P":
+                    i_und.value = "GLB"
+                else:
+                    i_und.value = "UNID"
+                i_und_c.visible = False
+                i_cant.col={"sm": 3}; i_und.col={"sm": 3}; i_pre.col={"sm": 3}; i_utilidad.col={"sm": 3}
+                page.update()
+
+            tipo_it = ft.RadioGroup(content=ft.Row([ft.Radio(value="P", label="Ítem Principal (Título)"), ft.Radio(value="S", label="Sub-ítem (Hijo)")]), value=tipo_inicial, on_change=cb_tipo)
+
+            def b_inv(evt=None):
+                res_inv.controls.clear()
+                txt = (b_busq.value or "").upper().strip()
+                conteo = 0
+                for r in cache_inv:
+                    d = r[0] or ""
+                    if txt and txt not in d.upper():
+                        continue
+                    p = r[1] or 0
+                    prov = r[2] if len(r)>2 and r[2] else ""
+                    def sel(ev, desc=d, prec=p): 
+                        i_desc.value = desc
+                        i_pre.value = f"{float(prec):.2f}"
+                        i_und.value = "ML" if ("TUBO" in desc.upper() or "CABLE" in desc.upper()) else ("GLB" if "INSTALACION" in desc.upper() else "UNID")
+                        i_und_c.visible = False
+                        i_cant.col={"sm":3}; i_und.col={"sm":3}; i_pre.col={"sm":3}; i_utilidad.col={"sm":3}
+                        i_utilidad.value = "0"
+                        if float(prec) == 0:
+                            tipo_it.value = "P"; i_cant.value = "1"; i_und.value = "GLB"
+                        else:
+                            tipo_it.value = "S"; i_cant.value = "1"
+                        txt_estado_modal.value = f"✔ Seleccionado de bodega: {desc}"
+                        txt_estado_modal.color = "#38bdf8"
+                        page.update()
+                        
+                    subt = f"${float(p):,.2f}" + (f" ({prov})" if prov else "")
+                    res_inv.controls.append(ft.ListTile(title=ft.Text(d, color="#fbbf24", size=13), subtitle=ft.Text(subt, color="#94a3b8", size=11), on_click=sel))
+                    conteo += 1
+                    if conteo >= 30:
+                        break
                 page.update()
 
             def g_item(evt):
-                if not i_desc.value: return
+                desc_final = (i_desc.value or "").strip() or (b_busq.value or "").strip()
+                if not desc_final:
+                    txt_estado_modal.value = "⚠️ Escribe una descripción antes de añadir."
+                    txt_estado_modal.color = "#ef4444"
+                    page.update()
+                    return
                 try:
-                    c = float(i_cant.value or 0); p_base = float(i_pre.value or 0)
-                    try: u_pct = float(i_utilidad.value or 0)
-                    except: u_pct = 0.0
+                    c = parse_numero(i_cant.value, 1.0)
+                    p_base = parse_numero(i_pre.value, 0.0)
+                    u_pct = parse_numero(i_utilidad.value, 0.0)
+                    tipo_actual = tipo_it.value or "P"
                     
-                    if tipo_it.value == "P": c = 0
-                    p_final = p_base * (1 + u_pct / 100.0); imp = "EXENTO" if i_imp_t.value=="EXENTO" else f"{i_imp_t.value} {i_imp_p.value}%"; uf = str(i_und_c.value).upper().strip() if i_und.value=="✍️ ESCRIBIR..." else i_und.value; uf = uf or "UNID"
+                    if tipo_actual == "P" and p_base == 0:
+                        c = 0.0
+                    p_final = p_base * (1 + u_pct / 100.0)
+                    imp = "EXENTO" if i_imp_t.value=="EXENTO" else f"{i_imp_t.value} {i_imp_p.value}%"
+                    uf = str(i_und_c.value).upper().strip() if i_und.value=="✍️ ESCRIBIR..." else i_und.value
+                    uf = uf or ("GLB" if tipo_actual == "P" else "UNID")
                     
-                    lista_items.append({"desc": sanitizar_texto(i_desc.value), "cant": c, "precio_base": p_base, "utilidad": u_pct, "precio": p_final, "total": c*p_final, "impuesto": imp, "und": uf, "tipo": tipo_it.value})
+                    lista_items.append({
+                        "desc": sanitizar_texto(desc_final),
+                        "cant": c,
+                        "precio_base": p_base,
+                        "utilidad": u_pct,
+                        "precio": p_final,
+                        "total": c * p_final,
+                        "impuesto": imp,
+                        "und": uf,
+                        "tipo": tipo_actual
+                    })
                     actualizar_tabla_visual()
                     
-                    i_desc.value=""; i_cant.value="1"; i_pre.value="0.00"; i_utilidad.value="0"; i_und.value="UNID"; i_und_c.value=""; i_und_c.visible=False; i_imp_t.value=m_cot; i_imp_p.value=pct_def; b_busq.value=""; b_inv(None)
-                    mostrar_snack("✅ Agregado")
-                except: pass
+                    if tipo_actual == "P":
+                        tipo_it.value = "S"
+                        i_und.value = "UNID"
+                    else:
+                        i_und.value = "UNID"
 
-            b_busq = ft.TextField(label="Buscar en bodega...", on_change=b_inv)
-            dlg_i = ft.AlertDialog(title=ft.Text("➕ Añadir"), content=ft.Container(width=750, content=ft.Column([tipo_it, b_busq, res_inv, i_desc, ft.ResponsiveRow([i_cant, i_und, i_und_c, i_pre, i_utilidad]), ft.ResponsiveRow([i_imp_t, i_imp_p])], tight=True)), open=True)
-            dlg_i.actions = [ft.ElevatedButton("Guardar", bgcolor="#10b981", on_click=g_item), ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg_i))]
+                    i_desc.value = ""
+                    b_busq.value = ""
+                    i_cant.value = "1"
+                    i_pre.value = "0"
+                    i_utilidad.value = "0"
+                    i_und_c.value = ""
+                    i_und_c.visible = False
+                    i_cant.col={"sm":3}; i_und.col={"sm":3}; i_pre.col={"sm":3}; i_utilidad.col={"sm":3}
+                    i_imp_t.value = m_cot
+                    i_imp_p.value = pct_def
+
+                    txt_grupo_actual.value = texto_grupo_activo()
+                    etiqueta_tipo = "Título Principal" if tipo_actual == "P" else "Sub-ítem"
+                    txt_estado_modal.value = f"✅ {etiqueta_tipo} añadido: {desc_final} (Total ítems: {len(lista_items)})"
+                    txt_estado_modal.color = "#10b981"
+                    b_inv(None)
+                except Exception as ex:
+                    txt_estado_modal.value = f"❌ Error al añadir: {ex}"
+                    txt_estado_modal.color = "#ef4444"
+                    page.update()
+
+            b_busq = ft.TextField(label="Buscar en bodega (opcional)...", on_change=b_inv)
+            dlg_i = ft.AlertDialog(
+                title=ft.Text("➕ Añadir Ítem a la Cotización"),
+                content=ft.Container(
+                    width=750,
+                    content=ft.Column([
+                        tipo_it,
+                        txt_grupo_actual,
+                        b_busq,
+                        cont_res_inv,
+                        i_desc,
+                        ft.ResponsiveRow([i_cant, i_und, i_und_c, i_pre, i_utilidad]),
+                        ft.ResponsiveRow([i_imp_t, i_imp_p]),
+                        txt_estado_modal
+                    ], tight=True, spacing=8, scroll=ft.ScrollMode.AUTO)
+                ),
+                open=True
+            )
+            dlg_i.actions = [
+                ft.ElevatedButton("➕ AÑADIR", bgcolor="#10b981", color="white", on_click=g_item),
+                ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg_i))
+            ]
             page.overlay.append(dlg_i); page.update(); b_inv(None)
 
         def abrir_modal_bodega(e):
@@ -387,7 +548,7 @@ def main(page: ft.Page):
                     page.overlay.append(dlg_vaciar_p); page.update()
                 
                 resultados_bod = ft.ListView(height=180); e_desc = ft.TextField(label="Nombre Producto"); e_precio = ft.TextField(label="Costo Producto"); e_bodega_iva = ft.Dropdown(label="Impuesto al Costo", options=[ft.dropdown.Option("+19% IVA"), ft.dropdown.Option("EXENTO")], value="+19% IVA"); e_mas = ft.TextField(multiline=True, min_lines=6, max_lines=10, label="Pega Excel (Col 1: Ítem | Col 2: Prov | Col 3: Costo Neto)"); c_item = ft.TextField(label="Buscar Ítem para cotizar..."); lst_comp = ft.ListView(height=100, visible=False, spacing=2)
-                c_p1 = ft.Dropdown(label="Proveedor 1", col={"sm": 6}); c_pr1 = ft.TextField(label="Costo Neto", col={"sm": 6}); c_p2 = ft.Dropdown(label="Proveedor 2", col={"sm": 6}); c_pr2 = ft.TextField(label="Costo Neto", col={"sm": 6}); c_p3 = ft.Dropdown(label="Proveedor 3", col={"sm": 6}); c_pr3 = ft.TextField(label="Costo Neto", col={"sm": 6}); c_p4 = ft.Dropdown(label="Proveedor 4", col={"sm": 6}); c_pr4 = ft.TextField(label="Costo Neto", col={"sm": 6}); c_p5 = ft.Dropdown(label="Proveedor 5", col={"sm": 6}); c_pr5 = ft.TextField(label="Costo Neto", col={"sm": 6}); c_p6 = ft.Dropdown(label="Proveedor 6", col={"sm": 6}); c_pr6 = ft.TextField(label="Costo Neto", col={"sm": 6}); e_pnom = ft.TextField(label="Nombre Proveedor*", expand=2); e_ptel = ft.TextField(label="Teléfono", expand=1); e_pmas = ft.TextField(multiline=True, min_lines=4, max_lines=8, label="Pega tu lista aquí (Nombre y Teléfono separados)"); lst_provs = ft.ListView(height=200); filtro_cat = ft.TextField(label="Filtrar catálogo completo..."); lst_cat = ft.ListView(expand=True, spacing=5, height=300)
+                c_p1 = ft.Dropdown(label="Proveedor 1", col={"sm": 6}); c_pr1 = ft.TextField(label="Costo Neto", col={"sm": 6}); c_p2 = ft.Dropdown(label="Proveedor 2", col={"sm": 6}); c_pr2 = ft.TextField(label="Costo Neto", col={"sm": 6}); c_p3 = ft.Dropdown(label="Proveedor 3", col={"sm": 6}); c_pr3 = ft.TextField(label="Costo Neto", col={"sm": 6}); c_p4 = ft.Dropdown(label="Proveedor 4", col={"sm": 6}); c_pr4 = ft.TextField(label="Costo Neto", col={"sm": 6}); c_p5 = ft.Dropdown(label="Proveedor 5", col={"sm": 6}); c_pr5 = ft.TextField(label="Costo Neto", col={"sm": 6}); c_p6 = ft.Dropdown(label="Proveedor 6", col={"sm": 6}); c_pr6 = ft.TextField(label="Costo Neto", col={"sm": 6}); e_pnom = ft.TextField(label="Nombre Proveedor*", expand=2); e_ptel = ft.TextField(label="Teléfono", expand=1); e_pmas = ft.TextField(multiline=True, min_lines=4, max_lines=8, label="Pega tu lista aquí (Nombre y Teléfono separados)"); lst_provs = ft.ListView(height=200); filtro_cat = ft.TextField(label="Filtrar catálogo completo..."); lst_cat = ft.ListView(spacing=5, height=300)
 
                 def load_provs():
                     lst_provs.controls.clear(); ops = []; db = conectar_db()
@@ -398,7 +559,7 @@ def main(page: ft.Page):
                             def ed(ev, nom=n, tel=t): e_pnom.value=nom; e_ptel.value=tel; page.update()
                             def rm(ev, nom=n): 
                                 try:
-                                    dbd=conectar_db(); cur_d=dbd.cursor(); cur_d.execute("DELETE FROM proveedores WHERE nombre = %s", (nom,)); dbd.commit(); dbd.close(); mostrar_snack(f"🗑️ Proveedor eliminado exitosamente", "#ef4444"); load_provs()
+                                    dbd=conectar_db(); cur_d=dbd.cursor(); cur_d.execute("DELETE FROM proveedores WHERE nombre = %s", (nom,)); dbd.commit(); dbd.close(); mostrar_snack("🗑️ Proveedor eliminado exitosamente", "#ef4444"); load_provs()
                                 except Exception as ex: mostrar_alerta("Error al eliminar", str(ex))
                             tile = ft.ListTile(title=ft.Text(n, color="#fbbf24"), subtitle=ft.Text(f"Tel: {t} (Clic para editar)")); tile.on_click = ed; tile.trailing = ft.IconButton("delete", icon_color="#ef4444", on_click=rm); lst_provs.controls.append(tile)
                         db.close()
@@ -410,7 +571,7 @@ def main(page: ft.Page):
                     if not e_pnom.value: return
                     db=conectar_db()
                     if db:
-                        nom_limpio = e_pnom.value.strip().upper(); c=db.cursor(); c.execute("INSERT INTO proveedores (nombre, telefono) VALUES (%s,%s) ON CONFLICT(nombre) DO UPDATE SET telefono=EXCLUDED.telefono", (nom_limpio, e_ptel.value.strip())); db.commit(); db.close(); e_pnom.value=""; e_ptel.value=""; mostrar_snack(f"✅ Proveedor guardado"); load_provs()
+                        nom_limpio = e_pnom.value.strip().upper(); c=db.cursor(); c.execute("INSERT INTO proveedores (nombre, telefono) VALUES (%s,%s) ON CONFLICT(nombre) DO UPDATE SET telefono=EXCLUDED.telefono", (nom_limpio, e_ptel.value.strip())); db.commit(); db.close(); e_pnom.value=""; e_ptel.value=""; mostrar_snack("✅ Proveedor guardado"); load_provs()
 
                 def p_mas_provs(evt):
                     if not e_pmas.value.strip(): return
@@ -454,7 +615,7 @@ def main(page: ft.Page):
 
                 def s_bod(evt):
                     if not e_desc.value: return
-                    try: p_val = float(e_precio.value or 0)
+                    try: p_val = parse_numero(e_precio.value, 0.0)
                     except: p_val = 0
                     if p_val < 0: return mostrar_alerta("Error", "El precio no puede ser negativo.")
                     multiplicador = 1.19 if e_bodega_iva.value == "+19% IVA" else 1.0; p_val_final = p_val * multiplicador; db=conectar_db()
@@ -479,7 +640,7 @@ def main(page: ft.Page):
                                     if item not in evaluados: evaluados[item] = {"max_p": pr_final, "max_prov": prov, "min_p": pr_final, "min_prov": prov}
                                     else:
                                         if pr_final > evaluados[item]["max_p"]: evaluados[item]["max_p"] = pr_final; evaluados[item]["max_prov"] = prov
-                                        if pr_final < evaluados[item]["min_p"]: evaluados[item]["min_p"] = pr_final; evaluados[item]["min_prov"] = pr_final
+                                        if pr_final < evaluados[item]["min_p"]: evaluados[item]["min_p"] = pr_final; evaluados[item]["min_prov"] = prov
                         for itm, data in evaluados.items():
                             if data["max_prov"] == data["min_prov"]: final_prov = data["max_prov"]
                             else: final_prov = f"Cotizar con: {data['max_prov']} | Comprar en: {data['min_prov']}"
@@ -506,7 +667,7 @@ def main(page: ft.Page):
                     for pr, pc in [(c_p1.value, c_pr1.value), (c_p2.value, c_pr2.value), (c_p3.value, c_pr3.value), (c_p4.value, c_pr4.value), (c_p5.value, c_pr5.value), (c_p6.value, c_pr6.value)]:
                         if pr and pc:
                             try: 
-                                p_float = float(pc)
+                                p_float = parse_numero(pc, 0.0)
                                 if p_float > 0: p_final = p_float * multiplicador; ofs.append((pr, p_final))
                             except: pass
                     if not ofs: return mostrar_alerta("Aviso", "Ingresa al menos un proveedor con costo válido (mayor a 0).")
@@ -536,14 +697,14 @@ def main(page: ft.Page):
                         except Exception as ez: print(ez)
                         db.close(); page.update()
 
-                filtro_cat.on_change = load_cat; e_desc.on_change = b_bod
+                filtro_cat.on_change = load_cat; e_desc.on_change = b_bod; c_item.on_change = b_comp
                 
                 dlg_b = ft.AlertDialog(
                     title=ft.Text("📦 Gestión de Bodega / Catálogo"), 
                     content=ft.Container(width=750, height=550, content=ft.Tabs(
                         selected_index=0, tabs=[
-                            ft.Tab(text="🔍 Buscar", content=ft.Column([ft.Container(height=10), ft.Text("Ingreso Manual:", weight="bold", color="#fbbf24", size=12), e_desc, ft.ResponsiveRow([ft.Container(e_precio, col={"sm": 8}), ft.Container(e_bodega_iva, col={"sm": 4})]), ft.ElevatedButton("Guardar Precio / Actualizar Fecha", bgcolor="#2563eb", on_click=s_bod), resultados_bod], tight=True)),
-                            ft.Tab(text="📥 Masivo / Comparar", content=ft.Column([ft.Container(height=10), ft.Text("Guarda el MAYOR valor +19% IVA (Si el ítem dice 'EXENTO', no suma IVA).", color="#fbbf24", size=12), e_mas, ft.ElevatedButton("Importar y Analizar Ganadores", bgcolor="#10b981", on_click=p_mas)], tight=True)),
+                            ft.Tab(text="🔍 Buscar", content=ft.Column([ft.Container(height=10), ft.Text("Ingreso Manual:", weight="bold", color="#fbbf24", size=12), e_desc, ft.ResponsiveRow([ft.Container(e_precio, col={"sm": 8}), ft.Container(e_bodega_iva, col={"sm": 4})]), ft.ElevatedButton("Guardar Precio / Actualizar Fecha", bgcolor="#2563eb", color="white", on_click=s_bod), resultados_bod], tight=True)),
+                            ft.Tab(text="📥 Masivo / Comparar", content=ft.Column([ft.Container(height=10), ft.Text("Guarda el MAYOR valor +19% IVA (Si el ítem dice 'EXENTO', no suma IVA).", color="#fbbf24", size=12), e_mas, ft.ElevatedButton("Importar y Analizar Ganadores", bgcolor="#10b981", color="white", on_click=p_mas)], tight=True)),
                             ft.Tab(text="⚖️ Comparador", content=ft.Column([ft.Container(height=10), ft.Text("Compite COSTOS NETOS. Guarda el más ALTO (+19% IVA) y anota el más BARATO.", color="#10b981", size=12), c_item, lst_comp, ft.ResponsiveRow([c_p1, c_pr1]), ft.ResponsiveRow([c_p2, c_pr2]), ft.ResponsiveRow([c_p3, c_pr3]), ft.ResponsiveRow([c_p4, c_pr4]), ft.ResponsiveRow([c_p5, c_pr5]), ft.ResponsiveRow([c_p6, c_pr6]), ft.ElevatedButton("Analizar", bgcolor="#8b5cf6", color="white", on_click=run_comp)], tight=True, scroll=ft.ScrollMode.AUTO)),
                             ft.Tab(text="📜 Catálogo (Fechas)", content=ft.Column([ft.Container(height=10), ft.Row([ft.Text("Los ítems de >6 días se marcan como 'Antigua':", color="#fbbf24", size=12), ft.ElevatedButton("🗑️ VACIAR TODA LA BODEGA", bgcolor="#ef4444", color="white", on_click=vaciar_bodega)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN), filtro_cat, lst_cat], tight=True, scroll=ft.ScrollMode.AUTO)),
                             ft.Tab(text="🏢 Provs.", content=ft.Column([ft.Container(height=10), ft.Row([ft.Text("Ingreso Manual:", weight="bold", color="#fbbf24"), ft.ElevatedButton("🗑️ VACIAR TODOS", bgcolor="#ef4444", color="white", on_click=vaciar_proveedores)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN), ft.Row([e_pnom, e_ptel]), ft.ElevatedButton("Guardar Proveedor", bgcolor="#10b981", color="white", on_click=save_prov), ft.Divider(color="white24"), ft.Text("Carga Masiva (Copiar y Pegar):", weight="bold", color="#fbbf24"), e_pmas, ft.ElevatedButton("Importar Masivo", bgcolor="#2563eb", color="white", on_click=p_mas_provs), ft.Divider(color="white24"), lst_provs], tight=True, scroll=ft.ScrollMode.AUTO))
@@ -555,7 +716,7 @@ def main(page: ft.Page):
             except Exception as bug: mostrar_alerta("Error abriendo Bodega", str(bug))
 
         def abrir_modal_clientes(e):
-            r_cli = ft.ListView(expand=True, spacing=10, height=200); cn = ft.TextField(label="Nombre*", col={"sm":12}); ci = ft.TextField(label="NIT*", col={"sm":6}); ct = ft.TextField(label="Tel", col={"sm":6}); cd = ft.TextField(label="Dir", col={"sm":6}); cc = ft.TextField(label="Ciudad", col={"sm":6}); ce = ft.TextField(label="Email", col={"sm":12}); cm = ft.TextField(multiline=True, min_lines=8, max_lines=12, label="Pega Excel (Nom|NIT|Tel|Dir|Ciu|Mail)")
+            r_cli = ft.ListView(spacing=10, height=200); cn = ft.TextField(label="Nombre*", col={"sm":12}); ci = ft.TextField(label="NIT*", col={"sm":6}); ct = ft.TextField(label="Tel", col={"sm":6}); cd = ft.TextField(label="Dir", col={"sm":6}); cc = ft.TextField(label="Ciudad", col={"sm":6}); ce = ft.TextField(label="Email", col={"sm":12}); cm = ft.TextField(multiline=True, min_lines=8, max_lines=12, label="Pega Excel (Nom|NIT|Tel|Dir|Ciu|Mail)")
 
             def load_cli():
                 r_cli.controls.clear(); db = conectar_db()
@@ -589,7 +750,7 @@ def main(page: ft.Page):
                             n=sanitizar_texto(p[0].strip().upper()); ni=sanitizar_texto(p[1].strip()) if len(p)>1 else ""; tl=sanitizar_texto(p[2].strip()) if len(p)>2 else ""; dr=sanitizar_texto(p[3].strip()) if len(p)>3 else ""; cu=sanitizar_texto(p[4].strip()) if len(p)>4 else ""; ml=sanitizar_texto(p[5].strip()) if len(p)>5 else ""; c.execute("INSERT INTO cli (n, i, tel, dir, ciu, email) VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT(n) DO UPDATE SET i=EXCLUDED.i, tel=EXCLUDED.tel, dir=EXCLUDED.dir, ciu=EXCLUDED.ciu, email=EXCLUDED.email", (n, ni, tl, dr, cu, ml)); ag+=1
                     db.commit(); db.close(); cm.value=""; load_cli(); mostrar_snack(f"✅ {ag} procesados")
 
-            dlg_c = ft.AlertDialog(title=ft.Text("👥 Gestión de Clientes"), content=ft.Container(width=750, height=500, content=ft.Tabs(selected_index=0, tabs=[ft.Tab(text="Edición", content=ft.Column([ft.Container(height=10), ft.ResponsiveRow([cn, ci, ct, cd, cc, ce]), ft.ElevatedButton("Guardar", bgcolor="#10b981", on_click=s_cli), r_cli], tight=True, scroll=ft.ScrollMode.AUTO)), ft.Tab(text="Carga Masiva", content=ft.Column([ft.Container(height=10), cm, ft.ElevatedButton("Importar", bgcolor="#10b981", on_click=p_cli)], tight=True))], expand=1)), open=True)
+            dlg_c = ft.AlertDialog(title=ft.Text("👥 Gestión de Clientes"), content=ft.Container(width=750, height=500, content=ft.Tabs(selected_index=0, tabs=[ft.Tab(text="Edición", content=ft.Column([ft.Container(height=10), ft.ResponsiveRow([cn, ci, ct, cd, cc, ce]), ft.ElevatedButton("Guardar", bgcolor="#10b981", color="white", on_click=s_cli), r_cli], tight=True, scroll=ft.ScrollMode.AUTO)), ft.Tab(text="Carga Masiva", content=ft.Column([ft.Container(height=10), cm, ft.ElevatedButton("Importar", bgcolor="#10b981", color="white", on_click=p_cli)], tight=True))], expand=1)), open=True)
             dlg_c.actions = [ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg_c))]
             page.overlay.append(dlg_c); page.update(); load_cli()
 
@@ -605,7 +766,7 @@ def main(page: ft.Page):
                     c.execute("UPDATE usuarios SET password=%s WHERE usuario=%s", (pass_new.value, sesion["usuario"])); db.commit(); db.close(); pass_act.value = ""; pass_new.value = ""; pass_conf.value = ""; mostrar_snack("✅ Contraseña actualizada correctamente")
 
             tab_clave = ft.Tab(text="🔑 Mi Clave", content=ft.Column([ft.Container(height=10), pass_act, pass_new, pass_conf, ft.ElevatedButton("Actualizar Contraseña", bgcolor="#f59e0b", color="black", on_click=guardar_clave)], tight=True))
-            res_u = ft.ListView(expand=True, spacing=10, height=200); un = ft.TextField(label="Usuario*", col={"sm":4}); up = ft.TextField(label="Clave*", password=True, can_reveal_password=True, col={"sm":4}); ur = ft.Dropdown(label="Rol", options=[ft.dropdown.Option("ADMIN"), ft.dropdown.Option("ASESOR")], value="ASESOR", col={"sm":4})
+            res_u = ft.ListView(spacing=10, height=200); un = ft.TextField(label="Usuario*", col={"sm":4}); up = ft.TextField(label="Clave*", password=True, can_reveal_password=True, col={"sm":4}); ur = ft.Dropdown(label="Rol", options=[ft.dropdown.Option("ADMIN"), ft.dropdown.Option("ASESOR")], value="ASESOR", col={"sm":4})
             
             def load_u():
                 res_u.controls.clear(); db=conectar_db()
@@ -643,7 +804,7 @@ def main(page: ft.Page):
             if sesion["usuario"] in ["OMERA", "PLEAL"]: load_u()
 
         def abrir_modal_historial(e):
-            res_h = ft.ListView(expand=True, spacing=10, height=300); bus_h = ft.TextField(label="Buscar cliente...", width=400)
+            res_h = ft.ListView(spacing=10, height=300); bus_h = ft.TextField(label="Buscar cliente...", width=400)
             def load_h(evt=None):
                 res_h.controls.clear(); txt=(bus_h.value or "").upper().strip(); db=conectar_db()
                 if db:
@@ -698,7 +859,8 @@ def main(page: ft.Page):
                                 page.overlay.append(dlg_share); page.update()
                             trail_btns.append(ft.IconButton("share", icon_color="#3b82f6", tooltip="Compartir Permisos", on_click=share_cot))
                         res_h.controls.append(ft.ListTile(title=ft.Text(f"N° {nr} - {cl} (Por: {cr})", color="#fbbf24"), subtitle=ft.Text(f"{fc} | ${float(tt):,.2f}"), on_click=c_cot, trailing=ft.Row(trail_btns, tight=True) if trail_btns else None))
-                db.close(); page.update()
+                    db.close()
+                page.update()
             bus_h.on_change = load_h
             dlg_h = ft.AlertDialog(title=ft.Text("🔍 Historial"), content=ft.Container(width=700, content=ft.Column([bus_h, res_h], tight=True)), open=True)
             dlg_h.actions = [ft.TextButton("Cerrar", on_click=lambda e: cerrar_dialogo(dlg_h))]
@@ -721,8 +883,13 @@ def main(page: ft.Page):
                     import zipfile
                     with zipfile.ZipFile(f"assets/{nombre_base}.zip", "w", zipfile.ZIP_DEFLATED) as zipf:
                         zipf.write(f"assets/{nombre_base}.json", arcname=f"{nombre_base}.json")
-                    page.launch_url(f'/{nombre_base}.zip')
-                    mostrar_snack(f"✅ Backup {nombre_base}.zip descargado.", "#2563eb")
+                    if page.web:
+                        page.launch_url(f'/{nombre_base}.zip')
+                    else:
+                        ruta_zip = os.path.abspath(f"assets/{nombre_base}.zip")
+                        if platform.system() == "Windows":
+                            os.startfile(os.path.dirname(ruta_zip))
+                    mostrar_snack(f"✅ Backup {nombre_base}.zip guardado en assets.", "#2563eb")
 
             e_json = ft.TextField(multiline=True, min_lines=6, max_lines=10, label="Pega aquí el contenido de tu archivo backup_ingectec.json")
             
@@ -749,7 +916,7 @@ def main(page: ft.Page):
                         if db:
                             c=db.cursor(); c.execute("DELETE FROM cli"); c.execute("DELETE FROM inv"); c.execute("DELETE FROM historial"); c.execute("DELETE FROM h_cab"); c.execute("DELETE FROM h_det"); c.execute("UPDATE n_cot SET num=100 WHERE id=1"); db.commit(); db.close()
                         cerrar_dialogo(dc); cerrar_dialogo(dlg_sis); mostrar_snack("✅ RESTAURADO")
-                dc.actions = [ft.ElevatedButton("BORRAR", bgcolor="#ef4444", on_click=ex), ft.TextButton("Cancelar", on_click=lambda e: cerrar_dialogo(dc))]
+                dc.actions = [ft.ElevatedButton("BORRAR", bgcolor="#ef4444", color="white", on_click=ex), ft.TextButton("Cancelar", on_click=lambda e: cerrar_dialogo(dc))]
                 page.overlay.append(dc); page.update()
 
             col_general = [
@@ -780,6 +947,7 @@ def main(page: ft.Page):
             input_cliente.value = ""; input_nit.value = ""; input_atencion.value = ""; input_ref.value = ""; input_ciudad.value = "Yumbo"; input_tiempo_entrega.value = "4 Días hábiles"; input_validez.value = "20 Días"; input_pago.value = "30 Días"; input_garantia.value = "6 meses en mano de obra"; input_notas.value = "Toda la actividad será coordinada por el ingeniero Edward Álvarez y/o John Paniagua"; dropdown_modo_cot.value = "AIU"; input_pct_a.value = "10"; input_pct_i.value = "2"; input_pct_u.value = "8"; input_pct_iva_u.value = "19"
             lista_busqueda_cli.visible = False
             cambiar_modo_cot(None)
+            actualizar_tabla_visual()
             try: page.client_storage.remove(f"draft_{sesion['usuario']}")
             except: pass
 
@@ -789,13 +957,13 @@ def main(page: ft.Page):
                 puede_guardar = verificar_permiso_edicion(mostrar_aviso=False)
 
                 c_nom = sanitizar_texto(input_cliente.value or "").upper().strip(); c_nit = sanitizar_texto(input_nit.value or "").strip(); c_ciu_origen = sanitizar_texto(input_ciudad.value or "Yumbo").strip(); c_atn = sanitizar_texto(input_atencion.value or "").strip(); c_ref = sanitizar_texto(input_ref.value or "").strip(); c_t_entrega = sanitizar_texto(input_tiempo_entrega.value or "").strip(); c_validez = sanitizar_texto(input_validez.value or "").strip(); c_pago = sanitizar_texto(input_pago.value or "").strip(); c_garantia = sanitizar_texto(input_garantia.value or "").strip(); c_notas = sanitizar_texto(input_notas.value or "").strip(); c_modo = dropdown_modo_cot.value or "AIU"
-                try: pct_a = float(input_pct_a.value)
+                try: pct_a = parse_numero(input_pct_a.value, 0.0)
                 except: pct_a = 0.0
-                try: pct_i = float(input_pct_i.value)
+                try: pct_i = parse_numero(input_pct_i.value, 0.0)
                 except: pct_i = 0.0
-                try: pct_u = float(input_pct_u.value)
+                try: pct_u = parse_numero(input_pct_u.value, 0.0)
                 except: pct_u = 0.0
-                try: pct_iva_u = float(input_pct_iva_u.value)
+                try: pct_iva_u = parse_numero(input_pct_iva_u.value, 0.0)
                 except: pct_iva_u = 0.0
 
                 c_dir = ""; c_email = ""; c_ciu_cli = ""; c_tel = ""
@@ -827,7 +995,7 @@ def main(page: ft.Page):
                     for p_iva, b_amt in iva_bases.items(): 
                         tot_fin += b_amt * (p_iva / 100)
 
-                if puede_guardar:
+                if puede_guardar and db:
                     c_up = db.cursor()
                     if not nro_doc:
                         c_up.execute("UPDATE n_cot SET num = num + 1 WHERE id=1 RETURNING num")
@@ -857,7 +1025,7 @@ def main(page: ft.Page):
                     nom_limp = re.sub(r'[^\w\s-]', '', c_nom).strip()
                     nom_arc = f"{nom_limp}-{nro_doc}.pdf"
                     
-                db.close()
+                if db: db.close()
                 
                 try: page.client_storage.remove(f"draft_{sesion['usuario']}")
                 except: pass
@@ -916,25 +1084,31 @@ def main(page: ft.Page):
                     is_title = bool(i['tipo'] == 'P' and i.get('has_subs', False))
                     
                     if is_title: 
-                        c_s=""; u_s=""; pu=""; imps=""; tot_s=f"${i['total']:,.2f}" if i['total']>0 else ""
+                        c_s = f"{i['cant']:g}" if i['total'] > 0 else ""
+                        u_s = sanitizar_texto(i['und'] or "GLB") if i['total'] > 0 else ""
+                        pu = f"${i['precio']:,.2f}" if i['total'] > 0 else ""
+                        imps = sanitizar_texto(i['impuesto']) if i['total'] > 0 else ""
+                        tot_s = f"${i['total']:,.2f}" if i['total'] > 0 else ""
                         p.set_fill_color(255, 248, 204) 
                         p.set_font('helvetica', 'B', 8)
                     elif i['tipo'] == 'P': 
                         c_s = "" if i['cant'] == 0 else f"{i['cant']:g}"
                         u_s = "" if i['cant'] == 0 else sanitizar_texto(i['und'])
-                        pu=f"${i['precio']:,.2f}" if i['total']>0 else ""; imps=sanitizar_texto(i['impuesto']) if i['total']>0 else ""; tot_s=f"${i['total']:,.2f}" if i['total']>0 else ""
+                        pu = f"${i['precio']:,.2f}" if i['total'] > 0 else ""
+                        imps = sanitizar_texto(i['impuesto']) if i['total'] > 0 else ""
+                        tot_s = f"${i['total']:,.2f}" if i['total'] > 0 else ""
                         p.set_fill_color(255, 255, 255)
                         p.set_font('helvetica', '', 8)
                     else: 
-                        c_s=f"{i['cant']:g}" if i['cant']>0 else ""; u_s=sanitizar_texto(i['und']) if i['cant']>0 else ""; pu=f"${i['precio']:,.2f}" if i['total']>0 else ""; imps=""; tot_s=f"${i['total']:,.2f}" if i['total']>0 else ""
+                        c_s = f"{i['cant']:g}" if i['cant'] > 0 else ""
+                        u_s = sanitizar_texto(i['und']) if i['cant'] > 0 else ""
+                        pu = ""
+                        imps = ""
+                        tot_s = ""
                         p.set_fill_color(255, 255, 255)
                         p.set_font('helvetica', '', 8)
 
-                    d_lin = []
-                    for linea_texto in sanitizar_texto(i['desc']).split('\n'):
-                        d_lin.extend(textwrap.wrap(linea_texto, width=wrap_width) or [""])
-                    if not d_lin: d_lin = [""]
-                    
+                    d_lin = textwrap.wrap(sanitizar_texto(i['desc']), width=wrap_width) or [""]
                     for li, l_txt in enumerate(d_lin):
                         bs = 1 if len(d_lin)==1 else ('LTR' if li==0 else ('LBR' if li==len(d_lin)-1 else 'LR'))
                         if li == 0:
@@ -1039,7 +1213,14 @@ def main(page: ft.Page):
             margin=ft.margin.only(bottom=15, top=5)
         )
 
-        tabla = ft.Container(content=ft.Column([ft.Row([ft.Text(f"COTIZACIÓN ING {nro_actual}", weight="bold", color="#fbbf24", size=16)], alignment=ft.MainAxisAlignment.CENTER), ft.Divider(color="white24"), ft.ResponsiveRow([ft.Text("DESCRIPCIÓN (Clic para editar)", weight="bold", color="#fbbf24", col={"sm": 6}, text_align="center"), ft.Text("CANTIDAD", weight="bold", color="#fbbf24", col={"sm": 3}, text_align="center"), ft.Text("TOTAL", weight="bold", color="#fbbf24", col={"sm": 3}, text_align="center")]), columna_tabla_items, ft.Container(height=10)]), bgcolor="#0f172a", padding=15, border_radius=8, border=ft.border.all(1, "white12"))
+        tabla = ft.Container(content=ft.Column([
+            ft.Row([ft.Text(f"COTIZACIÓN ING {nro_actual}", weight="bold", color="#fbbf24", size=16)], alignment=ft.MainAxisAlignment.CENTER),
+            ft.Divider(color="white24"),
+            ft.ResponsiveRow([ft.Text("DESCRIPCIÓN (Clic para editar)", weight="bold", color="#fbbf24", col={"sm": 6}, text_align="center"), ft.Text("CANTIDAD", weight="bold", color="#fbbf24", col={"sm": 3}, text_align="center"), ft.Text("TOTAL", weight="bold", color="#fbbf24", col={"sm": 3}, text_align="center")]),
+            columna_tabla_items,
+            ft.Divider(color="white24"),
+            ft.Row([txt_subtotal_general], alignment=ft.MainAxisAlignment.END)
+        ]), bgcolor="#0f172a", padding=15, border_radius=8, border=ft.border.all(1, "white12"))
         
         f_cli = ft.Container(content=ft.Column([
             ft.ResponsiveRow([ft.Column([input_cliente, lista_busqueda_cli], col={"sm": 12, "md": 5, "lg": 5}), ft.Container(content=input_nit, col={"sm": 6, "md": 3, "lg": 3}), ft.Container(content=input_ciudad, col={"sm": 6, "md": 4, "lg": 4})]),
@@ -1050,7 +1231,7 @@ def main(page: ft.Page):
         ], spacing=10), bgcolor="#0f172a", padding=15, border_radius=8, border=ft.border.all(1, "white12"))
 
         page.add(
-            ft.Container(content=ft.Row([ft.Icon("bolt", color="#fbbf24", size=30), ft.Text(f"INGECTEC SAS", size=22, weight="bold", color="#fbbf24")], alignment=ft.MainAxisAlignment.CENTER), padding=5), 
+            ft.Container(content=ft.Row([ft.Icon("bolt", color="#fbbf24", size=30), ft.Text("INGECTEC SAS", size=22, weight="bold", color="#fbbf24")], alignment=ft.MainAxisAlignment.CENTER), padding=5), 
             ft.Container(content=ft.Text(f"👤 Conectado: {sesion['usuario']} ({sesion['rol']})", size=12, color="#94a3b8"), alignment=ft.alignment.center_right), 
             contenedor_botones, 
             tabla, 
@@ -1127,7 +1308,8 @@ def main(page: ft.Page):
 
     mostrar_login()
 
-if hasattr(ft, 'app'):
-    ft.app(target=main, host="0.0.0.0", port=PORT, view=ft.AppView.WEB_BROWSER, assets_dir="assets")
-else:
-    ft.app(target=main, host="0.0.0.0", port=PORT, view=ft.AppView.WEB_BROWSER, assets_dir="assets")
+if __name__ == "__main__":
+    if os.environ.get("RENDER"):
+        ft.app(target=main, host="0.0.0.0", port=PORT, view=ft.AppView.WEB_BROWSER, assets_dir="assets")
+    else:
+        ft.app(target=main, assets_dir="assets")
